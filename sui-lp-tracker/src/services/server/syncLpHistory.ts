@@ -56,8 +56,11 @@ export async function syncLpHistoryForWallet(rawWallet: string): Promise<SyncLpH
 		])
 
 		const eventsById = new Map<string, PositionEvent[]>()
-		for (const row of [...bfRows, ...cetusRows]) {
+		for (const row of bfRows) {
 			if (row.events?.length) eventsById.set(row.id, row.events)
+		}
+		for (const row of cetusRows) {
+			if (row.evs?.length) eventsById.set(row.id, row.evs)
 		}
 
 		const rows: LpHistoryRow[] = []
