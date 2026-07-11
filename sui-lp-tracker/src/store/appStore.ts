@@ -21,6 +21,11 @@ import { scanTurbosPositionEvents } from '@/services/turbosLpEvents'
 import { enrichAllBluefinOpenPositions, enrichBluefinOpenPositionWithEvents } from '@/services/enrichment'
 import { invalidateAllAdapterCaches } from '@/services/adapters'
 import { ensureLpWalletScanSession } from '@/services/lpScanSession'
+import {
+	fetchServerLpHistory,
+	serverHistoryToClosedPositions,
+	serverHistoryToEventsMap,
+} from '@/services/serverLpHistoryApi'
 import { isLpLazyClosedEnabled } from '@/services/lpFeatureFlags'
 import { getLendingPositions } from '@/services/lendingService'
 import { getNaviPositions, EMPTY_NAVI_SNAP } from '@/services/naviService'
@@ -237,27 +242,47 @@ export const useAppStore = create<AppState>((set, get) => ({
 				return enrichSessionPromise
 			}
 
+			// Generation + address staleness guard
+			const isStale = () =>
+				myGen !== _portfolioLoadGen || !shouldApplyPortfolioLoad(get, address)
+
 			const runBfMmtEnrichment = (positions: OpenPosition[]) => {
 				if (positions.length === 0) return
 				markEnriching(positions)
 				void (async () => {
+					let pending = positions
+					// Prefer server-cached open events for watchlist wallets.
+					const serverOpen = await fetchServerLpHistory(address, 'open').catch(() => null)
+					if (serverOpen && serverOpen.positions.length > 0 && !isStale()) {
+						const byId = serverHistoryToEventsMap(serverOpen.positions)
+						const fromServer = pending.filter((p) => (byId[p.id]?.length ?? 0) > 0)
+						if (fromServer.length > 0) {
+							applyEnrichRows(
+								fromServer.map((p) => ({
+									id: p.id,
+									evs: byId[p.id]!,
+									merged: {},
+								})),
+							)
+						}
+						pending = pending.filter((p) => !(byId[p.id]?.length))
+						if (pending.length === 0) return
+						markEnriching(pending)
+					}
+
 					const session = await getEnrichSession()
 					try {
-						const rows = await enrichAllBluefinOpenPositions(address, positions, { session })
+						const rows = await enrichAllBluefinOpenPositions(address, pending, { session })
 						applyEnrichRows(rows.map((r) => ({ id: r.id, evs: r.events, merged: r.merged })))
 					} catch {
 						set((st) => {
 							const upd = { ...st.loadingEvents }
-							for (const p of positions) delete upd[p.id]
+							for (const p of pending) delete upd[p.id]
 							return { loadingEvents: upd }
 						})
 					}
 				})()
 			}
-
-			// Generation + address staleness guard
-			const isStale = () =>
-				myGen !== _portfolioLoadGen || !shouldApplyPortfolioLoad(get, address)
 
 			// Balance is needed for netWorth — track when it's ready
 			let walletVisibleUSD: number | undefined
@@ -541,6 +566,24 @@ export const useAppStore = create<AppState>((set, get) => ({
 			if (options?.forceRefresh) {
 				invalidateAllAdapterCaches(address)
 			}
+
+			// Watchlist: hydrate closed + events from Supabase first (skip heavy RPC when warm).
+			if (!options?.forceRefresh) {
+				const server = await fetchServerLpHistory(address, 'closed')
+				if (server && server.positions.length > 0) {
+					if (isStaleClosed()) return
+					const closed = serverHistoryToClosedPositions(server.positions)
+					const closedEventsMap = serverHistoryToEventsMap(server.positions)
+					set((st) => ({
+						closedPositions: closed,
+						isLoadingClosed: false,
+						closedCountPending: false,
+						positionEvents: { ...st.positionEvents, ...closedEventsMap },
+					}))
+					return
+				}
+			}
+
 			await ensureLpWalletScanSession(address, { forceRefresh: options?.forceRefresh === true })
 			const closed = await getClosedPositions(address)
 			if (isStaleClosed()) return

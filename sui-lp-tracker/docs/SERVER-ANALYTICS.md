@@ -43,10 +43,22 @@ Secrets у репозиторії GitHub (Settings → Secrets):
 
 ## API
 
-- `GET /api/snapshots?wallet=0x…&range=7d` — історія (лише watchlist)
+- `GET /api/snapshots?wallet=0x…&range=7d` — історія портфеля (лише watchlist)
+- `GET /api/lp-history?wallet=0x…&status=closed|open|all` — кеш LP events (open + closed)
 - Cron: `GET /api/cron/portfolio-snapshot` (authorized)
+
+## LP history (open + closed)
+
+Фоновий sync історії позицій для `WATCH_WALLETS`:
+
+- Workflow: `.github/workflows/lp-history-sync.yml` (щогодини + manual)
+- Локально: `npm run lp-history:sync`
+- Schema: `supabase/lp-history.sql` (також у `schema.sql`)
+
+Клиєнт для watchlist спочатку тягне closed/open events з `/api/lp-history`, без cold RPC.
 
 ## Ліміти
 
 - Hobby Vercel: function timeout **10s** — для 2 гаманців може бути tight; Pro дає **60s** (`vercel.json`).
 - RPC: використовуй приватний endpoint у `VITE_SUI_RPC_URL`.
+- LP history sync важчий за portfolio snapshot — краще private RPC і sequential wallets.
