@@ -32,6 +32,7 @@ import {
 	makeSnapshotId,
 	pruneOldSnapshots,
 	saveSnapshot,
+	type PortfolioHistoryRange,
 	type PortfolioSnapshot,
 } from '@/services/portfolioSnapshotIdb'
 import {
@@ -39,8 +40,9 @@ import {
 	sanitizePortfolioSnapshots,
 	shouldSaveSnapshot,
 } from '@/utils/portfolioSnapshotSanitize'
+import { fetchAllServerSnapshots, fetchServerSnapshots } from '@/services/serverSnapshotsApi'
 
-export type TimeRange = '24h' | '7d' | '30d' | 'all'
+export type TimeRange = PortfolioHistoryRange
 
 const RANGE_MS: Record<TimeRange, number> = {
 	'24h': 24 * 60 * 60 * 1000,
@@ -129,6 +131,24 @@ export function usePortfolioHistory(): PortfolioHistoryResult {
 		async (addr: string) => {
 			setIsLoading(true)
 			try {
+				const [serverAll, serverRange] = await Promise.all([
+					fetchAllServerSnapshots(addr),
+					fetchServerSnapshots(addr, range),
+				])
+
+				if (serverAll && serverAll.length > 0) {
+					const all = sanitizePortfolioSnapshots(serverAll)
+					setAllSnapshots(all)
+					const now = Date.now()
+					const fromMs = range === 'all' ? 0 : now - RANGE_MS[range]
+					const filtered =
+						range === 'all'
+							? all
+							: all.filter((s) => s.ts >= fromMs && s.ts <= now + INTERVAL_MS)
+					setSnapshots(serverRange && serverRange.length > 0 ? sanitizePortfolioSnapshots(serverRange) : filtered)
+					return
+				}
+
 				const raw = await getSnapshots(addr)
 
 				// One-time purge: delete spike snapshots already stored in IDB.

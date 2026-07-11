@@ -1,12 +1,26 @@
 import { getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc'
 
+function rpcFromProcessEnv(): string | undefined {
+	if (typeof process === 'undefined' || !process.env) return undefined
+	const v = process.env.VITE_SUI_RPC_URL ?? process.env.SUI_RPC_URL
+	if (typeof v === 'string' && v.trim().length > 0) return v.trim()
+	return undefined
+}
+
 /** Абсолютний RPC URL з env або Mysten fallback. */
 export function resolveSuiRpcUrl(): string {
+	const fromProcess = rpcFromProcessEnv()
+	if (fromProcess) return fromProcess
 	const fromEnv = import.meta.env.VITE_SUI_RPC_URL
 	if (typeof fromEnv === 'string' && fromEnv.trim().length > 0) {
 		return fromEnv.trim()
 	}
 	return getJsonRpcFullnodeUrl('mainnet')
+}
+
+/** Server/cron: same as resolveSuiRpcUrl but never uses browser proxy. */
+export function resolveServerSuiRpcUrl(): string {
+	return resolveSuiRpcUrl()
 }
 
 /**

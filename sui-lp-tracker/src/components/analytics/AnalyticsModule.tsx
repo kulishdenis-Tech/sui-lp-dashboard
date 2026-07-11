@@ -477,7 +477,7 @@ export function AnalyticsModule() {
 
 			{/* Data notice */}
 			<p className="text-center text-[11px] text-slate-600">
-				Snapshots saved every 15 min · up to 90 days stored locally
+				Snapshots saved every 15 min · up to 90 days (server for watchlist wallets, else local)
 			</p>
 		</div>
 	)

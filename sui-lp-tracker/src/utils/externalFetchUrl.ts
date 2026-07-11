@@ -6,6 +6,8 @@
 
  */
 
+import { apiUrl } from '@/utils/deploymentOrigin'
+
 const HOST_PREFIX: Record<string, string> = {
 
 	'hermes.pyth.network': '/ext/hermes',
@@ -51,11 +53,8 @@ export function extFetchUrl(absoluteUrl: string): string {
 		}
 
 		if (HOST_PREFIX[u.host]) {
-
 			const path = `${u.pathname}${u.search}`
-
-			return `/api/ext?host=${encodeURIComponent(u.host)}&path=${encodeURIComponent(path)}`
-
+			return apiUrl(`/api/ext?host=${encodeURIComponent(u.host)}&path=${encodeURIComponent(path)}`)
 		}
 
 		return absoluteUrl

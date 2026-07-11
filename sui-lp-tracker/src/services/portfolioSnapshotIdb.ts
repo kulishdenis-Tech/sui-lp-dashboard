@@ -17,6 +17,8 @@ const DB_NAME = 'sui_portfolio_analytics'
 const STORE_NAME = 'portfolio_snapshots'
 const DB_VERSION = 2
 
+export type PortfolioHistoryRange = '24h' | '7d' | '30d' | 'all'
+
 export type PortfolioSnapshot = {
 	/** Primary key: `${walletAddr}|${hourBucket}` */
 	id: string

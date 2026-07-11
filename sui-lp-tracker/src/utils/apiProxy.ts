@@ -1,3 +1,5 @@
+import { apiUrl } from '@/utils/deploymentOrigin'
+
 /** True when running production static build (Vercel/Netlify). */
 export function isProdBuild(): boolean {
 	return import.meta.env.PROD
@@ -9,7 +11,7 @@ export async function okxProxyFetch(
 	path: string,
 	bodyStr = '',
 ): Promise<Response> {
-	return fetch('/api/okx', {
+	return fetch(apiUrl('/api/okx'), {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ method, path, body: bodyStr }),
@@ -19,7 +21,7 @@ export async function okxProxyFetch(
 
 /** Serverless CoinGecko proxy (prod only). */
 export async function coingeckoProxyFetch(pathWithQuery: string, pro: boolean): Promise<Response> {
-	return fetch('/api/coingecko', {
+	return fetch(apiUrl('/api/coingecko'), {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({ path: pathWithQuery, pro }),

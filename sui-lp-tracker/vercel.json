@@ -2,5 +2,16 @@
 	"rewrites": [
 		{ "source": "/api/(.*)", "destination": "/api/$1" },
 		{ "source": "/((?!api/).*)", "destination": "/index.html" }
-	]
+	],
+	"crons": [
+		{
+			"path": "/api/cron/portfolio-snapshot",
+			"schedule": "*/15 * * * *"
+		}
+	],
+	"functions": {
+		"api/cron/portfolio-snapshot.ts": {
+			"maxDuration": 60
+		}
+	}
 }

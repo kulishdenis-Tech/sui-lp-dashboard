@@ -14,6 +14,7 @@ dist-ssr
 .env
 .env.*
 !.env.example
+.cron-secret.tmp
 
 # Editor directories and files
 .vscode/*
@@ -25,3 +26,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+.vercel
+.env*
