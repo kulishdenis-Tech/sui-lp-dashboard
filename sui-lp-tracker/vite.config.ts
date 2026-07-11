@@ -43,6 +43,8 @@ export default defineConfig({
 	resolve: {
 		alias: {
 			'@': path.resolve(__dirname, './src'),
+			// aftermath-ts-sdk imports bare `dayjs/plugin/duration` (Node ESM needs .js)
+			'dayjs/plugin/duration': path.resolve(__dirname, 'node_modules/dayjs/plugin/duration.js'),
 			// Shim: @mysten/sui/graphql/schemas/latest is a codegen artifact (TypeScript
 			// types only). At runtime the `graphql` tag is a no-op string pass-through.
 			// The real export is not available under browser conditions, so we alias it
@@ -69,6 +71,10 @@ export default defineConfig({
 		// the @mysten/sui/client and graphql/schemas/latest shims apply here too.
 		// naviprotocol/lending included so the pre-bundled SuiClient shim is picked up.
 		include: ['@alphafi/alphalend-sdk', '@naviprotocol/lending', 'buffer'],
+	},
+	// vite-node / SSR: apply aliases inside these packages (Node won't resolve mysten shims otherwise)
+	ssr: {
+		noExternal: ['@alphafi/alphalend-sdk'],
 	},
 	/** Vite's default 5173 is often taken; avoid silent port sliding (5174, 5175…) vs bookmarks/docs. */
 	server: {

@@ -11,7 +11,7 @@ function rpcFromProcessEnv(): string | undefined {
 export function resolveSuiRpcUrl(): string {
 	const fromProcess = rpcFromProcessEnv()
 	if (fromProcess) return fromProcess
-	const fromEnv = import.meta.env.VITE_SUI_RPC_URL
+	const fromEnv = import.meta.env?.VITE_SUI_RPC_URL
 	if (typeof fromEnv === 'string' && fromEnv.trim().length > 0) {
 		return fromEnv.trim()
 	}
@@ -29,7 +29,9 @@ export function resolveServerSuiRpcUrl(): string {
  */
 export function resolveBrowserRpcUrl(): string {
 	const absolute = resolveSuiRpcUrl()
-	const isDev = typeof import.meta.env !== 'undefined' && Boolean(import.meta.env.DEV)
+	// Node (vite-node / cron): never use Vite dev proxy paths.
+	if (typeof window === 'undefined') return absolute
+	const isDev = Boolean(import.meta.env?.DEV)
 	if (!isDev) return absolute
 	try {
 		const u = new URL(absolute)

@@ -16,7 +16,7 @@ import {
 	type PortfolioSnapshot,
 } from '@/services/portfolioSnapshotIdb'
 import { createServerSuiClient } from '@/services/serverSuiClient'
-import type { LendingSnapshot } from '@/types'
+import type { LendingSnapshot, OpenPosition } from '@/types'
 
 const EMPTY_LEND: LendingSnapshot = {
 	supplies: [],
@@ -29,24 +29,54 @@ const EMPTY_LEND: LendingSnapshot = {
 	protocol: 'AlphaLend',
 }
 
+function logSnapErr(part: string, e: unknown) {
+	const msg = e instanceof Error ? e.message : String(e)
+	console.error(`[snapshot] ${part}:`, msg)
+}
+
+async function softPositions(
+	label: string,
+	fn: () => Promise<OpenPosition[]>,
+): Promise<OpenPosition[]> {
+	try {
+		return await fn()
+	} catch (e) {
+		logSnapErr(label, e)
+		return []
+	}
+}
+
 /**
  * Load portfolio components and build a 15-min bucket snapshot (no LP event enrichment).
- * Used by Vercel cron — mirrors client `buildSnapshot` inputs.
+ * Used by cron / GitHub Actions — mirrors client `buildSnapshot` inputs.
+ *
+ * Protocol fetches are sequential batches to avoid public RPC 429s.
  */
 export async function loadPortfolioSnapshotForAddress(rawAddress: string): Promise<PortfolioSnapshot | null> {
 	const walletAddr = normalizeSuiAddress(rawAddress).toLowerCase()
 	const client = createServerSuiClient()
 
-	const [balance, momentum, bluefin, cetus, turbos, aftermath, lend, navi] = await Promise.all([
-		getWalletBalance(walletAddr, client),
-		getMomentumPositions(walletAddr).catch(() => []),
-		getBluefinSpotPositions(walletAddr).catch(() => []),
-		getCetusPositions(walletAddr).catch(() => []),
-		getTurbosPositions(walletAddr).catch(() => []),
-		getAftermathFarmsPositions(walletAddr).catch(() => []),
-		getLendingPositions(walletAddr).catch(() => EMPTY_LEND),
-		getNaviPositions(walletAddr).catch(() => EMPTY_NAVI_SNAP),
+	const balance = await getWalletBalance(walletAddr, client).catch((e) => {
+		logSnapErr('balance', e)
+		return [] as Awaited<ReturnType<typeof getWalletBalance>>
+	})
+
+	const [lend, navi] = await Promise.all([
+		getLendingPositions(walletAddr).catch((e) => {
+			logSnapErr('alphalend', e)
+			return EMPTY_LEND
+		}),
+		getNaviPositions(walletAddr).catch((e) => {
+			logSnapErr('navi', e)
+			return EMPTY_NAVI_SNAP
+		}),
 	])
+
+	const momentum = await softPositions('momentum', () => getMomentumPositions(walletAddr))
+	const bluefin = await softPositions('bluefin', () => getBluefinSpotPositions(walletAddr))
+	const cetus = await softPositions('cetus', () => getCetusPositions(walletAddr))
+	const turbos = await softPositions('turbos', () => getTurbosPositions(walletAddr))
+	const aftermath = await softPositions('aftermath', () => getAftermathFarmsPositions(walletAddr))
 
 	const openPositions = [...momentum, ...bluefin, ...cetus, ...turbos, ...aftermath]
 
@@ -54,8 +84,8 @@ export async function loadPortfolioSnapshotForAddress(rawAddress: string): Promi
 	try {
 		const bucket = await classifyAllBalances(balance)
 		walletVisibleUSD = sumVisibleWalletUSD(bucket)
-	} catch {
-		/* optional */
+	} catch (e) {
+		logSnapErr('walletClassify', e)
 	}
 
 	const lendingNetUSD = finiteUsd(

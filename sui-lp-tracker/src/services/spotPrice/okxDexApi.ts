@@ -58,9 +58,19 @@ function okxFetchExtraRetries(): number {
 }
 
 function okxCreds(): { key: string; secret: string; pass: string } | null {
-	const key = import.meta.env.VITE_OKX_API_KEY
-	const secret = import.meta.env.VITE_OKX_SECRET_KEY
-	const pass = import.meta.env.VITE_OKX_PASSPHRASE
+	const key =
+		import.meta.env.VITE_OKX_API_KEY ||
+		(typeof process !== 'undefined' ? process.env.OKX_API_KEY ?? process.env.VITE_OKX_API_KEY : undefined)
+	const secret =
+		import.meta.env.VITE_OKX_SECRET_KEY ||
+		(typeof process !== 'undefined'
+			? process.env.OKX_SECRET_KEY ?? process.env.VITE_OKX_SECRET_KEY
+			: undefined)
+	const pass =
+		import.meta.env.VITE_OKX_PASSPHRASE ||
+		(typeof process !== 'undefined'
+			? process.env.OKX_PASSPHRASE ?? process.env.VITE_OKX_PASSPHRASE
+			: undefined)
 	if (
 		typeof key === 'string' &&
 		key.length > 0 &&

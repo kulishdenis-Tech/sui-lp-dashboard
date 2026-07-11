@@ -1,17 +1,17 @@
-import { existsSync } from 'node:fs'
-import { loadEnvFile } from 'node:process'
-import '../server/esbuild-env-setup.ts'
-import { loadPortfolioSnapshotForAddress } from '../src/services/server/loadPortfolioSnapshot.ts'
+/**
+ * CLI entry for server portfolio snapshots (GitHub Actions / local).
+ * Run via vite-node so Vite aliases + import.meta.env work (same as the app).
+ */
+import { loadPortfolioSnapshotForAddress } from '../src/services/server/loadPortfolioSnapshot'
 import {
 	ensureWatchedWallets,
 	pruneSnapshotsOlderThan,
 	upsertSnapshot,
-} from '../api/_lib/supabaseSnapshots.ts'
+} from '../api/_lib/supabaseSnapshots'
 
 const PRUNE_MS = 90 * 24 * 60 * 60 * 1000
 
 async function main() {
-	if (existsSync('.env')) loadEnvFile('.env')
 	if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
 		console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY')
 		process.exit(1)
@@ -20,12 +20,18 @@ async function main() {
 	const wallets = await ensureWatchedWallets()
 	const results: Array<{ wallet: string; ok: boolean; totalUSD?: number; error?: string }> = []
 
+	// Sequential — parallel wallets hammer public RPC (429).
 	for (const wallet of wallets) {
 		try {
 			const snap = await loadPortfolioSnapshotForAddress(wallet)
 			if (snap) {
 				await upsertSnapshot(snap)
 				results.push({ wallet, ok: true, totalUSD: snap.totalUSD })
+				console.log(
+					`[snapshot] ${wallet.slice(0, 10)}… total=$${snap.totalUSD.toFixed(2)} ` +
+						`lp=$${snap.lpUSD.toFixed(2)} af=$${snap.aftermathUSD.toFixed(2)} ` +
+						`lend=$${snap.lendingNetUSD.toFixed(2)} wallet=$${snap.walletUSD.toFixed(2)}`,
+				)
 			} else {
 				results.push({ wallet, ok: false, error: 'empty snapshot' })
 			}

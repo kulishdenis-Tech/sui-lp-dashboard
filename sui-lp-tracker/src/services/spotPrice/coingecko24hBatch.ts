@@ -29,8 +29,19 @@ async function fetchCgUrl(url: URL, headers: Record<string, string>): Promise<Re
 export async function coingeckoSimpleBatch(ids: string[]): Promise<Record<string, CgRow>> {
 	if (ids.length === 0) return {}
 	const uniq = [...new Set(ids)]
-	const key: string | undefined = import.meta.env.VITE_COINGECKO_API_KEY
-	const pro = import.meta.env.VITE_COINGECKO_PRO === '1' || import.meta.env.VITE_COINGECKO_PRO === 'true'
+	const key: string | undefined =
+		(typeof import.meta.env.VITE_COINGECKO_API_KEY === 'string' &&
+		import.meta.env.VITE_COINGECKO_API_KEY.length > 0
+			? import.meta.env.VITE_COINGECKO_API_KEY
+			: undefined) ??
+		(typeof process !== 'undefined'
+			? process.env.COINGECKO_API_KEY ?? process.env.VITE_COINGECKO_API_KEY
+			: undefined)
+	const pro =
+		import.meta.env.VITE_COINGECKO_PRO === '1' ||
+		import.meta.env.VITE_COINGECKO_PRO === 'true' ||
+		(typeof process !== 'undefined' &&
+			(process.env.COINGECKO_PRO === '1' || process.env.COINGECKO_PRO === 'true'))
 
 	if (isProdBuild() && typeof key === 'string' && key.length >= 3) {
 		const u = buildSimplePriceUrl('https://api.coingecko.com/api/v3', uniq)

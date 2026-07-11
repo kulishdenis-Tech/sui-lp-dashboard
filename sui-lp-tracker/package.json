@@ -8,7 +8,7 @@
     "postinstall": "node scripts/fix-dayjs-esm.mjs",
     "build": "node server/build-cron.mjs && tsc -b && vite build",
     "build:cron": "node server/build-cron.mjs",
-    "snapshot:once": "node ./node_modules/tsx/dist/cli.mjs --tsconfig tsconfig.scripts.json scripts/portfolio-snapshot-once.ts",
+    "snapshot:once": "vite-node --mode production scripts/portfolio-snapshot-once.ts",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run --config vitest.config.ts"

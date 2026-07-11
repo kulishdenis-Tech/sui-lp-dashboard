@@ -30,7 +30,7 @@ Secrets у репозиторії GitHub (Settings → Secrets):
 - `VITE_SUI_RPC_URL`, `VITE_COINGECKO_API_KEY` (або `COINGECKO_API_KEY`)
 - `OKX_API_KEY`, `OKX_SECRET_KEY`, `OKX_PASSPHRASE` (для цін DEX)
 
-Локально: `npm run snapshot:once` (читає `.env`).
+Локально / CI: `npm run snapshot:once` (через **vite-node**, щоб працювали Vite aliases + `import.meta.env`).
 
 Опційно — ручний HTTP-тригер Vercel (може бути обмежений ESM/timeout на Hobby):  
 `GET /api/cron/portfolio-snapshot` + `Authorization: Bearer <CRON_SECRET>`.
