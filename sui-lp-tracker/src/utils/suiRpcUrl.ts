@@ -29,7 +29,8 @@ export function resolveServerSuiRpcUrl(): string {
  */
 export function resolveBrowserRpcUrl(): string {
 	const absolute = resolveSuiRpcUrl()
-	if (!import.meta.env.DEV) return absolute
+	const isDev = typeof import.meta.env !== 'undefined' && Boolean(import.meta.env.DEV)
+	if (!isDev) return absolute
 	try {
 		const u = new URL(absolute)
 		return `/ext/sui-rpc${u.pathname}${u.search}`

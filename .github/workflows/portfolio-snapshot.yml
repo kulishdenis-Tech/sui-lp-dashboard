@@ -1,0 +1,38 @@
+# Snapshot portfolio for WATCH_WALLETS every 15 min (runs in Node — avoids Vercel Hobby cron + ESM limits).
+name: Portfolio snapshot
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sui-lp-tracker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: sui-lp-tracker/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run portfolio snapshot
+        env:
+          WATCH_WALLETS: ${{ secrets.WATCH_WALLETS }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_SUI_RPC_URL: ${{ secrets.VITE_SUI_RPC_URL }}
+          VITE_COINGECKO_API_KEY: ${{ secrets.VITE_COINGECKO_API_KEY }}
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+          OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
+          OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
+          OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
+        run: npm run snapshot:once

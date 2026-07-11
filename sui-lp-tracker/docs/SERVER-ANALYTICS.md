@@ -12,7 +12,7 @@
 
 ## 2. Vercel env
 
-Додай у Vercel → Project → Environment Variables:
+Додай у Vercel → Project → Environment Variables (або `scripts/vercel-env-analytics.ps1` з `.env`):
 
 | Variable | Value |
 |----------|--------|
@@ -21,14 +21,25 @@
 | `WATCH_WALLETS` | дві адреси через кому |
 | `CRON_SECRET` | довільний random string (32+ chars) |
 
-У Vercel **Cron** автоматично надсилає `Authorization: Bearer <CRON_SECRET>` якщо secret налаштований у проєкті (див. Vercel docs). Якщо ні — додай `CRON_SECRET` у Vercel і вручну тригер:  
-`GET https://your-app.vercel.app/api/cron/portfolio-snapshot?secret=YOUR_SECRET`
+## 3. Cron (кожні 15 хв)
 
-## 3. Deploy
+**Vercel Hobby** не підтримує cron кожні 15 хв — snapshot запускає **GitHub Actions** (`.github/workflows/portfolio-snapshot.yml`), який виконує `npm run snapshot:once` у `sui-lp-tracker/`.
+
+Secrets у репозиторії GitHub (Settings → Secrets):
+- `WATCH_WALLETS`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+- `VITE_SUI_RPC_URL`, `VITE_COINGECKO_API_KEY` (або `COINGECKO_API_KEY`)
+- `OKX_API_KEY`, `OKX_SECRET_KEY`, `OKX_PASSPHRASE` (для цін DEX)
+
+Локально: `npm run snapshot:once` (читає `.env`).
+
+Опційно — ручний HTTP-тригер Vercel (може бути обмежений ESM/timeout на Hobby):  
+`GET /api/cron/portfolio-snapshot` + `Authorization: Bearer <CRON_SECRET>`.
+
+## 4. Deploy
 
 `npm run build` збирає cron bundle (`api/_lib/cron-bundle.mjs`) + SPA.
 
-Після деплою перший cron — протягом 15 хв. Перевір **Analytics** для watchlist-адреси.
+Після деплою перший snapshot — протягом 15 хв (GitHub Actions). Перевір **Analytics** для watchlist-адреси.
 
 ## API
 
