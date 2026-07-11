@@ -12,7 +12,7 @@ import {
 	openEventsToRow,
 	upsertLpHistoryRows,
 	type LpHistoryRow,
-} from '../../api/_lib/supabaseLpHistory.ts'
+} from '../../../api/_lib/supabaseLpHistory.ts'
 import type { OpenPosition, PositionEvent } from '@/types'
 
 export type SyncLpHistoryResult = {
