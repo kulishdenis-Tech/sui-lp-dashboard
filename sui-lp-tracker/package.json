@@ -1,0 +1,48 @@
+{
+  "name": "sui-lp-tracker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@alphafi/alphalend-sdk": "^2.0.1",
+    "@cetusprotocol/sui-clmm-sdk": "^1.4.3",
+    "@mmt-finance/clmm-sdk": "^1.3.25",
+    "@mysten/dapp-kit": "^1.0.4",
+    "@mysten/sui": "^2.16.0",
+    "@naviprotocol/lending": "^1.3.11",
+    "@tanstack/react-query": "^5.101.2",
+    "aftermath-ts-sdk": "^2.0.0",
+    "bn.js": "^5.2.1",
+    "decimal.js": "^10.6.0",
+    "lightweight-charts": "^5.2.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-router-dom": "^7.14.2",
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/vite": "^4.2.4",
+    "@types/bn.js": "^5.1.6",
+    "@types/node": "^24.12.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "eslint": "^10.2.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.5.0",
+    "tailwindcss": "^4.2.4",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.58.2",
+    "vite": "^8.0.10",
+    "vitest": "^3.2.4"
+  }
+}

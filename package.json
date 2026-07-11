@@ -1,0 +1,10 @@
+{
+	"name": "sui-dashboard",
+	"private": true,
+	"description": "Proxy scripts — app lives in sui-lp-tracker",
+	"scripts": {
+		"dev": "npm run dev --prefix sui-lp-tracker",
+		"build": "npm run build --prefix sui-lp-tracker",
+		"preview": "npm run preview --prefix sui-lp-tracker"
+	}
+}

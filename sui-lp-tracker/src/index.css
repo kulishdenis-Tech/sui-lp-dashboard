@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+/* Уникає горизонтального «страхування» через появу/зникання полоси прокрутки при ховері тултіпів тощо */
+html {
+	scrollbar-gutter: stable;
+}
+
+@theme {
+	/* ─── Surfaces ─── */
+	--color-app-bg: #060b15;
+	--color-app-card: #0f172a;
+	--color-app-border: #1e293b;
+	--color-app-elevated: #1e212b;
+	--color-app-header-bg: rgb(15 23 42 / 0.5);
+	/** Ряд таблиці: hover усієї групи (`group-hover`) */
+	--color-app-row-hover: rgb(30 41 59 / 0.4);
+
+	/* ─── Typography & text ─── */
+	--color-app-fg: #e2e8f0;
+	--color-app-fg-muted: #94a3b8;
+
+	/* ─── Semantic UI ─── */
+	--color-app-accent: #0ea5e9;
+	--color-app-profit: #22d3a0;
+	--color-app-loss: #f87171;
+	--color-app-warn: #f59e0b;
+
+	/* ─── Charts (lightweight-charts + histogram) — дзеркало для JS через getComputedStyle ─── */
+	--color-chart-grid: rgba(51, 65, 85, 0.35);
+	--color-chart-text: #94a3b8;
+	--color-chart-border: #334155;
+	--color-chart-candle-up: #34d399;
+	--color-chart-candle-down: #fb7185;
+	--color-chart-volume-up: rgba(52, 211, 153, 0.5);
+	--color-chart-volume-down: rgba(251, 113, 133, 0.45);
+	--color-chart-range-bound: #64748b;
+	--color-chart-range-band: rgba(100, 116, 139, 0.45);
+	--color-chart-price-spot: #38bdf8;
+	--color-chart-hist-fallback: rgba(100, 116, 139, 0.3);
+	--color-chart-indicator-sma: #fbbf24;
+	--color-chart-indicator-ema: #a78bfa;
+
+	/* Одне sans-сімейство для всього UI; mono для чисел/адрес (через `font-mono`) */
+	--font-sans: "Syne", ui-sans-serif, system-ui, sans-serif;
+	--font-mono:
+		"JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+		"Courier New", monospace;
+	/** Легасі: ті самі гліфи, що й `--font-mono` */
+	--font-mono-nums: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+	/** Легасі: коли окремо не підключали sans — тепер збігається з основним текстом */
+	--font-display: var(--font-sans);
+}
+
+body {
+	@apply m-0 min-h-screen font-sans antialiased text-app-fg;
+	background: var(--color-app-bg);
+}
+
+#root {
+	@apply min-h-screen;
+}
+
+@layer utilities {
+	.tabular-money {
+		font-variant-numeric: tabular-nums lining-nums;
+	}
+}

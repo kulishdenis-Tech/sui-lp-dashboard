@@ -1,0 +1,290 @@
+/**
+ * AlphaLend (= Bluefin Lend) lending integration.
+ *
+ * Uses @alphafi/alphalend-sdk via a browser-compatible shim for
+ * @mysten/sui/graphql/schemas/latest (see vite.config.ts alias).
+ */
+import type {
+	LendingSnapshot,
+	SupplyPosition,
+	BorrowPosition,
+	CollateralInfo,
+	LendingRewardToClaim,
+} from '@/types'
+import { enrichSupplyLiquidationPrices, normalizeLiquidationThresholdFactor } from '@/utils/supplyLiquidationPrice'
+
+// ── Singleton client ──────────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _client: any = null
+
+async function getClient() {
+	if (_client) return _client
+	const { AlphalendClient } = await import('@alphafi/alphalend-sdk')
+	_client = new AlphalendClient('mainnet')
+	return _client
+}
+
+// ── Types inferred from SDK (no d.ts published yet) ──────────────────────────
+
+interface SdkPortfolio {
+	positionId: string
+	totalSuppliedUsd: { toNumber(): number; toString(): string }
+	totalBorrowedUsd: { toNumber(): number; toString(): string }
+	liquidationThreshold: { toNumber(): number }
+	safeBorrowLimit: { toNumber(): number }
+	borrowLimitUsed: { toNumber(): number }
+	netApr: { toNumber(): number }
+	dailyEarnings: { toNumber(): number }
+	suppliedAmounts: Map<number, { toNumber(): number }>
+	borrowedAmounts: Map<number, { toNumber(): number }>
+	rewardsToClaim: { coinType: string; rewardAmount: { toNumber(): number } }[]
+}
+
+// getMarketData() returns nested APR objects, not bare Decimals.
+// APR values are in PERCENTAGE units (e.g. 3.5 means 3.5 %).
+interface SdkAprReward {
+	rewardApr: { toNumber(): number } // percentage
+	coinType?: string
+	symbol?: string
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	[key: string]: any
+}
+interface SdkAprObject {
+	interestApr?: { toNumber(): number } // percentage
+	stakingApr?: { toNumber(): number }  // percentage (stSUI only)
+	rewards?: SdkAprReward[]             // percentage each
+}
+interface SdkMarketData {
+	marketId: string | number
+	coinType: string
+	symbol?: string
+	decimals?: number
+	price?: string | number | null
+	liquidationThreshold?: { toNumber(): number }
+	supplyApr?: SdkAprObject
+	borrowApr?: SdkAprObject
+}
+
+export interface AprRewardToken {
+	symbol: string
+	coinType?: string
+	apr: number   // decimal fraction (0.05 = 5 %)
+}
+
+interface AprParts {
+	total: number
+	baseAPR: number
+	stakingAPR: number
+	rewardAPR: number
+	rewardTokens: AprRewardToken[]
+}
+
+/** Best-effort symbol from an SDK reward object. */
+function rewardSymbol(r: SdkAprReward): string {
+	if (r.symbol) return r.symbol
+	if (r.coinType) return r.coinType.split('::').pop() ?? r.coinType
+	return '?'
+}
+
+/** Decompose a nested SDK APR object into decimal-fraction parts (0.05 = 5 %). */
+function extractAprParts(apr: SdkAprObject | undefined): AprParts {
+	if (!apr) return { total: 0, baseAPR: 0, stakingAPR: 0, rewardAPR: 0, rewardTokens: [] }
+	// SDK values are in percentage units (3.5 for 3.5 %) → divide by 100
+	const baseAPR = safeNum(apr.interestApr) / 100
+	const stakingAPR = safeNum(apr.stakingApr) / 100
+	const rewardTokens: AprRewardToken[] = (apr.rewards ?? [])
+		.map((r) => ({ symbol: rewardSymbol(r), coinType: r.coinType, apr: safeNum(r.rewardApr) / 100 }))
+		.filter((r) => r.apr > 0)
+	const rewardAPR = rewardTokens.reduce((s, r) => s + r.apr, 0)
+	return { total: baseAPR + stakingAPR + rewardAPR, baseAPR, stakingAPR, rewardAPR, rewardTokens }
+}
+
+// Kept for brevity at call-sites that only need the total.
+// (extractAprParts is used directly where needed.)
+
+// ── Service ───────────────────────────────────────────────────────────────────
+
+export async function getLendingPositions(
+	walletAddress: string,
+): Promise<LendingSnapshot> {
+	const client = await getClient()
+
+	// Fetch in parallel: markets for metadata, portfolio for position data
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const [marketsRaw, portfolios]: [any[], SdkPortfolio[] | undefined] =
+		await Promise.all([
+			client.getAllMarkets(),
+			client.getUserPortfolio(walletAddress),
+		])
+
+	if (!portfolios || portfolios.length === 0) return EMPTY_SNAP
+
+	// Build market lookup by marketId (number key)
+	const marketByIdRaw = new Map<number, SdkMarketData>()
+	if (marketsRaw) {
+		for (const m of marketsRaw) {
+			// getMarketData() returns the enriched view with APRs
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const data: SdkMarketData = await (m as any).getMarketData?.() ?? m
+			const id = Number(data.marketId)
+			if (!Number.isNaN(id)) marketByIdRaw.set(id, data)
+		}
+	}
+
+	// Use first portfolio (single position per wallet is common in AlphaLend)
+	const p = portfolios[0]
+
+	const totalSuppliedUSD = safeNum(p.totalSuppliedUsd)
+	const totalBorrowedUSD = safeNum(p.totalBorrowedUsd)
+	const liquidationUSD = safeNum(p.liquidationThreshold)
+	const healthFactor = totalBorrowedUSD > 0 ? liquidationUSD / totalBorrowedUSD : null
+
+	// ── Supplies ─────────────────────────────────────────────────────────────
+	const supplies: SupplyPosition[] = []
+	for (const [marketIdNum, amtDecimal] of p.suppliedAmounts.entries()) {
+		const mkt = marketByIdRaw.get(marketIdNum)
+		if (!mkt) continue
+		const amount = safeNum(amtDecimal)
+		if (amount === 0) continue
+		const priceUsd = mkt.price != null ? parseFloat(String(mkt.price)) : 0
+		const ltFactor = normalizeLiquidationThresholdFactor(safeNum(mkt.liquidationThreshold))
+		const supplyParts = extractAprParts(mkt.supplyApr)
+		supplies.push({
+			id: `alphalend-supply-${marketIdNum}`,
+			asset: mkt.symbol ?? mkt.coinType.split('::').pop() ?? `Mkt${marketIdNum}`,
+			coinType: mkt.coinType,
+			sCoinType: '',
+			suppliedAmount: amount,
+			currentAmount: amount,
+			earnedInterest: 0,
+			earnedInterestUSD: 0,
+			supplyAPR: supplyParts.total,
+			supplyRewardAPR: supplyParts.rewardAPR,
+			aprBreakdown: {
+				baseAPR: supplyParts.baseAPR,
+				...(supplyParts.stakingAPR > 0 ? { stakingAPR: supplyParts.stakingAPR } : {}),
+				rewardAPR: supplyParts.rewardAPR,
+				rewards: supplyParts.rewardTokens,
+			},
+			currentValueUSD: amount * priceUsd,
+			liquidationThresholdFactor: ltFactor > 0 ? ltFactor : undefined,
+			startedAt: 0,
+			daysActive: 0,
+			events: [],
+			protocol: 'AlphaLend',
+			iconUrl: null,
+		})
+	}
+
+	const suppliesWithLiq = enrichSupplyLiquidationPrices(supplies, totalBorrowedUSD)
+
+	// ── Borrows ──────────────────────────────────────────────────────────────
+	const collateral: CollateralInfo[] = suppliesWithLiq.map((s) => ({
+		asset: s.asset,
+		amount: s.currentAmount,
+		valueUSD: s.currentValueUSD,
+		collateralWeight: 0,
+		effectiveValueUSD: s.currentValueUSD,
+	}))
+
+	const borrows: BorrowPosition[] = []
+	for (const [marketIdNum, amtDecimal] of p.borrowedAmounts.entries()) {
+		const mkt = marketByIdRaw.get(marketIdNum)
+		if (!mkt) continue
+		const amount = safeNum(amtDecimal)
+		if (amount === 0) continue
+		const priceUsd = mkt.price != null ? parseFloat(String(mkt.price)) : 0
+		const borrowParts = extractAprParts(mkt.borrowApr)
+		// For borrows: rewards are an OFFSET (you earn them back), so net cost = base − rewards.
+		// borrowAPR displayed = net cost; borrowRewardAPR = magnitude of the offset.
+		const rewardAPR = borrowParts.rewardAPR
+		const borrowAPR = borrowParts.baseAPR - rewardAPR   // can be negative (net earn)
+		borrows.push({
+			id: `alphalend-borrow-${marketIdNum}`,
+			obligationId: p.positionId ?? '',
+			asset: mkt.symbol ?? mkt.coinType.split('::').pop() ?? `Mkt${marketIdNum}`,
+			coinType: mkt.coinType,
+			borrowedAmount: amount,
+			currentDebt: amount,
+			accruedInterest: 0,
+			accruedInterestUSD: 0,
+			borrowAPR,
+			borrowRewardAPR: rewardAPR,
+			netBorrowCost: borrowAPR,   // already net
+			aprBreakdown: {
+				baseAPR: borrowParts.baseAPR,
+				rewardAPR: borrowParts.rewardAPR,
+				rewards: borrowParts.rewardTokens,
+			},
+			currentDebtUSD: amount * priceUsd,
+			collateral,
+			healthFactor: healthFactor ?? 0,
+			liquidationThreshold: liquidationUSD,
+			startedAt: 0,
+			daysActive: 0,
+			events: [],
+			protocol: 'AlphaLend',
+			iconUrl: null,
+		})
+	}
+
+	// ── Rewards ───────────────────────────────────────────────────────────────
+	const rewardsToClaim: LendingRewardToClaim[] = (p.rewardsToClaim ?? [])
+		.filter((r) => safeNum(r.rewardAmount) > 0)
+		.map((r) => {
+			const mkt = [...marketByIdRaw.values()].find((m) => m.coinType === r.coinType)
+			const priceUsd = mkt?.price != null ? parseFloat(String(mkt.price)) : 0
+			const amount = safeNum(r.rewardAmount)
+			return {
+				coinType: r.coinType,
+				symbol: mkt?.symbol ?? r.coinType.split('::').pop() ?? r.coinType,
+				amount,
+				valueUSD: amount * priceUsd,
+			}
+		})
+
+	// Net APR from SDK is in percentage units (2.93 = 2.93%) → divide by 100
+	const netAPR = safeNum(p.netApr) / 100 || null
+	// Daily earnings already in USD
+	const dailyEarningsUSD = safeNum(p.dailyEarnings) || null
+
+	return {
+		supplies: suppliesWithLiq,
+		borrows,
+		totalSuppliedUSD,
+		totalBorrowedUSD,
+		netValueUSD: totalSuppliedUSD - totalBorrowedUSD,
+		healthFactor,
+		netAPR,
+		dailyEarningsUSD,
+		rewardsToClaim,
+		protocol: 'AlphaLend',
+	}
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const EMPTY_SNAP: LendingSnapshot = {
+	supplies: [],
+	borrows: [],
+	totalSuppliedUSD: 0,
+	totalBorrowedUSD: 0,
+	netValueUSD: 0,
+	healthFactor: null,
+	rewardsToClaim: [],
+	protocol: 'AlphaLend',
+}
+
+function safeNum(v: unknown): number {
+	if (v == null) return 0
+	if (typeof v === 'number') return v
+	if (typeof v === 'string') return parseFloat(v) || 0
+	if (typeof v === 'object' && 'toNumber' in (v as object)) {
+		return (v as { toNumber(): number }).toNumber()
+	}
+	if (typeof v === 'object' && 'toString' in (v as object)) {
+		return parseFloat((v as { toString(): string }).toString()) || 0
+	}
+	return 0
+}
