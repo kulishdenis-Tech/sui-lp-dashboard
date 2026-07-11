@@ -6,7 +6,6 @@ export const PROXY_HOST_TO_ORIGIN: Record<string, string> = {
 	'api.geckoterminal.com': 'https://api.geckoterminal.com',
 	'api.dexpaprika.com': 'https://api.dexpaprika.com',
 	'api.coingecko.com': 'https://api.coingecko.com',
-	'pro-api.coingecko.com': 'https://pro-api.coingecko.com',
 	'web3.okx.com': 'https://web3.okx.com',
 	'dapi.api.sui-prod.bluefin.io': 'https://dapi.api.sui-prod.bluefin.io',
 	'swap.api.sui-prod.bluefin.io': 'https://swap.api.sui-prod.bluefin.io',

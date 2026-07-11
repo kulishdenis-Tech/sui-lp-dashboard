@@ -5,10 +5,8 @@ declare var Buffer: typeof import('buffer').Buffer
 
 interface ImportMetaEnv {
 	readonly VITE_SUI_RPC_URL: string
-	/** Optional — CoinGecko Demo key for 24h batch: https://www.coingecko.com/en/api/pricing */
+	/** Optional — free CoinGecko Demo key: https://www.coingecko.com/en/api */
 	readonly VITE_COINGECKO_API_KEY?: string
-	/** `true` / `1` — заголовок `x-cg-pro-api-key` замість demo */
-	readonly VITE_COINGECKO_PRO?: string
 	/** Власне JSON (allowlist) у форматі Suiet, якщо репо GitHub недоступне */
 	readonly VITE_SUIET_COIN_LIST_URL?: string
 	/** OKX Web3 / DEX — публічний API key (OK-ACCESS-KEY) */

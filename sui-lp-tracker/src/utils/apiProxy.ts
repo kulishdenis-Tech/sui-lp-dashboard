@@ -14,15 +14,11 @@ function okxCredsFromProcess(): { key: string; secret: string; pass: string } | 
 	return null
 }
 
-function coingeckoFromProcess(): { key: string; pro: boolean } | null {
+function coingeckoKeyFromProcess(): string | null {
 	if (typeof process === 'undefined') return null
 	const key = process.env.COINGECKO_API_KEY ?? process.env.VITE_COINGECKO_API_KEY
 	if (!key || key.length < 3) return null
-	const pro =
-		process.env.COINGECKO_PRO === '1' ||
-		process.env.VITE_COINGECKO_PRO === '1' ||
-		process.env.COINGECKO_PRO === 'true'
-	return { key, pro }
+	return key
 }
 
 async function hmacSha256Base64(secret: string, message: string): Promise<string> {
@@ -81,27 +77,22 @@ export async function okxProxyFetch(
 	})
 }
 
-/** Serverless CoinGecko proxy, or direct key when no deployment origin (GHA). */
-export async function coingeckoProxyFetch(pathWithQuery: string, pro: boolean): Promise<Response> {
+/** Serverless CoinGecko free/demo proxy, or direct key when no deployment origin (GHA). */
+export async function coingeckoProxyFetch(pathWithQuery: string): Promise<Response> {
 	if (typeof window !== 'undefined' || deploymentOrigin()) {
 		return fetch(apiUrl('/api/coingecko'), {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ path: pathWithQuery, pro }),
+			body: JSON.stringify({ path: pathWithQuery }),
 			signal: AbortSignal.timeout(15_000),
 		})
 	}
 
-	const fromEnv = coingeckoFromProcess()
-	const usePro = fromEnv?.pro ?? pro
-	const key = fromEnv?.key
-	const base = usePro ? 'https://pro-api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3'
+	const key = coingeckoKeyFromProcess()
 	const p = pathWithQuery.startsWith('/') ? pathWithQuery : `/${pathWithQuery}`
 	const headers: Record<string, string> = {}
-	if (key) {
-		headers[usePro ? 'x-cg-pro-api-key' : 'x-cg-demo-api-key'] = key
-	}
-	return fetch(`${base}${p}`, {
+	if (key) headers['x-cg-demo-api-key'] = key
+	return fetch(`https://api.coingecko.com${p}`, {
 		headers,
 		signal: AbortSignal.timeout(15_000),
 	})

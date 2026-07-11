@@ -127,12 +127,6 @@ export default defineConfig({
 				agent: extHttpsAgent,
 				rewrite: (p) => p.replace(/^\/ext\/cg/, ''),
 			},
-			'/ext/cgpro': {
-				target: 'https://pro-api.coingecko.com',
-				changeOrigin: true,
-				agent: extHttpsAgent,
-				rewrite: (p) => p.replace(/^\/ext\/cgpro/, ''),
-			},
 			'/ext/okx': {
 				target: 'https://web3.okx.com',
 				changeOrigin: true,

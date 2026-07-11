@@ -3,10 +3,10 @@ import process2 from "node:process";
 import { createRequire } from "node:module";
 var envProxy = new Proxy(process2.env, {
   get(target, prop) {
-    if (prop === "DEV") return "false";
-    if (prop === "PROD") return "true";
+    if (prop === "DEV") return false;
+    if (prop === "PROD") return true;
     if (prop === "MODE") return "production";
-    if (prop === "SSR") return "true";
+    if (prop === "SSR") return true;
     if (typeof prop === "string" && prop in target) return target[prop];
     return void 0;
   }
@@ -39,7 +39,7 @@ function rpcFromProcessEnv() {
 function resolveSuiRpcUrl() {
   const fromProcess = rpcFromProcessEnv();
   if (fromProcess) return fromProcess;
-  const fromEnv = import.meta.env.VITE_SUI_RPC_URL;
+  const fromEnv = import.meta.env?.VITE_SUI_RPC_URL;
   if (typeof fromEnv === "string" && fromEnv.trim().length > 0) {
     return fromEnv.trim();
   }
@@ -50,7 +50,9 @@ function resolveServerSuiRpcUrl() {
 }
 function resolveBrowserRpcUrl() {
   const absolute = resolveSuiRpcUrl();
-  if (!import.meta.env.DEV) return absolute;
+  if (typeof window === "undefined") return absolute;
+  const isDev = Boolean(import.meta.env?.DEV);
+  if (!isDev) return absolute;
   try {
     const u = new URL(absolute);
     return `/ext/sui-rpc${u.pathname}${u.search}`;
@@ -60,13 +62,15 @@ function resolveBrowserRpcUrl() {
 }
 
 // src/services/suiClient.ts
-var rpc = resolveBrowserRpcUrl();
+function defaultRpcUrl() {
+  return typeof window === "undefined" ? resolveServerSuiRpcUrl() : resolveBrowserRpcUrl();
+}
 var suiClient = new SuiJsonRpcClient({
-  url: rpc,
+  url: defaultRpcUrl(),
   network: "mainnet"
 });
 function getRpcUrl() {
-  return rpc;
+  return defaultRpcUrl();
 }
 
 // src/utils/formatting.ts
@@ -139,21 +143,85 @@ function apiUrl(path) {
 
 // src/utils/apiProxy.ts
 function isProdBuild() {
-  return import.meta.env.PROD;
+  return Boolean(import.meta.env.PROD);
+}
+function okxCredsFromProcess() {
+  if (typeof process === "undefined") return null;
+  const key = process.env.OKX_API_KEY ?? process.env.VITE_OKX_API_KEY;
+  const secret = process.env.OKX_SECRET_KEY ?? process.env.VITE_OKX_SECRET_KEY;
+  const pass = process.env.OKX_PASSPHRASE ?? process.env.VITE_OKX_PASSPHRASE;
+  if (key && secret && pass) return { key, secret, pass };
+  return null;
+}
+function coingeckoKeyFromProcess() {
+  if (typeof process === "undefined") return null;
+  const key = process.env.COINGECKO_API_KEY ?? process.env.VITE_COINGECKO_API_KEY;
+  if (!key || key.length < 3) return null;
+  return key;
+}
+async function hmacSha256Base64(secret, message) {
+  const te = new TextEncoder();
+  const k = await crypto.subtle.importKey(
+    "raw",
+    te.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", k, te.encode(message));
+  const b = new Uint8Array(sig);
+  let s = "";
+  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+  return btoa(s);
 }
 async function okxProxyFetch(method, path, bodyStr = "") {
-  return fetch(apiUrl("/api/okx"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ method, path, body: bodyStr }),
+  if (typeof window !== "undefined" || deploymentOrigin()) {
+    return fetch(apiUrl("/api/okx"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ method, path, body: bodyStr }),
+      signal: AbortSignal.timeout(3e4)
+    });
+  }
+  const creds = okxCredsFromProcess();
+  if (!creds) {
+    return new Response(JSON.stringify({ code: "1", msg: "OKX credentials missing" }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" }
+    });
+  }
+  const p = path.startsWith("/") ? path : `/${path}`;
+  const ts = (/* @__PURE__ */ new Date()).toISOString();
+  const pre = `${ts}${method}${p}${method === "POST" ? bodyStr : ""}`;
+  const sign = await hmacSha256Base64(creds.secret, pre);
+  return fetch(`https://web3.okx.com${p}`, {
+    method,
+    headers: {
+      ...method === "POST" ? { "Content-Type": "application/json" } : {},
+      "OK-ACCESS-KEY": creds.key,
+      "OK-ACCESS-SIGN": sign,
+      "OK-ACCESS-TIMESTAMP": ts,
+      "OK-ACCESS-PASSPHRASE": creds.pass
+    },
+    body: method === "POST" ? bodyStr : void 0,
     signal: AbortSignal.timeout(3e4)
   });
 }
-async function coingeckoProxyFetch(pathWithQuery, pro) {
-  return fetch(apiUrl("/api/coingecko"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path: pathWithQuery, pro }),
+async function coingeckoProxyFetch(pathWithQuery) {
+  if (typeof window !== "undefined" || deploymentOrigin()) {
+    return fetch(apiUrl("/api/coingecko"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: pathWithQuery }),
+      signal: AbortSignal.timeout(15e3)
+    });
+  }
+  const key = coingeckoKeyFromProcess();
+  const p = pathWithQuery.startsWith("/") ? pathWithQuery : `/${pathWithQuery}`;
+  const headers = {};
+  if (key) headers["x-cg-demo-api-key"] = key;
+  return fetch(`https://api.coingecko.com${p}`, {
+    headers,
     signal: AbortSignal.timeout(15e3)
   });
 }
@@ -166,7 +234,6 @@ var HOST_PREFIX = {
   "api.geckoterminal.com": "/ext/gt",
   "api.dexpaprika.com": "/ext/dp",
   "api.coingecko.com": "/ext/cg",
-  "pro-api.coingecko.com": "/ext/cgpro",
   "web3.okx.com": "/ext/okx",
   "dapi.api.sui-prod.bluefin.io": "/ext/bf-dapi",
   "swap.api.sui-prod.bluefin.io": "/ext/bf-swap",
@@ -175,22 +242,21 @@ var HOST_PREFIX = {
 function extFetchUrl(absoluteUrl) {
   try {
     const u = new URL(absoluteUrl);
-    if (import.meta.env.DEV) {
+    if (!HOST_PREFIX[u.host]) return absoluteUrl;
+    if (typeof window === "undefined") return absoluteUrl;
+    if (import.meta.env?.DEV) {
       const prefix = HOST_PREFIX[u.host];
-      if (!prefix) return absoluteUrl;
       return `${prefix}${u.pathname}${u.search}`;
     }
-    if (HOST_PREFIX[u.host]) {
-      const path = `${u.pathname}${u.search}`;
-      return apiUrl(`/api/ext?host=${encodeURIComponent(u.host)}&path=${encodeURIComponent(path)}`);
-    }
-    return absoluteUrl;
+    const path = `${u.pathname}${u.search}`;
+    return apiUrl(`/api/ext?host=${encodeURIComponent(u.host)}&path=${encodeURIComponent(path)}`);
   } catch {
     return absoluteUrl;
   }
 }
 
 // src/services/spotPrice/coingecko24hBatch.ts
+var CG_FREE_BASE = "https://api.coingecko.com/api/v3";
 function buildSimplePriceUrl(base, ids) {
   const u = new URL(`${base}/simple/price`);
   u.searchParams.set("ids", ids.join(","));
@@ -209,25 +275,22 @@ async function fetchCgUrl(url, headers) {
 async function coingeckoSimpleBatch(ids) {
   if (ids.length === 0) return {};
   const uniq = [...new Set(ids)];
-  const key = import.meta.env.VITE_COINGECKO_API_KEY;
-  const pro = import.meta.env.VITE_COINGECKO_PRO === "1" || import.meta.env.VITE_COINGECKO_PRO === "true";
+  const key = (typeof import.meta.env.VITE_COINGECKO_API_KEY === "string" && import.meta.env.VITE_COINGECKO_API_KEY.length > 0 ? import.meta.env.VITE_COINGECKO_API_KEY : void 0) ?? (typeof process !== "undefined" ? process.env.COINGECKO_API_KEY ?? process.env.VITE_COINGECKO_API_KEY : void 0);
   if (isProdBuild() && typeof key === "string" && key.length >= 3) {
-    const u2 = buildSimplePriceUrl("https://api.coingecko.com/api/v3", uniq);
+    const u2 = buildSimplePriceUrl(CG_FREE_BASE, uniq);
     const path = `${u2.pathname}${u2.search}`;
     try {
-      const r = await coingeckoProxyFetch(path, pro);
+      const r = await coingeckoProxyFetch(path);
       if (r.ok) return await r.json();
     } catch {
     }
   }
   if (typeof key === "string" && key.length >= 3) {
-    const base = pro ? "https://pro-api.coingecko.com/api/v3" : "https://api.coingecko.com/api/v3";
-    const u2 = buildSimplePriceUrl(base, uniq);
-    const headers = pro ? { "x-cg-pro-api-key": String(key) } : { "x-cg-demo-api-key": String(key) };
-    const hit = await fetchCgUrl(u2, headers);
+    const u2 = buildSimplePriceUrl(CG_FREE_BASE, uniq);
+    const hit = await fetchCgUrl(u2, { "x-cg-demo-api-key": String(key) });
     if (Object.keys(hit).length > 0) return hit;
   }
-  const u = buildSimplePriceUrl("https://api.coingecko.com/api/v3", uniq);
+  const u = buildSimplePriceUrl(CG_FREE_BASE, uniq);
   return fetchCgUrl(u, {});
 }
 function coingeckoIdForSymbol(symbol) {
@@ -613,9 +676,9 @@ function okxFetchExtraRetries() {
   return DEFAULT_FETCH_RETRIES;
 }
 function okxCreds() {
-  const key = import.meta.env.VITE_OKX_API_KEY;
-  const secret = import.meta.env.VITE_OKX_SECRET_KEY;
-  const pass = import.meta.env.VITE_OKX_PASSPHRASE;
+  const key = import.meta.env.VITE_OKX_API_KEY || (typeof process !== "undefined" ? process.env.OKX_API_KEY ?? process.env.VITE_OKX_API_KEY : void 0);
+  const secret = import.meta.env.VITE_OKX_SECRET_KEY || (typeof process !== "undefined" ? process.env.OKX_SECRET_KEY ?? process.env.VITE_OKX_SECRET_KEY : void 0);
+  const pass = import.meta.env.VITE_OKX_PASSPHRASE || (typeof process !== "undefined" ? process.env.OKX_PASSPHRASE ?? process.env.VITE_OKX_PASSPHRASE : void 0);
   if (typeof key === "string" && key.length > 0 && typeof secret === "string" && secret.length > 0 && typeof pass === "string" && pass.length > 0) {
     return { key, secret, pass };
   }
@@ -624,7 +687,7 @@ function okxCreds() {
 function okxTimestamp() {
   return (/* @__PURE__ */ new Date()).toISOString();
 }
-async function hmacSha256Base64(secret, message) {
+async function hmacSha256Base642(secret, message) {
   const te = new TextEncoder();
   const k = await crypto.subtle.importKey(
     "raw",
@@ -663,7 +726,7 @@ async function okxSignedRequest(method, pathWithQuery, bodyStr = "") {
   if (!creds) return null;
   const ts = okxTimestamp();
   const pre = `${ts}${method}${path}${method === "POST" ? bodyStr : ""}`;
-  const sign = await hmacSha256Base64(creds.secret, pre);
+  const sign = await hmacSha256Base642(creds.secret, pre);
   const url = okxUrlOnWire(path);
   const timeoutMs = okxFetchTimeoutMs();
   const ac = new AbortController();
@@ -1282,13 +1345,13 @@ function ownedRowIsMomentumPosition(row) {
   const typ = ownedObjectDataMoveType(row.data);
   return Boolean(typ.endsWith(POSITION_MOVE_TYPE_SUFFIX));
 }
-async function fetchMomentumOwnedPositionBodiesForRewards(walletAddress, rpc2 = defaultMomentumOwnedRpc()) {
+async function fetchMomentumOwnedPositionBodiesForRewards(walletAddress, rpc = defaultMomentumOwnedRpc()) {
   const seen = /* @__PURE__ */ new Set();
   const out = [];
   for (const structType of POSITION_STRUCTS) {
     let cursor;
     for (; ; ) {
-      const page = await rpc2.getOwnedObjects({
+      const page = await rpc.getOwnedObjects({
         owner: walletAddress,
         filter: { StructType: structType },
         options: { showContent: true, showType: true, showOwner: true },
@@ -1314,7 +1377,7 @@ async function fetchMomentumOwnedPositionBodiesForRewards(walletAddress, rpc2 = 
     }
   }
   if (!out.length) {
-    await appendBodiesFromMomentumPackagePages(walletAddress, out, seen, rpc2);
+    await appendBodiesFromMomentumPackagePages(walletAddress, out, seen, rpc);
   }
   return out;
 }
@@ -1351,7 +1414,7 @@ async function hydrateMomentumPoolsByApiId(sdk2, basePools, poolIdHints) {
   );
   return out;
 }
-async function appendBodiesFromMomentumPackagePages(walletAddress, out, seen, rpc2) {
+async function appendBodiesFromMomentumPackagePages(walletAddress, out, seen, rpc) {
   const pkgs = uniqueMomentumPackagesForOwnedFallback();
   const objectOpts = {
     showContent: true,
@@ -1362,7 +1425,7 @@ async function appendBodiesFromMomentumPackagePages(walletAddress, out, seen, rp
     let cursor;
     try {
       for (let page = 0; page < PKG_OWNED_MAX_PAGES; page++) {
-        const res = await rpc2.getOwnedObjects({
+        const res = await rpc.getOwnedObjects({
           owner: walletAddress,
           filter: { Package: pkg },
           options: objectOpts,
@@ -5290,25 +5353,47 @@ var EMPTY_LEND = {
   rewardsToClaim: [],
   protocol: "AlphaLend"
 };
+function logSnapErr(part, e) {
+  const msg = e instanceof Error ? e.message : String(e);
+  console.error(`[snapshot] ${part}:`, msg);
+}
+async function softPositions(label, fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    logSnapErr(label, e);
+    return [];
+  }
+}
 async function loadPortfolioSnapshotForAddress(rawAddress) {
-  const walletAddr = normalizeSuiAddress11(rawAddress);
+  const walletAddr = normalizeSuiAddress11(rawAddress).toLowerCase();
   const client = createServerSuiClient();
-  const [balance, momentum, bluefin, cetus, turbos, aftermath, lend, navi] = await Promise.all([
-    getWalletBalance(walletAddr, client),
-    getMomentumPositions(walletAddr).catch(() => []),
-    getBluefinSpotPositions(walletAddr).catch(() => []),
-    getCetusPositions(walletAddr).catch(() => []),
-    getTurbosPositions(walletAddr).catch(() => []),
-    getAftermathFarmsPositions(walletAddr).catch(() => []),
-    getLendingPositions(walletAddr).catch(() => EMPTY_LEND),
-    getNaviPositions(walletAddr).catch(() => EMPTY_NAVI_SNAP)
+  const balance = await getWalletBalance(walletAddr, client).catch((e) => {
+    logSnapErr("balance", e);
+    return [];
+  });
+  const [lend, navi] = await Promise.all([
+    getLendingPositions(walletAddr).catch((e) => {
+      logSnapErr("alphalend", e);
+      return EMPTY_LEND;
+    }),
+    getNaviPositions(walletAddr).catch((e) => {
+      logSnapErr("navi", e);
+      return EMPTY_NAVI_SNAP;
+    })
   ]);
+  const momentum = await softPositions("momentum", () => getMomentumPositions(walletAddr));
+  const bluefin = await softPositions("bluefin", () => getBluefinSpotPositions(walletAddr));
+  const cetus = await softPositions("cetus", () => getCetusPositions(walletAddr));
+  const turbos = await softPositions("turbos", () => getTurbosPositions(walletAddr));
+  const aftermath = await softPositions("aftermath", () => getAftermathFarmsPositions(walletAddr));
   const openPositions = [...momentum, ...bluefin, ...cetus, ...turbos, ...aftermath];
   let walletVisibleUSD = 0;
   try {
     const bucket = await classifyAllBalances(balance);
     walletVisibleUSD = sumVisibleWalletUSD(bucket);
-  } catch {
+  } catch (e) {
+    logSnapErr("walletClassify", e);
   }
   const lendingNetUSD = finiteUsd(
     finiteUsd(lend.netValueUSD) + finiteUsd(navi.netValueUSD)

@@ -12,7 +12,6 @@ const HOST_PREFIX: Record<string, string> = {
 	'api.geckoterminal.com': '/ext/gt',
 	'api.dexpaprika.com': '/ext/dp',
 	'api.coingecko.com': '/ext/cg',
-	'pro-api.coingecko.com': '/ext/cgpro',
 	'web3.okx.com': '/ext/okx',
 	'dapi.api.sui-prod.bluefin.io': '/ext/bf-dapi',
 	'swap.api.sui-prod.bluefin.io': '/ext/bf-swap',

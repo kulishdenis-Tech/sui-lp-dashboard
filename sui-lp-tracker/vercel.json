@@ -2,10 +2,5 @@
 	"rewrites": [
 		{ "source": "/api/(.*)", "destination": "/api/$1" },
 		{ "source": "/((?!api/).*)", "destination": "/index.html" }
-	],
-	"functions": {
-		"api/cron/portfolio-snapshot.ts": {
-			"maxDuration": 60
-		}
-	}
+	]
 }

@@ -16,12 +16,9 @@ export function okxCredsFromEnv(): { key: string; secret: string; pass: string }
 	return null
 }
 
-export function coingeckoKeyFromEnv(): { key: string; pro: boolean } | null {
+/** Free Demo API key only (`x-cg-demo-api-key`). No CoinGecko Pro. */
+export function coingeckoKeyFromEnv(): string | null {
 	const key = process.env.COINGECKO_API_KEY ?? process.env.VITE_COINGECKO_API_KEY
 	if (!key || key.length < 3) return null
-	const pro =
-		process.env.COINGECKO_PRO === '1' ||
-		process.env.VITE_COINGECKO_PRO === '1' ||
-		process.env.COINGECKO_PRO === 'true'
-	return { key, pro }
+	return key
 }

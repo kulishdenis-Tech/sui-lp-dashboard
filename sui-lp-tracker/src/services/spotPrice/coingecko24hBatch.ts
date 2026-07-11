@@ -4,6 +4,8 @@ import { extFetchUrl } from '@/utils/externalFetchUrl'
 
 type CgRow = { usd: number; usd_24h_change?: number }
 
+const CG_FREE_BASE = 'https://api.coingecko.com/api/v3'
+
 function buildSimplePriceUrl(base: string, ids: string[]): URL {
 	const u = new URL(`${base}/simple/price`)
 	u.searchParams.set('ids', ids.join(','))
@@ -24,6 +26,7 @@ async function fetchCgUrl(url: URL, headers: Record<string, string>): Promise<Re
 
 /**
  * `simple/price`: spot USD + 24h% з однієї відповіді.
+ * Лише безкоштовний CoinGecko Demo API (без Pro).
  * Prod: `/api/coingecko` (server-side key). Dev: extFetchUrl + VITE_COINGECKO_API_KEY.
  */
 export async function coingeckoSimpleBatch(ids: string[]): Promise<Record<string, CgRow>> {
@@ -37,17 +40,12 @@ export async function coingeckoSimpleBatch(ids: string[]): Promise<Record<string
 		(typeof process !== 'undefined'
 			? process.env.COINGECKO_API_KEY ?? process.env.VITE_COINGECKO_API_KEY
 			: undefined)
-	const pro =
-		import.meta.env.VITE_COINGECKO_PRO === '1' ||
-		import.meta.env.VITE_COINGECKO_PRO === 'true' ||
-		(typeof process !== 'undefined' &&
-			(process.env.COINGECKO_PRO === '1' || process.env.COINGECKO_PRO === 'true'))
 
 	if (isProdBuild() && typeof key === 'string' && key.length >= 3) {
-		const u = buildSimplePriceUrl('https://api.coingecko.com/api/v3', uniq)
+		const u = buildSimplePriceUrl(CG_FREE_BASE, uniq)
 		const path = `${u.pathname}${u.search}`
 		try {
-			const r = await coingeckoProxyFetch(path, pro)
+			const r = await coingeckoProxyFetch(path)
 			if (r.ok) return (await r.json()) as Record<string, CgRow>
 		} catch {
 			/* fall through */
@@ -55,15 +53,11 @@ export async function coingeckoSimpleBatch(ids: string[]): Promise<Record<string
 	}
 
 	if (typeof key === 'string' && key.length >= 3) {
-		const base = pro ? 'https://pro-api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3'
-		const u = buildSimplePriceUrl(base, uniq)
-		const headers: Record<string, string> = pro
-			? { 'x-cg-pro-api-key': String(key) }
-			: { 'x-cg-demo-api-key': String(key) }
-		const hit = await fetchCgUrl(u, headers)
+		const u = buildSimplePriceUrl(CG_FREE_BASE, uniq)
+		const hit = await fetchCgUrl(u, { 'x-cg-demo-api-key': String(key) })
 		if (Object.keys(hit).length > 0) return hit
 	}
-	const u = buildSimplePriceUrl('https://api.coingecko.com/api/v3', uniq)
+	const u = buildSimplePriceUrl(CG_FREE_BASE, uniq)
 	return fetchCgUrl(u, {})
 }
 

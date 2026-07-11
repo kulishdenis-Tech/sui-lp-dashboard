@@ -170,7 +170,7 @@ OKX там, де можливо інакше CoinGecko batch / DexScreener то�
 | DexScreener | `api.dexscreener.com` | `/ext/ds` |
 | GeckoTerminal | `api.geckoterminal.com` | `/ext/gt` |
 | DexPaprika | `api.dexpaprika.com` | `/ext/dp` |
-| CoinGecko | demo / pro | `/ext/cg`, `/ext/cgpro` |
+| CoinGecko | free Demo API | `/ext/cg` |
 | OKX Web3 | `web3.okx.com` | `/ext/okx` |
 | Bluefin DAPI / Swap | `dapi.api.sui-prod.bluefin.io`, `swap.api.sui-prod.bluefin.io` | `/ext/bf-dapi`, `/ext/bf-swap` |
 | Navi Open API | `open-api.naviprotocol.io` | `/ext/navi` |

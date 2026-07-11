@@ -2,7 +2,7 @@ import { coingeckoKeyFromEnv } from './_lib/secrets.js'
 
 type VercelReq = {
 	method?: string
-	body?: { path?: string; pro?: boolean }
+	body?: { path?: string }
 }
 type VercelRes = {
 	status(code: number): VercelRes
@@ -10,7 +10,7 @@ type VercelRes = {
 	end(): void
 }
 
-/** CoinGecko simple/price proxy with server-side API key. */
+/** CoinGecko free/demo proxy with server-side API key (no Pro). */
 export default async function handler(req: VercelReq, res: VercelRes) {
 	if (req.method !== 'POST') {
 		res.status(405).json({ error: 'POST only' })
@@ -23,17 +23,12 @@ export default async function handler(req: VercelReq, res: VercelRes) {
 		return
 	}
 
-	const creds = coingeckoKeyFromEnv()
-	const usePro = req.body?.pro === true || creds?.pro === true
-	const base = usePro ? 'https://pro-api.coingecko.com' : 'https://api.coingecko.com'
+	const key = coingeckoKeyFromEnv()
 	const headers: Record<string, string> = {}
-	if (creds) {
-		if (usePro) headers['x-cg-pro-api-key'] = creds.key
-		else headers['x-cg-demo-api-key'] = creds.key
-	}
+	if (key) headers['x-cg-demo-api-key'] = key
 
 	try {
-		const upstream = await fetch(`${base}${path}`, {
+		const upstream = await fetch(`https://api.coingecko.com${path}`, {
 			headers,
 			signal: AbortSignal.timeout(15_000),
 		})

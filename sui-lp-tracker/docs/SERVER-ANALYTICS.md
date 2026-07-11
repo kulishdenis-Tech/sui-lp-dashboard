@@ -59,6 +59,6 @@ Secrets у репозиторії GitHub (Settings → Secrets):
 
 ## Ліміти
 
-- Hobby Vercel: function timeout **10s** — для 2 гаманців може бути tight; Pro дає **60s** (`vercel.json`).
-- RPC: використовуй приватний endpoint у `VITE_SUI_RPC_URL`.
-- LP history sync важчий за portfolio snapshot — краще private RPC і sequential wallets.
+- Vercel Hobby: serverless timeout короткий — важкі задачі (snapshot / LP history) лише через **GitHub Actions**.
+- RPC: публічний Mysten fullnode ок для старту; при 429 зменш concurrency або зміни endpoint (безкоштовні публічні).
+- LP history sync важчий за portfolio snapshot — wallets послідовно, не паралельно.
