@@ -47,4 +47,16 @@ describe('portfolioSnapshotSanitize', () => {
 		expect(shouldSaveSnapshot(snap(4, 0), [snap(1, 100_000)])).toBe(false)
 		expect(shouldSaveSnapshot({ ...snap(4, Number.NaN), totalUSD: Number.NaN }, [snap(1, 100_000)])).toBe(false)
 	})
+
+	it('keeps corrected latest after short under-reported bootstrap history', () => {
+		const history = [
+			snap(1, 1_353),
+			snap(2, 1_486),
+			snap(3, 104_196),
+		]
+		const clean = sanitizePortfolioSnapshots(history)
+		expect(clean.some((s) => s.totalUSD > 100_000)).toBe(true)
+		expect(clean.at(-1)?.totalUSD).toBe(104_196)
+		expect(shouldSaveSnapshot(snap(3, 104_196), [snap(1, 1_353), snap(2, 1_486)])).toBe(true)
+	})
 })

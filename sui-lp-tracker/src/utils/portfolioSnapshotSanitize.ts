@@ -6,6 +6,9 @@ export const SNAPSHOT_OUTLIER_MAX_RATIO = 25
 /** Hard ceiling when baseline is a normal personal wallet (< $2M). */
 export const SNAPSHOT_ABS_CEILING_USD = 50_000_000
 
+/** Short histories: early under-reports shouldn't wipe a corrected latest total. */
+const BOOTSTRAP_MAX_SNAPS = 24
+
 function median(values: number[]): number {
 	if (values.length === 0) return 0
 	const sorted = [...values].sort((a, b) => a - b)
@@ -23,7 +26,6 @@ function finitePositiveTotals(snaps: PortfolioSnapshot[]): number[] {
 
 function robustBaseline(totals: number[]): number {
 	if (totals.length === 0) return 0
-	// Trim extreme tails before median — resilient when many spikes exist.
 	const sorted = [...totals].sort((a, b) => a - b)
 	const trim = Math.floor(sorted.length * 0.1)
 	const trimmed = sorted.slice(trim, sorted.length - trim || undefined)
@@ -44,6 +46,35 @@ export function isOutlierTotalUsd(totalUSD: number, baselineUSD: number): boolea
 }
 
 /**
+ * Early server snapshots sometimes under-counted (lending/LP = 0). Prefer the
+ * latest corrected total and drop the incomplete cluster when history is short.
+ */
+function applyBootstrapCorrection(
+	sorted: PortfolioSnapshot[],
+	kept: PortfolioSnapshot[],
+): PortfolioSnapshot[] {
+	if (sorted.length === 0 || sorted.length > BOOTSTRAP_MAX_SNAPS) return kept
+
+	const latest = sorted[sorted.length - 1]!
+	if (!Number.isFinite(latest.totalUSD) || latest.totalUSD <= 0) return kept
+	if (kept.some((s) => s.id === latest.id)) return kept
+
+	const keptBaseline = robustBaseline(finitePositiveTotals(kept))
+	if (keptBaseline <= 0) return [...kept, latest].sort((a, b) => a.ts - b.ts)
+
+	// Latest was dropped as a "spike" — but if it's much larger than the kept
+	// cluster, treat kept as under-reports and re-anchor on latest.
+	if (latest.totalUSD <= keptBaseline * SNAPSHOT_OUTLIER_MAX_RATIO) {
+		return [...kept, latest].sort((a, b) => a.ts - b.ts)
+	}
+
+	const reAnchored = sorted.filter(
+		(s) => s.id === latest.id || !isOutlierTotalUsd(s.totalUSD, latest.totalUSD),
+	)
+	return reAnchored.length > 0 ? reAnchored : [latest]
+}
+
+/**
  * Drop chart-breaking spikes (bad price quotes saved to IDB).
  * Two-pass: global robust baseline, then local neighbor check for isolated spikes.
  */
@@ -60,14 +91,14 @@ export function sanitizePortfolioSnapshots(
 
 	let kept = sorted.filter((s) => !isOutlierTotalUsd(s.totalUSD, baseline))
 
-	// Recompute baseline without obvious spikes; one refinement pass.
 	const refinedTotals = finitePositiveTotals(kept)
 	if (refinedTotals.length > 0) {
 		baseline = robustBaseline(refinedTotals)
 		kept = kept.filter((s) => !isOutlierTotalUsd(s.totalUSD, baseline))
 	}
 
-	// Local window: catch spikes that survived because many neighbors were also bad.
+	kept = applyBootstrapCorrection(sorted, kept)
+
 	const localWindow = 4
 	return kept.filter((s, i, arr) => {
 		const neighbors: number[] = []
@@ -97,5 +128,17 @@ export function shouldSaveSnapshot(
 	if (recentTotals.length === 0) return true
 
 	const baseline = robustBaseline(recentTotals)
-	return !isOutlierTotalUsd(snap.totalUSD, baseline)
+	if (!isOutlierTotalUsd(snap.totalUSD, baseline)) return true
+
+	// Allow first corrected totals after under-reported server snapshots.
+	if (
+		recentHistory.length <= BOOTSTRAP_MAX_SNAPS &&
+		snap.totalUSD > baseline * SNAPSHOT_OUTLIER_MAX_RATIO &&
+		snap.lendingNetUSD > 0 &&
+		snap.lpUSD > 0
+	) {
+		return true
+	}
+
+	return false
 }
