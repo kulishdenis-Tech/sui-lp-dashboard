@@ -79,8 +79,34 @@ function rowToClient(row: LpHistoryRow): ClientLpHistoryPosition {
 export async function upsertLpHistoryRows(rows: LpHistoryRow[]): Promise<number> {
 	if (rows.length === 0 || !isSupabaseConfigured()) return 0
 	const db = getSupabaseAdmin()
-	const { error } = await db.from('lp_position_history').upsert(rows, { onConflict: 'id' })
-	if (error) throw error
+
+	const sanitize = (value: unknown): unknown => {
+		try {
+			return JSON.parse(
+				JSON.stringify(value, (_k, v) => {
+					if (typeof v === 'bigint') return v.toString()
+					if (typeof v === 'number' && !Number.isFinite(v)) return null
+					return v
+				}),
+			)
+		} catch {
+			return {}
+		}
+	}
+
+	const payload = rows.map((r) => sanitize(r) as LpHistoryRow)
+	const chunkSize = 25
+	for (let i = 0; i < payload.length; i += chunkSize) {
+		const chunk = payload.slice(i, i + chunkSize)
+		const { error } = await db.from('lp_position_history').upsert(chunk, { onConflict: 'id' })
+		if (error) {
+			throw new Error(
+				`lp_position_history upsert failed (${i}-${i + chunk.length}): ${error.message}` +
+					(error.details ? ` | ${error.details}` : '') +
+					(error.hint ? ` | ${error.hint}` : ''),
+			)
+		}
+	}
 	return rows.length
 }
 

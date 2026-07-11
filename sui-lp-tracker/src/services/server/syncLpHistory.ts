@@ -89,6 +89,9 @@ export async function syncLpHistoryForWallet(rawWallet: string): Promise<SyncLpH
 			)
 		}
 
+		console.log(
+			`[lp-history] ${wallet.slice(0, 10)}… rows=${rows.length} closed=${closed.length} openEvents=${rows.filter((r) => r.status === 'open').length}`,
+		)
 		await upsertLpHistoryRows(rows)
 
 		return {
@@ -98,12 +101,19 @@ export async function syncLpHistoryForWallet(rawWallet: string): Promise<SyncLpH
 			open: rows.filter((r) => r.status === 'open').length,
 		}
 	} catch (e) {
+		const error =
+			e instanceof Error
+				? e.message
+				: typeof e === 'object' && e !== null
+					? JSON.stringify(e)
+					: String(e)
+		console.error(`[lp-history] ${wallet.slice(0, 10)}… failed`, error)
 		return {
 			wallet,
 			ok: false,
 			closed: 0,
 			open: 0,
-			error: e instanceof Error ? e.message : String(e),
+			error,
 		}
 	} finally {
 		clearLpWalletScanSession()
