@@ -134,6 +134,8 @@ export function closedPositionToRow(wallet: string, cp: ClosedPositionLike): LpH
 	const walletAddr = wallet.toLowerCase()
 	const positionId = cp.id
 	const { events, ...rest } = cp
+	const openedAt = Number(cp.openedAt)
+	const closedAt = Number(cp.closedAt)
 	return {
 		id: makeLpHistoryId(walletAddr, positionId),
 		wallet_addr: walletAddr,
@@ -144,8 +146,8 @@ export function closedPositionToRow(wallet: string, cp: ClosedPositionLike): LpH
 		events: (events ?? []) as LpHistoryEvent[],
 		position: rest as Record<string, unknown>,
 		scan_partial: Boolean(cp.partialHistory),
-		opened_at: cp.openedAt ?? null,
-		closed_at: cp.closedAt ?? null,
+		opened_at: Number.isFinite(openedAt) ? Math.floor(openedAt) : null,
+		closed_at: Number.isFinite(closedAt) ? Math.floor(closedAt) : null,
 	}
 }
 
@@ -162,6 +164,7 @@ export function openEventsToRow(
 	},
 ): LpHistoryRow {
 	const walletAddr = wallet.toLowerCase()
+	const openedAt = opts.openedAt == null ? null : Number(opts.openedAt)
 	return {
 		id: makeLpHistoryId(walletAddr, opts.positionId),
 		wallet_addr: walletAddr,
@@ -172,7 +175,7 @@ export function openEventsToRow(
 		events: opts.events,
 		position: opts.extra ?? {},
 		scan_partial: Boolean(opts.scanPartial),
-		opened_at: opts.openedAt ?? null,
+		opened_at: openedAt != null && Number.isFinite(openedAt) ? Math.floor(openedAt) : null,
 		closed_at: null,
 	}
 }
