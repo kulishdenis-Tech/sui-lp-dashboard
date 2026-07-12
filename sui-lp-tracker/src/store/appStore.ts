@@ -43,6 +43,8 @@ let _closedLoadGen = 0
 export type LoadAllOptions = {
 	/** Оновити DexScreener/фолбеки, ігноруючи 5хв mem (кнопка Refresh). */
 	forceRefreshPrices?: boolean
+	/** Cold-scan LP events; skip Supabase history hydrate (Force rescan). */
+	forceRescanLpHistory?: boolean
 }
 
 /**
@@ -225,10 +227,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 				lastLoadError: null,
 			})
 
-			if (options?.forceRefreshPrices) {
+			if (options?.forceRescanLpHistory) {
 				invalidateAllAdapterCaches(address)
 			}
 			const priceOpts = { forceRefreshPrices: options?.forceRefreshPrices === true }
+			const skipServerLp = options?.forceRescanLpHistory === true
+			/** Warm open events from Supabase (watchlist) — seed bf/mmt enrich without wiping USD. */
+			const serverOpenPromise = skipServerLp
+				? Promise.resolve(null)
+				: fetchServerLpHistory(address, 'open').catch(() => null)
 
 			/** Спільна session для enrichment bf/mmt — стартує лише коли потрібна, не на початку loadAll. */
 			let enrichSessionPromise: Promise<Awaited<ReturnType<typeof ensureLpWalletScanSession>>> | null =
@@ -236,7 +243,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 			const getEnrichSession = () => {
 				if (!enrichSessionPromise) {
 					enrichSessionPromise = ensureLpWalletScanSession(address, {
-						forceRefresh: options?.forceRefreshPrices === true,
+						forceRefresh: skipServerLp,
 					})
 				}
 				return enrichSessionPromise
@@ -250,34 +257,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 				if (positions.length === 0) return
 				markEnriching(positions)
 				void (async () => {
-					let pending = positions
-					// Prefer server-cached open events for watchlist wallets.
-					const serverOpen = await fetchServerLpHistory(address, 'open').catch(() => null)
-					if (serverOpen && serverOpen.positions.length > 0 && !isStale()) {
-						const byId = serverHistoryToEventsMap(serverOpen.positions)
-						const fromServer = pending.filter((p) => (byId[p.id]?.length ?? 0) > 0)
-						if (fromServer.length > 0) {
-							applyEnrichRows(
-								fromServer.map((p) => ({
-									id: p.id,
-									evs: byId[p.id]!,
-									merged: {},
-								})),
-							)
-						}
-						pending = pending.filter((p) => !(byId[p.id]?.length))
-						if (pending.length === 0) return
-						markEnriching(pending)
-					}
-
-					const session = await getEnrichSession()
 					try {
-						const rows = await enrichAllBluefinOpenPositions(address, pending, { session })
+						const server = await serverOpenPromise
+						const seed = server ? serverHistoryToEventsMap(server.positions) : undefined
+						const needsWalletScan = positions.some((p) => {
+							const evs = seed?.[p.id]
+							return !evs?.some((e) => e.type === 'add_liquidity' || e.type === 'open_position')
+						})
+						const session = needsWalletScan ? await getEnrichSession() : null
+						const rows = await enrichAllBluefinOpenPositions(address, positions, {
+							session,
+							seedEventsByPositionId: seed,
+						})
 						applyEnrichRows(rows.map((r) => ({ id: r.id, evs: r.events, merged: r.merged })))
 					} catch {
 						set((st) => {
 							const upd = { ...st.loadingEvents }
-							for (const p of pending) delete upd[p.id]
+							for (const p of positions) delete upd[p.id]
 							return { loadingEvents: upd }
 						})
 					}
@@ -477,15 +473,22 @@ export const useAppStore = create<AppState>((set, get) => ({
 				appendPositions(positions)
 				if (positions.length > 0) {
 					markEnriching(positions)
-					void enrichAllCetusOpenPositions(address, positions).then((rows) => {
-						applyEnrichRows(rows)
-					}).catch(() => {
-						set((st) => {
-							const upd = { ...st.loadingEvents }
-							for (const p of positions) delete upd[p.id]
-							return { loadingEvents: upd }
-						})
-					})
+					void (async () => {
+						try {
+							const server = await serverOpenPromise
+							const seed = server ? serverHistoryToEventsMap(server.positions) : undefined
+							const rows = await enrichAllCetusOpenPositions(address, positions, {
+								seedEventsByPositionId: seed,
+							})
+							applyEnrichRows(rows)
+						} catch {
+							set((st) => {
+								const upd = { ...st.loadingEvents }
+								for (const p of positions) delete upd[p.id]
+								return { loadingEvents: upd }
+							})
+						}
+					})()
 				}
 				onProtocolDone()
 			}).catch((e) => {
@@ -525,9 +528,17 @@ export const useAppStore = create<AppState>((set, get) => ({
 						}
 						const enriched = await enrichBluefinOpenPositionWithEvents(p, evs, false)
 						return { id: p.id, evs: enriched.events, merged: enriched.merged }
-					}).then((rows) => {
-						applyEnrichRows(rows)
 					})
+						.then((rows) => {
+							applyEnrichRows(rows)
+						})
+						.catch(() => {
+							set((st) => {
+								const upd = { ...st.loadingEvents }
+								for (const p of positions) delete upd[p.id]
+								return { loadingEvents: upd }
+							})
+						})
 				}
 				onProtocolDone()
 			}).catch((e) => {
@@ -544,13 +555,21 @@ export const useAppStore = create<AppState>((set, get) => ({
 				onProtocolDone()
 			})
 
-			if (!isLpLazyClosedEnabled()) {
-				queueMicrotask(() => {
-					void get().loadClosedPositions(address, {
-						forceRefresh: options?.forceRefreshPrices === true,
-					})
-				})
-			}
+			// Prefetch closed from server for watchlist (even when Closed tab is lazy).
+			queueMicrotask(() => {
+				if (skipServerLp) {
+					void get().loadClosedPositions(address, { forceRefresh: true })
+					return
+				}
+				void (async () => {
+					const server = await fetchServerLpHistory(address, 'closed').catch(() => null)
+					if (server && server.positions.length > 0) {
+						void get().loadClosedPositions(address)
+					} else if (!isLpLazyClosedEnabled()) {
+						void get().loadClosedPositions(address)
+					}
+				})()
+			})
 		}),
 
 	loadClosedPositions: async (address, options) => {

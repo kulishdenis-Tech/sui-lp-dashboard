@@ -708,7 +708,7 @@ function okxSuccess(j) {
 function okxUrlOnWire(requestPath) {
   return extFetchUrl(`https://web3.okx.com${requestPath.startsWith("/") ? requestPath : `/${requestPath}`}`);
 }
-async function okxSignedRequest(method, pathWithQuery, bodyStr = "") {
+async function okxSignedRequestOnce(method, pathWithQuery, bodyStr = "") {
   if (okxCircuitOpen()) return null;
   const path = pathWithQuery.startsWith("/") ? pathWithQuery : `/${pathWithQuery}`;
   if (isProdBuild()) {
@@ -754,6 +754,21 @@ async function okxSignedRequest(method, pathWithQuery, bodyStr = "") {
   } finally {
     clearTimeout(t);
   }
+}
+async function okxSignedRequest(method, pathWithQuery, bodyStr = "") {
+  const maxAttempts = 1 + okxFetchExtraRetries();
+  let last = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    last = await okxSignedRequestOnce(method, pathWithQuery, bodyStr);
+    if (!last) return null;
+    if (last.status !== 429) return last;
+    const backoffMs = 400 * (attempt + 1) * (attempt + 1);
+    if (import.meta.env.DEV || typeof window === "undefined") {
+      console.warn("[OKX] 429 backoff", { attempt: attempt + 1, backoffMs, path: pathWithQuery.split("?")[0] });
+    }
+    await sleep(backoffMs);
+  }
+  return last;
 }
 function parseChange24h(s) {
   if (s == null || s === "") return null;

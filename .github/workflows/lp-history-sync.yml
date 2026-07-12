@@ -1,9 +1,9 @@
-# Sync open + closed LP event history for WATCH_WALLETS (heavier than portfolio snapshot).
+# Sync open + closed LP event history for WATCH_WALLETS (incremental closed).
 name: LP history sync
 
 on:
   schedule:
-    # Every hour — full LP scan is RPC-heavy
+    # Every hour — incremental; set LP_HISTORY_FULL_RESYNC=1 for full re-enrich
     - cron: '20 * * * *'
   workflow_dispatch:
 
@@ -38,4 +38,5 @@ jobs:
           OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
           OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
           VITE_LP_LIFECYCLE_INDEXER: '1'
+          LP_HIST_QUOTE_CONCURRENCY: '3'
         run: npm run lp-history:sync

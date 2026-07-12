@@ -63,6 +63,54 @@ function positionHasDeposit(evs: PositionEvent[]): boolean {
 	return evs.some((e) => e.type === 'add_liquidity' || e.type === 'open_position')
 }
 
+/**
+ * USD already on the event (e.g. Supabase open history).
+ * Prefer complete two-leg values; infer the missing leg from total when possible.
+ * Do not dump total-only into usdA — that breaks per-leg history sums.
+ */
+function preexistingEventUsd(e: PositionEvent): {
+	usdA: number
+	usdB: number
+	total: number
+	legsComplete: boolean
+	hadAny: boolean
+} {
+	const usdA = Number.isFinite(e.valueUsdA) && (e.valueUsdA as number) > 0 ? (e.valueUsdA as number) : 0
+	const usdB = Number.isFinite(e.valueUsdB) && (e.valueUsdB as number) > 0 ? (e.valueUsdB as number) : 0
+	const totalFromEvent =
+		Number.isFinite(e.totalValueUSD) && (e.totalValueUSD as number) > 0 ? (e.totalValueUSD as number) : 0
+
+	if (usdA > 0 && usdB > 0) {
+		return { usdA, usdB, total: usdA + usdB, legsComplete: true, hadAny: true }
+	}
+	// Server stored total + one leg → infer the other (historical sum stays correct).
+	if (usdA > 0 && usdB <= 0 && totalFromEvent > usdA + 1e-9) {
+		return {
+			usdA,
+			usdB: totalFromEvent - usdA,
+			total: totalFromEvent,
+			legsComplete: true,
+			hadAny: true,
+		}
+	}
+	if (usdB > 0 && usdA <= 0 && totalFromEvent > usdB + 1e-9) {
+		return {
+			usdA: totalFromEvent - usdB,
+			usdB,
+			total: totalFromEvent,
+			legsComplete: true,
+			hadAny: true,
+		}
+	}
+	if (usdA > 0 || usdB > 0) {
+		return { usdA, usdB, total: usdA + usdB, legsComplete: false, hadAny: true }
+	}
+	if (totalFromEvent > 0) {
+		return { usdA: 0, usdB: 0, total: totalFromEvent, legsComplete: false, hadAny: true }
+	}
+	return { usdA: 0, usdB: 0, total: 0, legsComplete: false, hadAny: false }
+}
+
 export async function enrichBluefinOpenPositionWithEvents(
 	p: OpenPosition,
 	events: PositionEvent[],
@@ -145,48 +193,146 @@ export async function enrichBluefinOpenPositionWithEvents(
 		if (e.type === 'add_liquidity' || e.type === 'remove_liquidity') {
 			const a = e.tokenAAmount
 			const b = e.tokenBAmount
-			const qA = await quoteAt(symA, addrA, t)
-			const qB = await quoteAt(symB, addrB, t)
-			const usdA = qA.usdPerToken != null && a > 0 ? a * qA.usdPerToken : 0
-			const usdB = qB.usdPerToken != null && b > 0 ? b * qB.usdPerToken : 0
+			const pre = preexistingEventUsd(e)
+			let usdA = pre.usdA
+			let usdB = pre.usdB
+			let usedSpot = false
+			let usedPreTotalOnly = false
+			let qA: HistoricalUsdQuote = {
+				usdPerToken: null,
+				source: 'cache',
+				approximate: false,
+				quoteAsOfUnixSec: null,
+			}
+			let qB: HistoricalUsdQuote = {
+				usdPerToken: null,
+				source: 'cache',
+				approximate: false,
+				quoteAsOfUnixSec: null,
+			}
+			if (!pre.legsComplete) {
+				// Hist-quote only missing legs — keep any priced server/cache leg.
+				if (a > 0 && usdA <= 0) {
+					qA = await quoteAt(symA, addrA, t)
+					usdA = qA.usdPerToken != null ? a * qA.usdPerToken : 0
+				}
+				if (b > 0 && usdB <= 0) {
+					qB = await quoteAt(symB, addrB, t)
+					usdB = qB.usdPerToken != null ? b * qB.usdPerToken : 0
+				}
+				// Prefer server total-only over current spot when both legs still unpriced.
+				if (usdA + usdB <= 0 && pre.total > 0) {
+					usedPreTotalOnly = true
+				} else if (lifecycle === 'open') {
+					const pa = Number.isFinite(p.currentPriceA_USD) ? p.currentPriceA_USD : 0
+					const pb = Number.isFinite(p.currentPriceB_USD) ? p.currentPriceB_USD : 0
+					if (a > 0 && usdA <= 0 && pa > 0) {
+						usdA = a * pa
+						usedSpot = true
+						qA = {
+							usdPerToken: pa,
+							source: 'okx_dex_spot_current',
+							approximate: true,
+							quoteAsOfUnixSec: Math.floor(Date.now() / 1000),
+						}
+					}
+					if (b > 0 && usdB <= 0 && pb > 0) {
+						usdB = b * pb
+						usedSpot = true
+						qB = {
+							usdPerToken: pb,
+							source: 'okx_dex_spot_current',
+							approximate: true,
+							quoteAsOfUnixSec: Math.floor(Date.now() / 1000),
+						}
+					}
+				}
+			}
+			const legsUsd = usdA + usdB
+			const eventUsd =
+				legsUsd > 0
+					? legsUsd
+					: usedPreTotalOnly || pre.legsComplete
+						? pre.total
+						: 0
 			out.valueUsdA = usdA > 0 ? usdA : null
 			out.valueUsdB = usdB > 0 ? usdB : null
 			out.valueUsdReward = null
-			out.quoteAsOfUnixSecA = usdA > 0 ? qA.quoteAsOfUnixSec : null
-			out.quoteAsOfUnixSecB = usdB > 0 ? qB.quoteAsOfUnixSec : null
+			out.quoteAsOfUnixSecA =
+				usdA > 0 ? (qA.quoteAsOfUnixSec ?? e.quoteAsOfUnixSecA ?? null) : null
+			out.quoteAsOfUnixSecB =
+				usdB > 0 ? (qB.quoteAsOfUnixSec ?? e.quoteAsOfUnixSecB ?? null) : null
 			out.quoteAsOfUnixSecReward = null
-			out.totalValueUSD = usdA + usdB
-			out.priceA_USD = usdA > 0 && a > 0 ? usdA / a : null
-			out.priceB_USD = usdB > 0 && b > 0 ? usdB / b : null
-			out.priceUnavailable = usdA + usdB <= 0
-			out.priceAtTxApproximate = qA.approximate || qB.approximate
-			out.priceSource = pickRowSource(qA, usdA, qB, usdB)
-			if (e.type === 'add_liquidity' && usdA + usdB > 0) {
-				netDepositedUsd += usdA + usdB
+			out.totalValueUSD = eventUsd > 0 ? eventUsd : 0
+			out.priceA_USD = usdA > 0 && a > 0 ? usdA / a : (e.priceA_USD ?? null)
+			out.priceB_USD = usdB > 0 && b > 0 ? usdB / b : (e.priceB_USD ?? null)
+			out.priceUnavailable = eventUsd <= 0
+			out.priceAtTxApproximate =
+				usedSpot ||
+				qA.approximate ||
+				qB.approximate ||
+				(pre.legsComplete && (e.priceAtTxApproximate ?? false))
+			out.priceSource = pre.legsComplete
+				? (e.priceSource ?? 'cache')
+				: usedPreTotalOnly
+					? (e.priceSource ?? 'cache')
+					: (pickRowSource(qA, usdA, qB, usdB) ?? e.priceSource ?? null)
+			if (e.type === 'add_liquidity' && eventUsd > 0) {
+				netDepositedUsd += eventUsd
 			}
-			if (e.type === 'remove_liquidity' && usdA + usdB > 0) {
-				netDepositedUsd -= usdA + usdB
+			if (e.type === 'remove_liquidity' && eventUsd > 0) {
+				netDepositedUsd -= eventUsd
 			}
 		} else if (e.type === 'collect_fee') {
 			const fa = e.feeAmountA
 			const fb = e.feeAmountB
-			const qA = await quoteAt(symA, addrA, t)
-			const qB = await quoteAt(symB, addrB, t)
-			const usdA = qA.usdPerToken != null && fa > 0 ? fa * qA.usdPerToken : 0
-			const usdB = qB.usdPerToken != null && fb > 0 ? fb * qB.usdPerToken : 0
+			const pre = preexistingEventUsd(e)
+			let usdA = pre.usdA
+			let usdB = pre.usdB
+			let qA: HistoricalUsdQuote = {
+				usdPerToken: null,
+				source: 'cache',
+				approximate: false,
+				quoteAsOfUnixSec: null,
+			}
+			let qB: HistoricalUsdQuote = {
+				usdPerToken: null,
+				source: 'cache',
+				approximate: false,
+				quoteAsOfUnixSec: null,
+			}
+			if (!pre.legsComplete) {
+				if (fa > 0 && usdA <= 0) {
+					qA = await quoteAt(symA, addrA, t)
+					usdA = qA.usdPerToken != null ? fa * qA.usdPerToken : 0
+				}
+				if (fb > 0 && usdB <= 0) {
+					qB = await quoteAt(symB, addrB, t)
+					usdB = qB.usdPerToken != null ? fb * qB.usdPerToken : 0
+				}
+			}
+			const legsUsd = usdA + usdB
+			const tUsd = legsUsd > 0 ? legsUsd : pre.total
 			out.valueUsdA = usdA > 0 ? usdA : null
 			out.valueUsdB = usdB > 0 ? usdB : null
 			out.valueUsdReward = null
-			out.quoteAsOfUnixSecA = usdA > 0 ? qA.quoteAsOfUnixSec : null
-			out.quoteAsOfUnixSecB = usdB > 0 ? qB.quoteAsOfUnixSec : null
+			out.quoteAsOfUnixSecA =
+				usdA > 0 ? (qA.quoteAsOfUnixSec ?? e.quoteAsOfUnixSecA ?? null) : null
+			out.quoteAsOfUnixSecB =
+				usdB > 0 ? (qB.quoteAsOfUnixSec ?? e.quoteAsOfUnixSecB ?? null) : null
 			out.quoteAsOfUnixSecReward = null
-			const tUsd = usdA + usdB
 			out.totalValueUSD = tUsd
-			out.priceA_USD = usdA > 0 && fa > 0 ? usdA / fa : null
-			out.priceB_USD = usdB > 0 && fb > 0 ? usdB / fb : null
-			out.priceUnavailable = tUsd <= 0
-			out.priceAtTxApproximate = qA.approximate || qB.approximate
-			out.priceSource = pickRowSource(qA, usdA, qB, usdB)
+			out.priceA_USD = usdA > 0 && fa > 0 ? usdA / fa : (e.priceA_USD ?? null)
+			out.priceB_USD = usdB > 0 && fb > 0 ? usdB / fb : (e.priceB_USD ?? null)
+			out.priceUnavailable =
+				tUsd <= 0 || (fa > 0 && usdA <= 0 && legsUsd <= 0) || (fb > 0 && usdB <= 0 && legsUsd <= 0)
+			out.priceAtTxApproximate =
+				qA.approximate || qB.approximate || (pre.legsComplete && (e.priceAtTxApproximate ?? false))
+			out.priceSource = pre.legsComplete
+				? (e.priceSource ?? 'cache')
+				: legsUsd > 0
+					? (pickRowSource(qA, usdA, qB, usdB) ?? e.priceSource ?? null)
+					: (e.priceSource ?? (pre.hadAny ? 'cache' : null))
 			sumClaimedFeeUsd += tUsd
 		} else if (e.type === 'collect_reward') {
 			const r = e.rewardAmount
@@ -202,7 +348,15 @@ export async function enrichBluefinOpenPositionWithEvents(
 				approximate: false,
 				quoteAsOfUnixSec: null,
 			}
-			if (r > 0) {
+			const preReward =
+				Number.isFinite(e.valueUsdReward) && (e.valueUsdReward as number) > 0
+					? (e.valueUsdReward as number)
+					: Number.isFinite(e.totalValueUSD) && (e.totalValueUSD as number) > 0
+						? (e.totalValueUSD as number)
+						: 0
+			if (preReward > 0) {
+				u = preReward
+			} else if (r > 0) {
 				if (rewardCt) {
 					qR = await quoteAt(rt || rewardCt.split('::').pop() || symA, rewardCt, t)
 					u = qR.usdPerToken != null ? r * qR.usdPerToken : 0
@@ -223,8 +377,8 @@ export async function enrichBluefinOpenPositionWithEvents(
 			out.quoteAsOfUnixSecReward = u > 0 ? qR.quoteAsOfUnixSec : null
 			out.totalValueUSD = u
 			out.priceUnavailable = u <= 0
-			out.priceAtTxApproximate = qR.approximate
-			out.priceSource = u > 0 ? qR.source : null
+			out.priceAtTxApproximate = qR.approximate || preReward > 0
+			out.priceSource = u > 0 ? (preReward > 0 ? (e.priceSource ?? 'cache') : qR.source) : null
 			sumClaimedRewardUsd += u
 		} else {
 			out.valueUsdA = null
@@ -416,7 +570,11 @@ export async function enrichBluefinOpenPositionWithEvents(
 export async function enrichAllBluefinOpenPositions(
 	wallet: string,
 	positions: OpenPosition[],
-	options?: { session?: LpWalletScanSession | null },
+	options?: {
+		session?: LpWalletScanSession | null
+		/** Events from Supabase `/api/lp-history?status=open` — skip cold scan when deposit is present. */
+		seedEventsByPositionId?: Record<string, PositionEvent[]>
+	},
 ): Promise<
 	Array<{ id: string; merged: Partial<OpenPosition>; events: PositionEvent[]; historyPartial: boolean }>
 > {
@@ -431,6 +589,22 @@ export async function enrichAllBluefinOpenPositions(
 	const session = options?.session ?? getLpWalletScanSession()
 	const eventsByPositionId = new Map<string, PositionEvent[]>()
 	let scanPartial = false
+
+	const seedMap = options?.seedEventsByPositionId
+	if (seedMap) {
+		for (const p of tracked) {
+			let posKey: string
+			try {
+				posKey = normalizeSuiAddress(p.id)
+			} catch {
+				posKey = p.id
+			}
+			const seeded = seedMap[p.id] ?? seedMap[posKey]
+			if (seeded && seeded.length > 0) {
+				eventsByPositionId.set(posKey, [...seeded].sort((a, b) => a.timestamp - b.timestamp))
+			}
+		}
+	}
 
 	if (session) {
 		scanPartial = session.bluefin.historyPartial || session.momentum.historyPartial
@@ -450,7 +624,10 @@ export async function enrichAllBluefinOpenPositions(
 				p.protocol === 'momentum'
 					? momentumRawToPositionEvents(raw, posKey, p.tokenADecimals, p.tokenBDecimals)
 					: bluefinRawToPositionEvents(raw, posKey, p.tokenADecimals, p.tokenBDecimals)
-			if (parsed.length > 0) eventsByPositionId.set(posKey, parsed)
+			if (parsed.length > 0) {
+				const existing = eventsByPositionId.get(posKey) ?? []
+				eventsByPositionId.set(posKey, mergePositionEvents(parsed, existing))
+			}
 		}
 	}
 

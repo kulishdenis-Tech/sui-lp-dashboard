@@ -142,3 +142,17 @@ export function shouldSaveSnapshot(
 
 	return false
 }
+
+/** Merge server + local snapshots by `hourBucket` (prefer higher `ts` for same bucket). */
+export function mergeSnapshotsByBucket(
+	...groups: PortfolioSnapshot[][]
+): PortfolioSnapshot[] {
+	const byBucket = new Map<number, PortfolioSnapshot>()
+	for (const group of groups) {
+		for (const s of group) {
+			const prev = byBucket.get(s.hourBucket)
+			if (!prev || s.ts >= prev.ts) byBucket.set(s.hourBucket, s)
+		}
+	}
+	return [...byBucket.values()].sort((a, b) => a.hourBucket - b.hourBucket)
+}

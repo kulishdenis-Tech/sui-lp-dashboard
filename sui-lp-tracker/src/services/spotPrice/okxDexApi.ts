@@ -115,7 +115,7 @@ function okxUrlOnWire(requestPath: string): string {
 }
 
 /** Signed OKX request — prod uses `/api/okx`; dev signs in-browser with VITE_* creds. */
-async function okxSignedRequest(
+async function okxSignedRequestOnce(
 	method: 'GET' | 'POST',
 	pathWithQuery: string,
 	bodyStr = '',
@@ -167,6 +167,28 @@ async function okxSignedRequest(
 	} finally {
 		clearTimeout(t)
 	}
+}
+
+/** Retry on HTTP 429 (free-tier rate limit) with short backoff. */
+async function okxSignedRequest(
+	method: 'GET' | 'POST',
+	pathWithQuery: string,
+	bodyStr = '',
+): Promise<{ ok: boolean; status: number; json: OkxJson } | null> {
+	const maxAttempts = 1 + okxFetchExtraRetries()
+	let last: { ok: boolean; status: number; json: OkxJson } | null = null
+	for (let attempt = 0; attempt < maxAttempts; attempt++) {
+		last = await okxSignedRequestOnce(method, pathWithQuery, bodyStr)
+		if (!last) return null
+		if (last.status !== 429) return last
+		const backoffMs = 400 * (attempt + 1) * (attempt + 1)
+		if (import.meta.env.DEV || typeof window === 'undefined') {
+			// eslint-disable-next-line no-console
+			console.warn('[OKX] 429 backoff', { attempt: attempt + 1, backoffMs, path: pathWithQuery.split('?')[0] })
+		}
+		await sleep(backoffMs)
+	}
+	return last
 }
 
 /**

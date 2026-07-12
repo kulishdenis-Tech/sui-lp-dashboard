@@ -20,6 +20,15 @@ export function Header() {
 		}
 	}, [address])
 
+	const forceRescanLp = useCallback(() => {
+		if (address) {
+			void useAppStore.getState().loadAll(address, {
+				forceRefreshPrices: true,
+				forceRescanLpHistory: true,
+			})
+		}
+	}, [address])
+
 	const clearCacheAndReload = useCallback(() => {
 		void clearAllLocalCaches()
 	}, [])
@@ -57,9 +66,20 @@ export function Header() {
 							}
 							onClick={refreshPrices}
 							disabled={!address || isLoading}
-							title="Refetch spot prices and reload portfolio data"
+							title="Refetch spot prices and balances (uses server LP history when warm)"
 						>
 							Refresh
+						</button>
+					) : null}
+					{isConnected ? (
+						<button
+							type="button"
+							className="shrink-0 rounded px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition-colors disabled:opacity-50"
+							onClick={forceRescanLp}
+							disabled={!address || isLoading}
+							title="Cold-scan LP events on-chain (skip server history cache)"
+						>
+							Force rescan
 						</button>
 					) : null}
 					{isConnected ? (

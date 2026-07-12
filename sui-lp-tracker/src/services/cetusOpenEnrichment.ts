@@ -18,11 +18,19 @@ export type CetusEnrichRow = {
 export async function enrichAllCetusOpenPositions(
 	walletAddress: string,
 	positions: OpenPosition[],
+	options?: { seedEventsByPositionId?: Record<string, PositionEvent[]> },
 ): Promise<CetusEnrichRow[]> {
 	const cetus = positions.filter((p) => p.protocol === 'cetus')
 	if (cetus.length === 0) return []
 
-	await scanCetusWalletEvents(walletAddress)
+	const seedMap = options?.seedEventsByPositionId
+	const allSeeded = cetus.every((p) => {
+		const seeded = seedMap?.[p.id]
+		return seeded?.some((e) => e.type === 'add_liquidity')
+	})
+	if (!allSeeded) {
+		await scanCetusWalletEvents(walletAddress)
+	}
 
 	const conc = 4
 	const out: CetusEnrichRow[] = []
@@ -37,19 +45,26 @@ export async function enrichAllCetusOpenPositions(
 			const origDecB = p.cetusOriginalDecimalsB ?? p.tokenBDecimals
 
 			let evs: PositionEvent[] = []
-			try {
-				evs = await Promise.race([
-					scanCetusPositionEvents(walletAddress, p.id, origDecA, origDecB),
-					new Promise<PositionEvent[]>((_, rej) =>
-						setTimeout(() => rej(new Error('sender-scan-timeout')), 60_000),
-					),
-				])
-			} catch (err) {
-				console.warn(
-					'[Cetus] sender-scan failed for',
-					p.id,
-					err instanceof Error ? err.message : err,
-				)
+			const seeded = seedMap?.[p.id]
+			if (seeded?.length) {
+				evs = [...seeded].sort((a, b) => a.timestamp - b.timestamp)
+			}
+
+			if (!evs.some((e) => e.type === 'add_liquidity')) {
+				try {
+					evs = await Promise.race([
+						scanCetusPositionEvents(walletAddress, p.id, origDecA, origDecB),
+						new Promise<PositionEvent[]>((_, rej) =>
+							setTimeout(() => rej(new Error('sender-scan-timeout')), 60_000),
+						),
+					])
+				} catch (err) {
+					console.warn(
+						'[Cetus] sender-scan failed for',
+						p.id,
+						err instanceof Error ? err.message : err,
+					)
+				}
 			}
 
 			if (!evs.some((e) => e.type === 'add_liquidity')) {

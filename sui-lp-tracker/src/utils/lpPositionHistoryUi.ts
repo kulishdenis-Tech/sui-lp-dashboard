@@ -7,9 +7,7 @@ export function lpProtocolUsesOnChainHistory(protocol: string): boolean {
 
 /**
  * True only when the protocol uses on-chain history AND enrichment has completed
- * with at least one event (so derived metrics like PnL / daysOpen are meaningful).
- * Empty-events results (`positionEvents[id] = []`) intentionally return false so the
- * table shows `—` instead of `$0.00 / 0d`.
+ * with events + deposit basis (so PnL / ROI are real, not placeholder $0).
  */
 export function isLpPositionHistoryEnriched(
 	position: OpenPosition,
@@ -17,7 +15,9 @@ export function isLpPositionHistoryEnriched(
 ): boolean {
 	if (!lpProtocolUsesOnChainHistory(position.protocol)) return true
 	const evs = positionEvents[position.id]
-	return Array.isArray(evs) && evs.length > 0
+	if (!Array.isArray(evs) || evs.length === 0) return false
+	const dep = position.depositedUSD
+	return Number.isFinite(dep) && dep > 0
 }
 
 /**

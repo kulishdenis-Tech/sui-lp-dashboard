@@ -54,11 +54,18 @@ Secrets у репозиторії GitHub (Settings → Secrets):
 - Workflow: `.github/workflows/lp-history-sync.yml` (щогодини + manual)
 - Локально: `npm run lp-history:sync`
 - Schema: `supabase/lp-history.sql` (також у `schema.sql`)
+- **Інкрементально:** closed, які вже в Supabase, не пере-enrich (лише нові NFT). Повний прогін: `LP_HISTORY_FULL_RESYNC=1`
+- OKX hist quotes: `LP_HIST_QUOTE_CONCURRENCY` (Node default `3`)
+- Wallets sync **послідовно** — не роздувати `WATCH_WALLETS` без потреби
 
-Клиєнт для watchlist спочатку тягне closed/open events з `/api/lp-history`, без cold RPC.
+Клиєнт для watchlist спочатку тягне closed/open events з `/api/lp-history` (ETag / 304), без cold RPC.  
+Refresh оновлює ціни; **Force rescan** — cold LP scan.  
+Analytics: server snapshots мерджаться з локальними 15-хв точками (GHA cron на private repo інколи запізнюється).
+
+У `npm run dev` `/api/*` проксується на prod (окрім `/api/lp/pool-candles`).
 
 ## Ліміти
 
 - Vercel Hobby: serverless timeout короткий — важкі задачі (snapshot / LP history) лише через **GitHub Actions**.
-- RPC: публічний Mysten fullnode ок для старту; при 429 зменш concurrency або зміни endpoint (безкоштовні публічні).
+- RPC: публічний Mysten fullnode ок для старту; при 429 зменш concurrency.
 - LP history sync важчий за portfolio snapshot — wallets послідовно, не паралельно.

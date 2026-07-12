@@ -13,19 +13,37 @@ export type ServerLpHistoryResponse = {
 	error?: string
 }
 
+const _etagByKey = new Map<string, string>()
+const _bodyByKey = new Map<string, ServerLpHistoryResponse>()
+
+function cacheKey(wallet: string, status: string): string {
+	return `${wallet.toLowerCase()}|${status}`
+}
+
 export async function fetchServerLpHistory(
 	wallet: string,
 	status: 'open' | 'closed' | 'all' = 'all',
 ): Promise<ServerLpHistoryResponse | null> {
+	const key = cacheKey(wallet, status)
 	try {
 		const params = new URLSearchParams({ wallet, status })
+		const headers: Record<string, string> = { Accept: 'application/json' }
+		const prevEtag = _etagByKey.get(key)
+		if (prevEtag) headers['If-None-Match'] = prevEtag
+
 		const res = await fetch(`/api/lp-history?${params.toString()}`, {
 			method: 'GET',
-			headers: { Accept: 'application/json' },
+			headers,
 		})
+		if (res.status === 304) {
+			return _bodyByKey.get(key) ?? null
+		}
 		if (!res.ok) return null
 		const data = (await res.json()) as ServerLpHistoryResponse
 		if (!Array.isArray(data.positions)) return null
+		const etag = res.headers.get('ETag')
+		if (etag) _etagByKey.set(key, etag)
+		_bodyByKey.set(key, data)
 		return data
 	} catch {
 		return null

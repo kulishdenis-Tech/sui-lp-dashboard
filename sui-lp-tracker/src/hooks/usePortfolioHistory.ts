@@ -37,6 +37,7 @@ import {
 } from '@/services/portfolioSnapshotIdb'
 import {
 	findOutlierSnapshotIds,
+	mergeSnapshotsByBucket,
 	sanitizePortfolioSnapshots,
 	shouldSaveSnapshot,
 } from '@/utils/portfolioSnapshotSanitize'
@@ -136,8 +137,13 @@ export function usePortfolioHistory(): PortfolioHistoryResult {
 					fetchServerSnapshots(addr, range),
 				])
 
+				const localRaw = await getSnapshots(addr).catch(() => [] as PortfolioSnapshot[])
+				const localAll = sanitizePortfolioSnapshots(localRaw)
+
 				if (serverAll && serverAll.length > 0) {
-					const all = sanitizePortfolioSnapshots(serverAll)
+					// Merge server + local by hourBucket so browser 15-min saves still
+					// appear when GitHub Actions cron is delayed on a private repo.
+					const all = sanitizePortfolioSnapshots(mergeSnapshotsByBucket(serverAll, localAll))
 					setAllSnapshots(all)
 					const now = Date.now()
 					const fromMs = range === 'all' ? 0 : now - RANGE_MS[range]
@@ -145,11 +151,19 @@ export function usePortfolioHistory(): PortfolioHistoryResult {
 						range === 'all'
 							? all
 							: all.filter((s) => s.ts >= fromMs && s.ts <= now + INTERVAL_MS)
-					setSnapshots(serverRange && serverRange.length > 0 ? sanitizePortfolioSnapshots(serverRange) : filtered)
+					const rangeMerged = mergeSnapshotsByBucket(
+						serverRange ?? [],
+						localAll.filter((s) => range === 'all' || (s.ts >= fromMs && s.ts <= now + INTERVAL_MS)),
+					)
+					setSnapshots(
+						sanitizePortfolioSnapshots(
+							rangeMerged.length > 0 ? rangeMerged : filtered,
+						),
+					)
 					return
 				}
 
-				const raw = await getSnapshots(addr)
+				const raw = localRaw
 
 				// One-time purge: delete spike snapshots already stored in IDB.
 				const outlierIds = findOutlierSnapshotIds(raw)

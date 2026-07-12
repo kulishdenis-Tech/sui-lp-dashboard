@@ -42,6 +42,9 @@ vi.mock('@/services/lpIndexerAugmentClosed', () => ({
 vi.mock('@/services/lpFeatureFlags', () => ({
 	isLpLifecycleIndexerEnabled: () => false,
 }))
+vi.mock('@/services/lpScanSession', () => ({
+	getLpWalletScanSession: () => null,
+}))
 
 import { getClosedPositions } from '@/services/positionService'
 

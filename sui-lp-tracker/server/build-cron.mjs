@@ -11,10 +11,11 @@ await esbuild.build({
 	platform: 'node',
 	format: 'esm',
 	outfile,
-	alias: { '@': './src' },
+	alias: {
+		'@': './src',
+	},
 	logLevel: 'info',
 	sourcemap: false,
-	// Keep node_modules external — Vercel installs them for functions.
 	packages: 'external',
 })
 

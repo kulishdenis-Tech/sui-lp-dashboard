@@ -15,10 +15,22 @@ export type HistoricalQuoteRequest = {
 
 /**
  * Паралельне завантаження унікальних історичних котирувань перед batch enrichment.
+ * Server/Node default concurrency is lower to avoid OKX 429 on free tier.
  */
+export function defaultHistoricalQuoteConcurrency(): number {
+	const fromEnv =
+		typeof process !== 'undefined' && process.env.LP_HIST_QUOTE_CONCURRENCY
+			? Number(process.env.LP_HIST_QUOTE_CONCURRENCY)
+			: NaN
+	if (Number.isFinite(fromEnv) && fromEnv >= 1) return Math.min(16, Math.floor(fromEnv))
+	// Browser: keep previous default; Node/GHA: throttle
+	if (typeof window === 'undefined') return 3
+	return 8
+}
+
 export async function prefetchHistoricalQuotes(
 	requests: HistoricalQuoteRequest[],
-	concurrency = 8,
+	concurrency = defaultHistoricalQuoteConcurrency(),
 ): Promise<Map<string, HistoricalUsdQuote>> {
 	const uniq = new Map<string, HistoricalQuoteRequest>()
 	for (const r of requests) {

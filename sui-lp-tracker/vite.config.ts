@@ -151,11 +151,30 @@ export default defineConfig({
 				agent: extHttpsAgent,
 				rewrite: (p) => p.replace(/^\/ext\/navi/, ''),
 			},
+			// Dev: same-origin /api/* → prod (Supabase-backed history, proxies).
+			// Local candles middleware handles /api/lp/pool-candles before this proxy.
+			'/api': {
+				target: 'https://sui-lp-dashboard.vercel.app',
+				changeOrigin: true,
+				secure: true,
+				bypass(req) {
+					const u = req.url ?? ''
+					if (u.startsWith('/api/lp/pool-candles')) return u
+				},
+			},
 		},
 	},
 	/** `vite preview` — keep a stable, distinct port from dev. */
 	preview: {
 		port: 5181,
 		strictPort: true,
+		host: true,
+		proxy: {
+			'/api': {
+				target: 'https://sui-lp-dashboard.vercel.app',
+				changeOrigin: true,
+				secure: true,
+			},
+		},
 	},
 })

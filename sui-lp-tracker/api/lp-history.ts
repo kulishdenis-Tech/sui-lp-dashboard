@@ -5,6 +5,12 @@ import { ensureWatchedWallets } from './_lib/supabaseSnapshots.js'
 import { getLpHistoryForWallet, type LpHistoryStatus } from './_lib/supabaseLpHistory.js'
 import { isWatchWallet } from './_lib/watchWallets.js'
 
+function header(req: VercelReq, name: string): string {
+	const h = req.headers?.[name] ?? req.headers?.[name.toLowerCase()]
+	if (Array.isArray(h)) return h[0] ?? ''
+	return typeof h === 'string' ? h : ''
+}
+
 /** GET /api/lp-history?wallet=0x…&status=closed|open|all */
 export default async function handler(req: VercelReq, res: VercelRes) {
 	if ((req.method ?? 'GET').toUpperCase() !== 'GET') {
@@ -34,17 +40,28 @@ export default async function handler(req: VercelReq, res: VercelRes) {
 		}
 
 		const positions = await getLpHistoryForWallet(wallet, status)
+		const updatedAt = positions.reduce<string | null>((max, p) => {
+			if (!p.updatedAt) return max
+			if (!max || p.updatedAt > max) return p.updatedAt
+			return max
+		}, null)
+		const etag = `"lp-${status}-${positions.length}-${updatedAt ?? 'empty'}"`
+		const inm = header(req, 'if-none-match').trim()
+		if (inm && inm === etag) {
+			res.setHeader('ETag', etag)
+			res.setHeader('Cache-Control', 'private, max-age=60')
+			res.status(304).end()
+			return
+		}
+
+		res.setHeader('ETag', etag)
 		res.setHeader('Cache-Control', 'private, max-age=60')
 		res.status(200).json({
 			wallet,
 			status,
 			positions,
 			source: 'supabase',
-			updatedAt: positions.reduce<string | null>((max, p) => {
-				if (!p.updatedAt) return max
-				if (!max || p.updatedAt > max) return p.updatedAt
-				return max
-			}, null),
+			updatedAt,
 		})
 	} catch (e) {
 		res.status(500).json({ error: e instanceof Error ? e.message : String(e) })

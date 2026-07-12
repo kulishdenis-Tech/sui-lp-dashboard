@@ -22,7 +22,8 @@ async function main() {
 		const r = await syncLpHistoryForWallet(wallet)
 		results.push(r)
 		console.log(
-			`[lp-history] ${wallet.slice(0, 10)}… ok=${r.ok} closed=${r.closed} open=${r.open}` +
+			`[lp-history] ${wallet.slice(0, 10)}… ok=${r.ok} closed=${r.closed} new=${r.closedNew} open=${r.open}` +
+				(r.incremental ? ' incremental' : ' full') +
 				(r.error ? ` error=${r.error}` : ''),
 		)
 	}

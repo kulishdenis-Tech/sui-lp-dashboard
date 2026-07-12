@@ -8,7 +8,7 @@
  * Also caches per-position TX scan results for closed positions (closed_pos_tx_events).
  * Closed positions are immutable — their TX events are cached indefinitely.
  *
- * No external dependencies — uses browser-native IndexedDB API.
+ * Node / GHA: in-memory Maps (see `installNodeIdbShim`) for process-lifetime warm delta.
  */
 import type { PositionEvent } from '@/types'
 
@@ -45,6 +45,32 @@ export type LpCacheEntry = {
 	fullScanDoneAt: number
 }
 
+/**
+ * Per-position cache entry for TX-scan events of a closed position.
+ * Closed positions are immutable, so entries are cached indefinitely.
+ */
+export type ClosedPosTxCacheEntry = {
+	/** Primary key: `${walletNorm}|${posNorm}` */
+	id: string
+	walletNorm: string
+	posNorm: string
+	events: PositionEvent[]
+	/** True if the TX scan was page-capped when this entry was saved. */
+	scanPartial: boolean
+	/** Date.now() when saved. Informational only — no TTL for closed positions. */
+	cachedAt: number
+}
+
+// ─── Memory backend (Node / GHA) ─────────────────────────────────────────────
+
+const _memLp = new Map<string, LpCacheEntry>()
+const _memClosedTx = new Map<string, ClosedPosTxCacheEntry>()
+
+function useMemoryIdb(): boolean {
+	if ((globalThis as { __SUI_LP_MEMORY_IDB__?: boolean }).__SUI_LP_MEMORY_IDB__) return true
+	return typeof indexedDB === 'undefined'
+}
+
 // ─── IndexedDB helpers ────────────────────────────────────────────────────────
 
 let _dbPromise: Promise<IDBDatabase> | null = null
@@ -56,15 +82,12 @@ function openDb(): Promise<IDBDatabase> {
 		req.onupgradeneeded = (ev) => {
 			const db = req.result
 			const oldVersion = ev.oldVersion
-			// v1: raw event cache
 			if (oldVersion < 1 && !db.objectStoreNames.contains(STORE_NAME)) {
 				db.createObjectStore(STORE_NAME, { keyPath: 'id' })
 			}
-			// v2: closed position TX events cache (immutable, cached indefinitely)
 			if (oldVersion < 2 && !db.objectStoreNames.contains(CLOSED_TX_STORE)) {
 				db.createObjectStore(CLOSED_TX_STORE, { keyPath: 'id' })
 			}
-			// v3: repopulate closed_pos_tx_events so PositionOpened tick data is extracted
 			if (oldVersion < 3 && db.objectStoreNames.contains(CLOSED_TX_STORE)) {
 				db.deleteObjectStore(CLOSED_TX_STORE)
 				db.createObjectStore(CLOSED_TX_STORE, { keyPath: 'id' })
@@ -83,24 +106,6 @@ function openDb(): Promise<IDBDatabase> {
 	return _dbPromise
 }
 
-// ─── Closed position TX events cache ─────────────────────────────────────────
-
-/**
- * Per-position cache entry for TX-scan events of a closed position.
- * Closed positions are immutable, so entries are cached indefinitely.
- */
-export type ClosedPosTxCacheEntry = {
-	/** Primary key: `${walletNorm}|${posNorm}` */
-	id: string
-	walletNorm: string
-	posNorm: string
-	events: PositionEvent[]
-	/** True if the TX scan was page-capped when this entry was saved. */
-	scanPartial: boolean
-	/** Date.now() when saved. Informational only — no TTL for closed positions. */
-	cachedAt: number
-}
-
 /**
  * Load cached TX events for multiple closed positions in one IDB transaction.
  * Returns a Map keyed by normalised position ID.
@@ -110,6 +115,14 @@ export async function loadClosedPosTxEntries(
 	positionIds: string[],
 ): Promise<Map<string, ClosedPosTxCacheEntry>> {
 	if (positionIds.length === 0) return new Map()
+	if (useMemoryIdb()) {
+		const out = new Map<string, ClosedPosTxCacheEntry>()
+		for (const id of positionIds) {
+			const entry = _memClosedTx.get(`${walletNorm}|${id}`)
+			if (entry) out.set(entry.posNorm, entry)
+		}
+		return out
+	}
 	try {
 		const db = await openDb()
 		const keys = positionIds.map((id) => `${walletNorm}|${id}`)
@@ -118,7 +131,10 @@ export async function loadClosedPosTxEntries(
 			const tx = db.transaction(CLOSED_TX_STORE, 'readonly')
 			const store = tx.objectStore(CLOSED_TX_STORE)
 			let pending = keys.length
-			if (pending === 0) { resolve(out); return }
+			if (pending === 0) {
+				resolve(out)
+				return
+			}
 			for (const key of keys) {
 				const req = store.get(key)
 				req.onsuccess = () => {
@@ -141,6 +157,10 @@ export async function loadClosedPosTxEntries(
  * Fire-and-forget safe (errors are swallowed — next load will re-scan).
  */
 export async function saveClosedPosTxEntry(entry: ClosedPosTxCacheEntry): Promise<void> {
+	if (useMemoryIdb()) {
+		_memClosedTx.set(entry.id, entry)
+		return
+	}
 	try {
 		const db = await openDb()
 		await new Promise<void>((resolve, reject) => {
@@ -158,9 +178,12 @@ export async function loadLpCacheEntry(
 	walletNorm: string,
 	protocol: 'bluefin' | 'momentum' | 'cetus',
 ): Promise<LpCacheEntry | null> {
+	const key = `${walletNorm}|${protocol}`
+	if (useMemoryIdb()) {
+		return _memLp.get(key) ?? null
+	}
 	try {
 		const db = await openDb()
-		const key = `${walletNorm}|${protocol}`
 		return new Promise<LpCacheEntry | null>((resolve, reject) => {
 			const tx = db.transaction(STORE_NAME, 'readonly')
 			const req = tx.objectStore(STORE_NAME).get(key)
@@ -168,12 +191,15 @@ export async function loadLpCacheEntry(
 			req.onerror = () => reject(req.error)
 		})
 	} catch {
-		// IDB unavailable (private browsing, permissions, etc.) — degrade to full scan.
 		return null
 	}
 }
 
 export async function saveLpCacheEntry(entry: LpCacheEntry): Promise<void> {
+	if (useMemoryIdb()) {
+		_memLp.set(entry.id, entry)
+		return
+	}
 	try {
 		const db = await openDb()
 		await new Promise<void>((resolve, reject) => {
@@ -183,23 +209,24 @@ export async function saveLpCacheEntry(entry: LpCacheEntry): Promise<void> {
 			req.onerror = () => reject(req.error)
 		})
 	} catch {
-		// Non-fatal: next session will do a full scan again.
+		// Non-fatal
 	}
 }
 
 /**
  * Delete the cached event entry for a wallet+protocol combination.
- * Use when the cache is known to be stale/incomplete — forces a cold
- * rescan on the next call to scanMomentumWalletAllPositionEvents /
- * scanBluefinWalletAllPositionEvents.
  */
 export async function deleteLpCacheEntry(
 	walletNorm: string,
 	protocol: 'bluefin' | 'momentum' | 'cetus',
 ): Promise<void> {
+	const key = `${walletNorm}|${protocol}`
+	if (useMemoryIdb()) {
+		_memLp.delete(key)
+		return
+	}
 	try {
 		const db = await openDb()
-		const key = `${walletNorm}|${protocol}`
 		await new Promise<void>((resolve, reject) => {
 			const tx = db.transaction(STORE_NAME, 'readwrite')
 			const req = tx.objectStore(STORE_NAME).delete(key)
@@ -240,8 +267,6 @@ export function rowsToMap<T extends RawEvt>(rows: RawEventRow[]): Map<string, T[
 	return m
 }
 
-// ─── Tick extraction from raw LP event cache ─────────────────────────────────
-
 /** Inline I32 reader (mirrors readI32Bits in eventParser — no cross-import needed). */
 function _readI32(v: unknown): number | null {
 	if (v == null) return null
@@ -270,8 +295,6 @@ function _readTickField(pj: Record<string, unknown>, ...keys: string[]): number 
 /**
  * Loads raw lp_event_cache for the given wallet+protocol and extracts CLMM tick ranges
  * from PositionOpened events (parsedJson). Returns Map<posNorm, {tickLower, tickUpper}>.
- *
- * Called once per enrichAllBluefinClosedPositions run — O(N rows) single IDB read.
  */
 export async function loadTicksFromLpCache(
 	walletNorm: string,
@@ -283,14 +306,25 @@ export async function loadTicksFromLpCache(
 		if (!entry) return out
 		for (const row of entry.rows) {
 			const sn = row.event.type.split('::').pop() ?? ''
-			// Bluefin: 'PositionOpened' | Momentum: 'OpenPositionEvent'
 			if (sn !== 'PositionOpened' && sn !== 'OpenPositionEvent') continue
 			const pj = row.event.parsedJson as Record<string, unknown> | null
 			if (!pj) continue
-			const tl = _readTickField(pj,
-				'tick_lower_index', 'tick_lower', 'lower_tick', 'lower_tick_index', 'lower_index')
-			const tu = _readTickField(pj,
-				'tick_upper_index', 'tick_upper', 'upper_tick', 'upper_tick_index', 'upper_index')
+			const tl = _readTickField(
+				pj,
+				'tick_lower_index',
+				'tick_lower',
+				'lower_tick',
+				'lower_tick_index',
+				'lower_index',
+			)
+			const tu = _readTickField(
+				pj,
+				'tick_upper_index',
+				'tick_upper',
+				'upper_tick',
+				'upper_tick_index',
+				'upper_index',
+			)
 			if (tl != null && tu != null && row.pid) {
 				out.set(row.pid, { tickLower: tl, tickUpper: tu })
 			}

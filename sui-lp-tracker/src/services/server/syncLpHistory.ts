@@ -1,14 +1,21 @@
 import { normalizeSuiAddress } from '@mysten/sui/utils'
 import { ensureLpWalletScanSession, clearLpWalletScanSession } from '@/services/lpScanSession'
-import { getClosedPositions } from '@/services/positionService'
+import { getClosedPositions, fetchClosedFromAdapters } from '@/services/positionService'
 import { getMomentumPositions } from '@/services/momentumService'
 import { getBluefinSpotPositions } from '@/services/bluefinService'
 import { getCetusPositions } from '@/services/cetusService'
 import { getTurbosPositions } from '@/services/turbosService'
-import { enrichAllBluefinOpenPositions } from '@/services/enrichment'
+import {
+	enrichAllBluefinOpenPositions,
+	enrichBluefinOpenPositionWithEvents,
+} from '@/services/enrichment'
 import { enrichAllCetusOpenPositions } from '@/services/cetusOpenEnrichment'
+import { scanTurbosPositionEvents } from '@/services/turbosLpEvents'
+import { mapPool } from '@/utils/concurrency'
+import { TURBOS_ENRICH_CONCURRENCY } from '@/utils/constants'
 import {
 	closedPositionToRow,
+	getLpHistoryForWallet,
 	openEventsToRow,
 	upsertLpHistoryRows,
 	type LpHistoryRow,
@@ -19,8 +26,15 @@ export type SyncLpHistoryResult = {
 	wallet: string
 	ok: boolean
 	closed: number
+	closedNew: number
 	open: number
+	incremental: boolean
 	error?: string
+}
+
+function wantFullResync(): boolean {
+	const v = process.env.LP_HISTORY_FULL_RESYNC
+	return v === '1' || v === 'true'
 }
 
 async function loadOpenPositions(wallet: string): Promise<OpenPosition[]> {
@@ -33,25 +47,79 @@ async function loadOpenPositions(wallet: string): Promise<OpenPosition[]> {
 	return [...momentum, ...bluefin, ...cetus, ...turbos]
 }
 
+async function enrichTurbosOpen(
+	wallet: string,
+	positions: OpenPosition[],
+): Promise<Array<{ id: string; events: PositionEvent[] }>> {
+	const turbos = positions.filter((p) => p.protocol === 'turbos')
+	if (turbos.length === 0) return []
+	return mapPool(turbos, TURBOS_ENRICH_CONCURRENCY, async (p) => {
+		const origDecA = p.turbosOriginalDecimalsA ?? p.tokenADecimals
+		const origDecB = p.turbosOriginalDecimalsB ?? p.tokenBDecimals
+		let evs = await scanTurbosPositionEvents(
+			wallet,
+			p.id,
+			p.turbosPositionObjectId ?? '',
+			origDecA,
+			origDecB,
+		)
+		if (p.turbosSwapped) {
+			evs = evs.map((e) => ({
+				...e,
+				tokenAAmount: e.tokenBAmount,
+				tokenBAmount: e.tokenAAmount,
+				feeAmountA: e.feeAmountB,
+				feeAmountB: e.feeAmountA,
+				priceA_USD: e.priceB_USD,
+				priceB_USD: e.priceA_USD,
+				valueUsdA: e.valueUsdB,
+				valueUsdB: e.valueUsdA,
+				quoteAsOfUnixSecA: e.quoteAsOfUnixSecB,
+				quoteAsOfUnixSecB: e.quoteAsOfUnixSecA,
+			}))
+		}
+		const enriched = await enrichBluefinOpenPositionWithEvents(p, evs, false)
+		return { id: p.id, events: enriched.events }
+	})
+}
+
 /**
- * Full LP history sync for one watch wallet (open + closed).
+ * LP history sync for one watch wallet (open + incremental closed).
  * Intended for GitHub Actions / local vite-node — not Vercel Hobby timeout.
+ *
+ * Set `LP_HISTORY_FULL_RESYNC=1` to re-enrich every closed position.
  */
 export async function syncLpHistoryForWallet(rawWallet: string): Promise<SyncLpHistoryResult> {
 	const wallet = normalizeSuiAddress(rawWallet).toLowerCase()
+	const fullResync = wantFullResync()
 	try {
 		clearLpWalletScanSession()
-		const session = await ensureLpWalletScanSession(wallet, { forceRefresh: true })
+		const session = await ensureLpWalletScanSession(wallet, { forceRefresh: fullResync })
 
-		const closed = await getClosedPositions(wallet)
+		const knownClosed = await getLpHistoryForWallet(wallet, 'closed')
+		const knownIds = new Set(knownClosed.map((p) => p.positionId.toLowerCase()))
+
+		const discovered = await fetchClosedFromAdapters(wallet)
+		const newIds = fullResync
+			? discovered.map((c) => c.id)
+			: discovered.filter((c) => !knownIds.has(c.id.toLowerCase())).map((c) => c.id)
+
+		const closed =
+			newIds.length === 0
+				? []
+				: await getClosedPositions(wallet, { onlyIds: newIds, prefetched: discovered })
+
 		const openPositions = await loadOpenPositions(wallet)
 
-		const [bfRows, cetusRows] = await Promise.all([
+		const [bfRows, cetusRows, turbosRows] = await Promise.all([
 			openPositions.length > 0
 				? enrichAllBluefinOpenPositions(wallet, openPositions, { session }).catch(() => [])
 				: Promise.resolve([]),
 			openPositions.some((p) => p.protocol === 'cetus')
 				? enrichAllCetusOpenPositions(wallet, openPositions).catch(() => [])
+				: Promise.resolve([]),
+			openPositions.some((p) => p.protocol === 'turbos')
+				? enrichTurbosOpen(wallet, openPositions).catch(() => [])
 				: Promise.resolve([]),
 		])
 
@@ -61,6 +129,9 @@ export async function syncLpHistoryForWallet(rawWallet: string): Promise<SyncLpH
 		}
 		for (const row of cetusRows) {
 			if (row.evs?.length) eventsById.set(row.id, row.evs)
+		}
+		for (const row of turbosRows) {
+			if (row.events?.length) eventsById.set(row.id, row.events)
 		}
 
 		const rows: LpHistoryRow[] = []
@@ -90,15 +161,19 @@ export async function syncLpHistoryForWallet(rawWallet: string): Promise<SyncLpH
 		}
 
 		console.log(
-			`[lp-history] ${wallet.slice(0, 10)}… rows=${rows.length} closed=${closed.length} openEvents=${rows.filter((r) => r.status === 'open').length}`,
+			`[lp-history] ${wallet.slice(0, 10)}… rows=${rows.length} closedNew=${closed.length}/${discovered.length}` +
+				` openEvents=${rows.filter((r) => r.status === 'open').length}` +
+				` incremental=${!fullResync}`,
 		)
 		await upsertLpHistoryRows(rows)
 
 		return {
 			wallet,
 			ok: true,
-			closed: closed.length,
+			closed: discovered.length,
+			closedNew: closed.length,
 			open: rows.filter((r) => r.status === 'open').length,
+			incremental: !fullResync,
 		}
 	} catch (e) {
 		const error =
@@ -112,7 +187,9 @@ export async function syncLpHistoryForWallet(rawWallet: string): Promise<SyncLpH
 			wallet,
 			ok: false,
 			closed: 0,
+			closedNew: 0,
 			open: 0,
+			incremental: !fullResync,
 			error,
 		}
 	} finally {
