@@ -81,8 +81,8 @@ function fmtUnitPrice(p: number | null) {
 	return formatUSD(p, 8)
 }
 
-/** 24h change column */
-function change24hCell(ch: number | null) {
+/** % change cell (5m / 1h / 24h) */
+function changePctCell(ch: number | null | undefined) {
 	if (ch == null || Number.isNaN(ch)) {
 		return <span className="text-slate-500">—</span>
 	}
@@ -151,13 +151,14 @@ export function TokenRow({
 				{nameCell}
 				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-500`}>—</td>
 				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-500`}>—</td>
+				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-500`}>—</td>
+				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-500`}>—</td>
 				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-300`}>{fmtBalance(t)}</td>
 				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-500`}>—</td>
 			</tr>
 		)
 	}
 
-	const ch = t.change24h
 	return (
 		<tr className="group text-sm">
 			{tokenAndAddressCell}
@@ -166,7 +167,13 @@ export function TokenRow({
 				{fmtUnitPrice(t.priceUSD)}
 			</td>
 			<td className={`${cell} whitespace-nowrap text-right font-mono text-xs`}>
-				{change24hCell(ch)}
+				{changePctCell(t.change5m)}
+			</td>
+			<td className={`${cell} whitespace-nowrap text-right font-mono text-xs`}>
+				{changePctCell(t.change1h)}
+			</td>
+			<td className={`${cell} whitespace-nowrap text-right font-mono text-xs`}>
+				{changePctCell(t.change24h)}
 			</td>
 			<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-300`}>{fmtBalance(t)}</td>
 			<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-200`}>

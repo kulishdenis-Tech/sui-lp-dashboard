@@ -17,12 +17,14 @@ import {
 
 const BALANCE_TABLE_COLS = (
 	<colgroup>
-		<col style={{ width: '22%' }} />
-		<col style={{ width: '20%' }} />
-		<col style={{ width: '13%' }} />
-		<col style={{ width: '9%' }} />
-		<col style={{ width: '15%' }} />
-		<col style={{ width: '11%' }} />
+		<col style={{ width: '18%' }} />
+		<col style={{ width: '16%' }} />
+		<col style={{ width: '12%' }} />
+		<col style={{ width: '8%' }} />
+		<col style={{ width: '8%' }} />
+		<col style={{ width: '8%' }} />
+		<col style={{ width: '14%' }} />
+		<col style={{ width: '10%' }} />
 	</colgroup>
 )
 
@@ -46,6 +48,31 @@ function SortableTableHead({
 		'min-w-0 text-left font-normal normal-case tracking-normal text-slate-500 hover:text-slate-300'
 	const thNum =
 		'min-w-0 text-right font-normal normal-case tracking-normal text-slate-500 hover:text-slate-300'
+
+	const numCol = (
+		col: BalanceSortCol,
+		label: string,
+		tip: string,
+		aria: string,
+		extraThClass = 'px-2 py-2 text-right',
+	) => (
+		<th
+			scope="col"
+			className={extraThClass}
+			aria-sort={
+				sort.col === col ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined
+			}
+		>
+			<div className="flex justify-end">
+				<span className="inline-flex items-start">
+					<button type="button" className={thNum} onClick={() => onSort(col)}>
+						{label} <span className="inline-block w-3">{arrow(col)}</span>
+					</button>
+					<TooltipIconButton tip={tip} aria-label={aria} className="translate-y-px" />
+				</span>
+			</div>
+		</th>
+	)
 
 	return (
 		<thead>
@@ -83,102 +110,43 @@ function SortableTableHead({
 						/>
 					</span>
 				</th>
-				<th
-					scope="col"
-					className="px-2 py-2 text-right"
-					aria-sort={
-						sort.col === 'price'
-							? sort.dir === 'asc'
-								? 'ascending'
-								: 'descending'
-							: undefined
-					}
-				>
-					<div className="flex justify-end">
-						<span className="inline-flex items-start">
-							<button type="button" className={thNum} onClick={() => onSort('price')}>
-								Price (USD) <span className="inline-block w-3">{arrow('price')}</span>
-							</button>
-							<TooltipIconButton
-								tip="Spot USD price from the app price pipeline (OKX DEX and fallbacks)."
-								aria-label="About Price column"
-								className="translate-y-px"
-							/>
-						</span>
-					</div>
-				</th>
-				<th
-					scope="col"
-					className="px-2 py-2 text-right"
-					aria-sort={
-						sort.col === 'change24h'
-							? sort.dir === 'asc'
-								? 'ascending'
-								: 'descending'
-							: undefined
-					}
-				>
-					<div className="flex justify-end">
-						<span className="inline-flex items-start">
-							<button type="button" className={thNum} onClick={() => onSort('change24h')}>
-								24h <span className="inline-block w-3">{arrow('change24h')}</span>
-							</button>
-							<TooltipIconButton
-								tip="Approximate 24h price change where the feed provides it."
-								aria-label="About 24h column"
-								className="translate-y-px"
-							/>
-						</span>
-					</div>
-				</th>
-				<th
-					scope="col"
-					className="px-2 py-2 text-right"
-					aria-sort={
-						sort.col === 'balance'
-							? sort.dir === 'asc'
-								? 'ascending'
-								: 'descending'
-							: undefined
-					}
-				>
-					<div className="flex justify-end">
-						<span className="inline-flex items-start">
-							<button type="button" className={thNum} onClick={() => onSort('balance')}>
-								Balance <span className="inline-block w-3">{arrow('balance')}</span>
-							</button>
-							<TooltipIconButton
-								tip="On-chain token balance in human-readable units."
-								aria-label="About Balance column"
-								className="translate-y-px"
-							/>
-						</span>
-					</div>
-				</th>
-				<th
-					scope="col"
-					className="pl-2 py-2 text-right"
-					aria-sort={
-						sort.col === 'value'
-							? sort.dir === 'asc'
-								? 'ascending'
-								: 'descending'
-							: undefined
-					}
-				>
-					<div className="flex justify-end">
-						<span className="inline-flex items-start">
-							<button type="button" className={thNum} onClick={() => onSort('value')}>
-								USD <span className="inline-block w-3">{arrow('value')}</span>
-							</button>
-							<TooltipIconButton
-								tip="USD value = balance × spot price (same price as Price column)."
-								aria-label="About USD column"
-								className="translate-y-px"
-							/>
-						</span>
-					</div>
-				</th>
+				{numCol(
+					'price',
+					'Price (USD)',
+					'Spot USD price from the app price pipeline (OKX DEX and fallbacks).',
+					'About Price column',
+				)}
+				{numCol(
+					'change5m',
+					'5m',
+					'OKX price change over the last 5 minutes. Alert fires above +5%.',
+					'About 5m column',
+				)}
+				{numCol(
+					'change1h',
+					'1h',
+					'OKX price change over the last hour. Alert fires above +5%.',
+					'About 1h column',
+				)}
+				{numCol(
+					'change24h',
+					'24h',
+					'Approximate 24h price change (OKX or fallback feeds).',
+					'About 24h column',
+				)}
+				{numCol(
+					'balance',
+					'Balance',
+					'On-chain token balance in human-readable units.',
+					'About Balance column',
+				)}
+				{numCol(
+					'value',
+					'USD',
+					'USD value = balance × spot price (same price as Price column).',
+					'About USD column',
+					'pl-2 py-2 text-right',
+				)}
 			</tr>
 		</thead>
 	)
@@ -282,7 +250,7 @@ export function BalanceDashboard() {
 								Tokens ({pricedShown.length})
 							</p>
 							<div className={appTableShell}>
-								<table className="w-full min-w-[880px] table-fixed border-collapse text-left">
+								<table className="w-full min-w-[1040px] table-fixed border-collapse text-left">
 									{BALANCE_TABLE_COLS}
 									<SortableTableHead sort={sort} onSort={onSort} />
 									<tbody>

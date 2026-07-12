@@ -1,6 +1,13 @@
 import type { ClassifiedTokenBalance } from '@/types'
 
-export type BalanceSortCol = 'token' | 'price' | 'change24h' | 'balance' | 'value'
+export type BalanceSortCol =
+	| 'token'
+	| 'price'
+	| 'change5m'
+	| 'change1h'
+	| 'change24h'
+	| 'balance'
+	| 'value'
 
 export type SortDir = 'asc' | 'desc'
 
@@ -25,6 +32,10 @@ function cmp(a: ClassifiedTokenBalance, b: ClassifiedTokenBalance, col: BalanceS
 		}
 		case 'price':
 			return compareNum(a.priceUSD, b.priceUSD)
+		case 'change5m':
+			return compareNum(a.change5m, b.change5m)
+		case 'change1h':
+			return compareNum(a.change1h, b.change1h)
 		case 'change24h':
 			return compareNum(a.change24h, b.change24h)
 		case 'balance':
