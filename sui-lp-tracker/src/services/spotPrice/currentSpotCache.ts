@@ -17,6 +17,8 @@ type Entry = {
 	cachedAt: number
 	price: number
 	change24h: number | null
+	change5m?: number | null
+	change1h?: number | null
 	source: SpotSource
 }
 
@@ -25,6 +27,8 @@ const mem = new Map<string, Entry>()
 type StoredEntry = {
 	price: number
 	change24h: number | null
+	change5m?: number | null
+	change1h?: number | null
 	source: SpotSource
 	cachedAt: number
 }
@@ -48,6 +52,8 @@ function writePersisted(coinType: string, e: Entry) {
 		o[coinType] = {
 			price: e.price,
 			change24h: e.change24h,
+			change5m: e.change5m ?? null,
+			change1h: e.change1h ?? null,
 			source: e.source,
 			cachedAt: e.cachedAt,
 		}
@@ -76,6 +82,8 @@ function getFromPersisted(coinType: string): Entry | null {
 		cachedAt: e.cachedAt,
 		price: e.price,
 		change24h: e.change24h,
+		change5m: e.change5m ?? null,
+		change1h: e.change1h ?? null,
 		source: e.source,
 	}
 }
@@ -110,9 +118,22 @@ export function getCurrentSpot(coinType: string): Entry | null {
 
 export function setCurrentSpot(
 	coinType: string,
-	data: { price: number; change24h: number | null; source: SpotSource },
+	data: {
+		price: number
+		change24h: number | null
+		change5m?: number | null
+		change1h?: number | null
+		source: SpotSource
+	},
 ) {
-	const e: Entry = { ...data, cachedAt: Date.now() }
+	const e: Entry = {
+		price: data.price,
+		change24h: data.change24h,
+		change5m: data.change5m ?? null,
+		change1h: data.change1h ?? null,
+		source: data.source,
+		cachedAt: Date.now(),
+	}
 	mem.set(coinType, e)
 	writePersisted(coinType, e)
 }

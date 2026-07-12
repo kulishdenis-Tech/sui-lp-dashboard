@@ -460,6 +460,10 @@ export interface TokenBalance {
 	priceUSDC: number | null
 	valueUSD: number | null
 	change24h: number | null
+	/** OKX: % за 5 хв (якщо є). */
+	change5m?: number | null
+	/** OKX: % за 1 год (якщо є). */
+	change1h?: number | null
 	coinObjectCount: number
 	/** sSUI / sUSDC etc. for UI labels */
 	scallopDeposit?: boolean

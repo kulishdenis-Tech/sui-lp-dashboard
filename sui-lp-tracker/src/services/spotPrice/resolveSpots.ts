@@ -19,13 +19,23 @@ export type ResolveSpotsOptions = {
 export type Row = {
 	price: number | null
 	change24h: number | null
+	/** OKX priceChange5M — лише коли джерело okx. */
+	change5m?: number | null
+	/** OKX priceChange1H — лише коли джерело okx. */
+	change1h?: number | null
 	priceSource: SpotSource
 }
 
 function syncSpotCacheFromOut(out: Map<string, Row>) {
 	for (const [ct, row] of out) {
 		if (row.price == null) continue
-		setCurrentSpot(ct, { price: row.price, change24h: row.change24h, source: row.priceSource })
+		setCurrentSpot(ct, {
+			price: row.price,
+			change24h: row.change24h,
+			change5m: row.change5m ?? null,
+			change1h: row.change1h ?? null,
+			source: row.priceSource,
+		})
 	}
 }
 
@@ -64,7 +74,13 @@ export async function resolveSpots(
 	for (const [ct, h] of freshHits) {
 		const change24h =
 			h.source === 'okx' ? okxChange24h(h.change24h, symbolByType(ct)) : h.change24h
-		out.set(ct, { price: h.price, change24h, priceSource: h.source })
+		out.set(ct, {
+			price: h.price,
+			change24h,
+			change5m: h.change5m ?? null,
+			change1h: h.change1h ?? null,
+			priceSource: h.source,
+		})
 	}
 
 	if (isOkxDexConfigured() && coinTypes.length > 0) {
@@ -76,10 +92,18 @@ export async function resolveSpots(
 				const row: Row = {
 					price: v.price,
 					change24h,
+					change5m: v.change5m,
+					change1h: v.change1h,
 					priceSource: 'okx',
 				}
 				out.set(ct, row)
-				setCurrentSpot(ct, { price: v.price, change24h, source: 'okx' })
+				setCurrentSpot(ct, {
+					price: v.price,
+					change24h,
+					change5m: v.change5m,
+					change1h: v.change1h,
+					source: 'okx',
+				})
 			}
 		} catch {
 			/* OKX down — далі стандартний ланцюг */

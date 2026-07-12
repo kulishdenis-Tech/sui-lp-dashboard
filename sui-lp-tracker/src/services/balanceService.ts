@@ -32,7 +32,13 @@ function spotsMapFromCacheHits(coinTypes: string[]): Map<string, Row> {
 	for (const ct of coinTypes) {
 		const h = hits.get(ct)
 		if (h) {
-			m.set(ct, { price: h.price, change24h: h.change24h, priceSource: h.source })
+			m.set(ct, {
+				price: h.price,
+				change24h: h.change24h,
+				change5m: h.change5m ?? null,
+				change1h: h.change1h ?? null,
+				priceSource: h.source,
+			})
 		} else {
 			m.set(ct, emptyRow())
 		}
@@ -79,6 +85,8 @@ function buildTokenRows(withMeta: WithMeta, spots: Map<string, Row>): TokenBalan
 			priceUSDC,
 			valueUSD,
 			change24h: sp.change24h,
+			change5m: sp.change5m ?? null,
+			change1h: sp.change1h ?? null,
 			coinObjectCount: b.coinObjectCount,
 			scallopDeposit: scallop,
 			momentumLST: mom,

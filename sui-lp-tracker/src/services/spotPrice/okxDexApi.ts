@@ -243,13 +243,23 @@ type PriceInfoRow = {
 	chainIndex?: string
 	tokenContractAddress?: string
 	price?: string
+	priceChange5M?: string
+	priceChange1H?: string
+	priceChange4H?: string
 	priceChange24H?: string
 }
 
-function parseChange24h(s: string | undefined): number | null {
+function parseChangePct(s: string | undefined): number | null {
 	if (s == null || s === '') return null
 	const n = parseFloat(String(s).trim())
 	return Number.isFinite(n) ? n : null
+}
+
+export type OkxPriceInfo = {
+	price: number
+	change5m: number | null
+	change1h: number | null
+	change24h: number | null
 }
 
 /**
@@ -284,13 +294,14 @@ async function postPriceInfoChunk(bodyStr: string): Promise<OkxJson | null> {
 }
 
 /**
- * POST `/api/v6/dex/market/price-info` — ціна USD + priceChange24H (офіційне поле OKX).
+ * POST `/api/v6/dex/market/price-info` — ціна USD + % зміни (5M / 1H / 24H).
  * Ключі мапи — `coinType` з гаманця.
+ * @see https://web3.okx.com/onchainos/dev-docs/market/market-token-price-info
  */
 export async function okxPriceInfoByCoinType(
 	coinTypes: string[],
-): Promise<Map<string, { price: number; change24h: number | null }>> {
-	const out = new Map<string, { price: number; change24h: number | null }>()
+): Promise<Map<string, OkxPriceInfo>> {
+	const out = new Map<string, OkxPriceInfo>()
 	if (!isOkxDexConfigured() || coinTypes.length === 0) return out
 
 	const bodyTemplate: PriceInfoBody = coinTypes.map((tokenContractAddress) => ({
@@ -333,12 +344,17 @@ export async function okxPriceInfoByCoinType(
 				}
 				continue
 			}
-			const change24h = parseChange24h(row.priceChange24H)
+			const change5m = parseChangePct(row.priceChange5M)
+			const change1h = parseChangePct(row.priceChange1H)
+			const change24h = parseChangePct(row.priceChange24H)
 			if (import.meta.env.DEV) {
 				// eslint-disable-next-line no-console
-				console.debug(`[OKX price-info] ${ct.split('::')[2] ?? ct} → $${p} change24h=${change24h}`)
+				console.debug(
+					`[OKX price-info] ${ct.split('::')[2] ?? ct} → $${p} ` +
+						`5m=${change5m} 1h=${change1h} 24h=${change24h}`,
+				)
 			}
-			out.set(ct, { price: p, change24h })
+			out.set(ct, { price: p, change5m, change1h, change24h })
 		}
 	}
 	return out
