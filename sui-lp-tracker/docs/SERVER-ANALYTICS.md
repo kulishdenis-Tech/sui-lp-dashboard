@@ -21,9 +21,12 @@
 | `WATCH_WALLETS` | дві адреси через кому |
 | `CRON_SECRET` | довільний random string (32+ chars) |
 
-## 3. Cron (кожні 15 хв)
+## 3. Cron (~кожні 15 хв)
 
-**Vercel Hobby** не підтримує cron кожні 15 хв — snapshot запускає **GitHub Actions** (`.github/workflows/portfolio-snapshot.yml`), який виконує `npm run snapshot:once` у `sui-lp-tracker/`.
+**Vercel Hobby** не підтримує cron кожні 15 хв — snapshot запускає **GitHub Actions** (`.github/workflows/portfolio-snapshot.yml`).
+
+- Розклад workflow: **кожні 5 хв** (`*/5`), щоб компенсувати затримки/пропуски schedule на private repo і все одно потрапляти в 15-хв bucket.
+- Клиєнт (відкритий дашборд) також **POST** знімки в `/api/snapshots` для watchlist — добиває прогалини, коли GHA спізнився.
 
 Secrets у репозиторії GitHub (Settings → Secrets):
 - `WATCH_WALLETS`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
@@ -44,6 +47,7 @@ Secrets у репозиторії GitHub (Settings → Secrets):
 ## API
 
 - `GET /api/snapshots?wallet=0x…&range=7d` — історія портфеля (лише watchlist)
+- `POST /api/snapshots` — upsert клієнтських знімків `{ snapshots: [...] }` (лише watchlist)
 - `GET /api/lp-history?wallet=0x…&status=closed|open|all` — кеш LP events (open + closed)
 - Cron: `GET /api/cron/portfolio-snapshot` (authorized)
 

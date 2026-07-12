@@ -41,7 +41,11 @@ import {
 	sanitizePortfolioSnapshots,
 	shouldSaveSnapshot,
 } from '@/utils/portfolioSnapshotSanitize'
-import { fetchAllServerSnapshots, fetchServerSnapshots } from '@/services/serverSnapshotsApi'
+import {
+	fetchAllServerSnapshots,
+	fetchServerSnapshots,
+	uploadSnapshotsToServer,
+} from '@/services/serverSnapshotsApi'
 
 export type TimeRange = PortfolioHistoryRange
 
@@ -160,6 +164,15 @@ export function usePortfolioHistory(): PortfolioHistoryResult {
 							rangeMerged.length > 0 ? rangeMerged : filtered,
 						),
 					)
+
+					// Backfill local 15-min points that never reached Supabase (GHA gaps).
+					const serverIds = new Set(serverAll.map((s) => s.id))
+					const missing = sanitizePortfolioSnapshots(localAll)
+						.filter((s) => !serverIds.has(s.id))
+						.slice(-40)
+					if (missing.length > 0) {
+						void uploadSnapshotsToServer(missing).catch(() => {})
+					}
 					return
 				}
 
@@ -200,6 +213,8 @@ export function usePortfolioHistory(): PortfolioHistoryResult {
 			return
 		}
 		await saveSnapshot(snap)
+		// Mirror to Supabase for watchlist wallets (no-op / 403 otherwise).
+		void uploadSnapshotsToServer(snap).catch(() => {})
 		if (walletAddrRef.current === addr) await loadHistory(addr)
 	}
 

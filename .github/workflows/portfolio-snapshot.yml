@@ -1,14 +1,21 @@
-# Snapshot portfolio for WATCH_WALLETS every 15 min (runs in Node — avoids Vercel Hobby cron + ESM limits).
+# Snapshot portfolio for WATCH_WALLETS.
+# Schedule every 5 min so that even when GitHub delays/skips private-repo
+# cron jobs we still land near the 15-min analytics bucket.
 name: Portfolio snapshot
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
+
+concurrency:
+  group: portfolio-snapshot
+  cancel-in-progress: false
 
 jobs:
   snapshot:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: sui-lp-tracker
@@ -25,6 +32,8 @@ jobs:
         run: npm ci
 
       - name: Run portfolio snapshot
+        id: snap
+        continue-on-error: true
         env:
           WATCH_WALLETS: ${{ secrets.WATCH_WALLETS }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -36,3 +45,19 @@ jobs:
           OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
           OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
         run: npm run snapshot:once
+
+      - name: Retry snapshot
+        if: steps.snap.outcome == 'failure'
+        env:
+          WATCH_WALLETS: ${{ secrets.WATCH_WALLETS }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_SUI_RPC_URL: ${{ secrets.VITE_SUI_RPC_URL }}
+          VITE_COINGECKO_API_KEY: ${{ secrets.VITE_COINGECKO_API_KEY }}
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+          OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
+          OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
+          OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
+        run: |
+          sleep 20
+          npm run snapshot:once
