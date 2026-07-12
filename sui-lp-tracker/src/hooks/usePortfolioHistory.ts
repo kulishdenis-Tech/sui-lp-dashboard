@@ -116,7 +116,7 @@ export function usePortfolioHistory(): PortfolioHistoryResult {
 	const manualViewAddress = useAppStore((s) => s.manualViewAddress)
 	const account = useCurrentAccount()
 
-	const [range, setRange] = useState<TimeRange>('7d')
+	const [range, setRange] = useState<TimeRange>('24h')
 	const [snapshots, setSnapshots] = useState<PortfolioSnapshot[]>([])
 	const [allSnapshots, setAllSnapshots] = useState<PortfolioSnapshot[]>([])
 	const [isLoading, setIsLoading] = useState(true)
