@@ -59,3 +59,17 @@ export async function pruneSnapshotsOlderThan(cutoffMs: number): Promise<number>
 	if (error) throw error
 	return data?.length ?? 0
 }
+
+/** Newest portfolio snapshot timestamp across all wallets (ms), or null if empty. */
+export async function getNewestSnapshotTs(): Promise<number | null> {
+	const db = getSupabaseAdmin()
+	const { data, error } = await db
+		.from('portfolio_snapshots')
+		.select('ts')
+		.order('ts', { ascending: false })
+		.limit(1)
+		.maybeSingle()
+	if (error) throw error
+	const ts = data?.ts
+	return typeof ts === 'number' && Number.isFinite(ts) ? ts : null
+}

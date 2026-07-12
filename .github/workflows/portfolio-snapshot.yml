@@ -1,11 +1,12 @@
-# Snapshot portfolio for WATCH_WALLETS.
-# Schedule every 5 min so that even when GitHub delays/skips private-repo
-# cron jobs we still land near the 15-min analytics bucket.
+# Heavy worker for portfolio snapshots (Node has enough time; Vercel Hobby does not).
+# Primary trigger: Supabase pg_cron → /api/cron/dispatch-portfolio-snapshot → workflow_dispatch
+# Backup: hourly schedule (GitHub schedule alone is best-effort and often delayed/dropped).
 name: Portfolio snapshot
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    # Off-peak minute within the hour — backup only if Supabase dispatch missed.
+    - cron: '22 * * * *'
   workflow_dispatch:
 
 concurrency:

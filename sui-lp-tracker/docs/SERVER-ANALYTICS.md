@@ -12,7 +12,7 @@
 
 ## 2. Vercel env
 
-Додай у Vercel → Project → Environment Variables (або `scripts/vercel-env-analytics.ps1` з `.env`):
+Додай у Vercel → Project → Environment Variables (або `scripts/vercel-env-analytics.ps1` / `scripts/setup-portfolio-cron.ps1`):
 
 | Variable | Value |
 |----------|--------|
@@ -20,23 +20,43 @@
 | `SUPABASE_SERVICE_ROLE_KEY` | service role key |
 | `WATCH_WALLETS` | дві адреси через кому |
 | `CRON_SECRET` | довільний random string (32+ chars) |
+| `GITHUB_DISPATCH_TOKEN` | fine-grained PAT: Actions read/write + Contents read (лише цей repo) |
 
-## 3. Cron (~кожні 15 хв)
+## 3. Cron (~кожні 15 хв) — надійний ланцюжок
 
-**Vercel Hobby** не підтримує cron кожні 15 хв — snapshot запускає **GitHub Actions** (`.github/workflows/portfolio-snapshot.yml`).
+Офіційні обмеження, через які «сам GHA schedule» не годиться:
 
-- Розклад workflow: **кожні 5 хв** (`*/5`), щоб компенсувати затримки/пропуски schedule на private repo і все одно потрапляти в 15-хв bucket.
-- Клиєнт (відкритий дашборд) також **POST** знімки в `/api/snapshots` для watchlist — добиває прогалини, коли GHA спізнився.
+- **GitHub Actions `schedule`** — best-effort: під навантаженням може **затримуватись або дропатись** ([docs](https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#schedule)).
+- **Vercel Hobby cron** — максимум **1 раз на добу**; частіший вираз ламає deploy ([docs](https://vercel.com/docs/cron-jobs/usage-and-pricing)).
+- **Vercel Hobby duration** — повний `snapshot:once` (~1 хв на 2 гаманці) не вміщається в короткий serverless timeout.
 
-Secrets у репозиторії GitHub (Settings → Secrets):
+**Оптимальна схема (імплементовано):**
+
+```
+Supabase pg_cron (*/15) + pg_net
+  → GET /api/cron/dispatch-portfolio-snapshot  (легкий, <2с, Bearer CRON_SECRET)
+    → GitHub workflow_dispatch
+      → Actions: npm run snapshot:once  (важка робота)
+```
+
+Налаштування:
+
+1. Fine-grained PAT → `GITHUB_DISPATCH_TOKEN` на Vercel (`scripts/setup-portfolio-cron.ps1`).
+2. SQL: `supabase/portfolio-snapshot-cron.sql` (або згенерований `.setup.sql`) у Supabase SQL Editor — Vault + `cron.schedule`.
+3. GHA `.github/workflows/portfolio-snapshot.yml` — `workflow_dispatch` + **погодинний backup** `22 * * * *`.
+
+Клиєнт (відкритий дашборд) також **POST** знімки в `/api/snapshots` для watchlist.
+
+Secrets у репозиторії GitHub (для worker):
 - `WATCH_WALLETS`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
 - `VITE_SUI_RPC_URL`, `VITE_COINGECKO_API_KEY` (або `COINGECKO_API_KEY`)
-- `OKX_API_KEY`, `OKX_SECRET_KEY`, `OKX_PASSPHRASE` (для цін DEX)
+- `OKX_API_KEY`, `OKX_SECRET_KEY`, `OKX_PASSPHRASE`
 
-Локально / CI: `npm run snapshot:once` (через **vite-node**, щоб працювали Vite aliases + `import.meta.env`).
+Локально / CI: `npm run snapshot:once`.
 
-Опційно — ручний HTTP-тригер Vercel (може бути обмежений ESM/timeout на Hobby):  
-`GET /api/cron/portfolio-snapshot` + `Authorization: Bearer <CRON_SECRET>`.
+Ручний тригер dispatch:  
+`GET /api/cron/dispatch-portfolio-snapshot` + `Authorization: Bearer <CRON_SECRET>`.  
+(Важкий прямий `/api/cron/portfolio-snapshot` на Hobby зазвичай не встигає.)
 
 ## 4. Deploy
 
@@ -49,7 +69,8 @@ Secrets у репозиторії GitHub (Settings → Secrets):
 - `GET /api/snapshots?wallet=0x…&range=7d` — історія портфеля (лише watchlist)
 - `POST /api/snapshots` — upsert клієнтських знімків `{ snapshots: [...] }` (лише watchlist)
 - `GET /api/lp-history?wallet=0x…&status=closed|open|all` — кеш LP events (open + closed)
-- Cron: `GET /api/cron/portfolio-snapshot` (authorized)
+- Cron dispatch: `GET /api/cron/dispatch-portfolio-snapshot` (authorized) → GHA
+- Cron (heavy, Hobby-risky): `GET /api/cron/portfolio-snapshot` (authorized)
 
 ## LP history (open + closed)
 
@@ -70,6 +91,10 @@ Analytics: server snapshots мерджаться з локальними 15-хв
 
 ## Ліміти
 
-- Vercel Hobby: serverless timeout короткий — важкі задачі (snapshot / LP history) лише через **GitHub Actions**.
+- **GitHub Actions `schedule`** — офіційно best-effort (затримки/дропи під навантаженням) → первинний тригер через **Supabase Cron**.
+- **Vercel Hobby cron** — лише 1×/день; не використовуємо для 15-хв.
+- Повний snapshot на Vercel (`/api/cron/portfolio-snapshot`) зараз падає на `cron-bundle` ESM/`ERR_MODULE_NOT_FOUND` — важка робота лишається в **GHA** (`snapshot:once`).
+- Легкий `/api/cron/dispatch-portfolio-snapshot` лише ставить `workflow_dispatch` (<2с).
+- Клиєнтський POST `/api/snapshots` добиває прогалини, коли браузер відкритий.
 - RPC: публічний Mysten fullnode ок для старту; при 429 зменш concurrency.
 - LP history sync важчий за portfolio snapshot — wallets послідовно, не паралельно.
