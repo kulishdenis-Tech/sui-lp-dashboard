@@ -10,6 +10,8 @@ export type PoolCandlesFetchOpts = {
 	/** Свічки строго старші за цей UNIX time (sec), див. `before_timestamp` у Gecko OHLCV. */
 	beforeTimestampSec?: number
 	limit?: number
+	/** `token` = ціна пари пулу (TOKEN/TOKEN); `usd` = котирування в USD. Default: usd. */
+	currency?: 'usd' | 'token'
 }
 
 type ApiResponse = { candles?: PoolCandleRow[]; error?: string }
@@ -45,6 +47,9 @@ export async function loadPoolCandlesForChart(
 			if (opts?.limit != null) {
 				u.searchParams.set('limit', String(opts.limit))
 			}
+			if (opts?.currency) {
+				u.searchParams.set('currency', opts.currency)
+			}
 			const r = await fetch(u.toString())
 			if (!r.ok) return []
 			const j = (await r.json()) as ApiResponse
@@ -59,6 +64,9 @@ export async function loadPoolCandlesForChart(
 			}
 			if (opts?.limit != null) {
 				extra += `&limit=${encodeURIComponent(String(opts.limit))}`
+			}
+			if (opts?.currency) {
+				extra += `&currency=${encodeURIComponent(opts.currency)}`
 			}
 			const base = custom.includes('?') ? `${custom}&` : `${custom}?`
 			const r = await fetch(
@@ -76,6 +84,7 @@ export async function loadPoolCandlesForChart(
 			network,
 			beforeTimestampSec: opts?.beforeTimestampSec,
 			limit: opts?.limit,
+			currency: opts?.currency,
 		})
 	}
 

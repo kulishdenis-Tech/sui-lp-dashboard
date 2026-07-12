@@ -372,6 +372,8 @@ export interface BorrowPosition {
 	collateral: CollateralInfo[]
 	healthFactor: number
 	liquidationThreshold: number
+	/** Optional protocol safe borrow ceiling (USD); UI falls back to 85% of liquidation. */
+	safeBorrowLimit?: number
 	startedAt: number
 	daysActive: number
 	events: LendingEvent[]

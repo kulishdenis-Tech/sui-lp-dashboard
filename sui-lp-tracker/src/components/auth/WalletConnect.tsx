@@ -8,14 +8,14 @@ function PastedAddressBar() {
 	const { address, clearManualView } = useWalletAuth()
 	if (!address) return null
 	return (
-		<div className="flex flex-wrap items-center gap-2">
+		<div className="flex flex-nowrap items-center gap-2">
 			<span className="rounded border border-violet-500/40 bg-violet-950/50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-200">
 				Read-only
 			</span>
-			<span className="font-mono text-sm text-sky-200">{shortAddress(address)}</span>
+			<span className="whitespace-nowrap font-mono text-sm text-sky-200">{shortAddress(address)}</span>
 			<button
 				type="button"
-				className="text-xs text-slate-500 underline hover:text-slate-300"
+				className="whitespace-nowrap text-xs text-slate-500 underline hover:text-slate-300"
 				onClick={() => clearManualView()}
 			>
 				Clear address
@@ -24,9 +24,10 @@ function PastedAddressBar() {
 	)
 }
 
-/** Primary header CTA — shared with Refresh. */
-export const connectBtnClass =
-	'rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-500'
+import { appBtnPrimary } from '@/design/appPrimitives'
+
+/** Primary header CTA — alias на `appBtnPrimary` (Connect / Refresh). */
+export const connectBtnClass = appBtnPrimary
 
 function WalletOrPaste() {
 	const setManualViewAddress = useAppStore((s) => s.setManualViewAddress)
@@ -136,7 +137,7 @@ function WalletBlock() {
 
 export function WalletConnect() {
 	return (
-		<div className="flex flex-col gap-3">
+		<div className="flex items-center">
 			<WalletBlock />
 		</div>
 	)

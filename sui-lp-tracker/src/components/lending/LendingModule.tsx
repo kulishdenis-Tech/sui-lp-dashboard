@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useLendingPositions } from '@/hooks/useLendingPositions'
-import { formatUSD, formatPct } from '@/utils/formatting'
+import { formatUSD, formatUSDAdaptive, formatPct } from '@/utils/formatting'
 import { SkeletonCard } from '@/components/ui/SkeletonCard'
 import { Tooltip, TooltipIconButton } from '@/components/ui/Tooltip'
 import { AppCard } from '@/components/ui/AppCard'
@@ -28,6 +28,46 @@ function hfColor(hf: number) {
 }
 
 // ── Borrow limit bar (Used / Safe / Liquidation) ──────────────────────────
+/** Half-width of a zone label as % of the bar (12px tabular, ~350px typical). */
+function zoneLabelHalfPct(text: string): number {
+	return Math.min(28, Math.max(10, text.length * 0.95))
+}
+
+/**
+ * Pack three centered labels so they stay inside [0, 100] and don't overlap.
+ * Prefer desired centers; if Liq would overflow (or Safe is tiny), shift the
+ * whole group left.
+ */
+function packZoneLabelCenters(
+	desired: [number, number, number],
+	halves: [number, number, number],
+	minGap = 1.5,
+): [number, number, number] {
+	let [u, s, l] = desired
+	const [uh, sh, lh] = halves
+
+	l = Math.min(l, 100 - lh)
+	s = Math.min(s, l - lh - sh - minGap)
+	u = Math.min(u, s - sh - uh - minGap)
+
+	u = Math.max(u, uh)
+	s = Math.max(s, u + uh + sh + minGap)
+	l = Math.max(l, s + sh + lh + minGap)
+
+	const overflow = l + lh - 100
+	if (overflow > 0) {
+		u -= overflow
+		s -= overflow
+		l -= overflow
+	}
+
+	u = Math.max(uh, Math.min(u, 100 - uh))
+	l = Math.max(lh, Math.min(l, 100 - lh))
+	s = Math.max(u + uh + sh + minGap, Math.min(s, l - lh - sh - minGap))
+
+	return [u, s, l]
+}
+
 function BorrowLimitBar({
 	borrowed,
 	safe,
@@ -38,37 +78,75 @@ function BorrowLimitBar({
 	liquidation: number
 }) {
 	if (liquidation <= 0) return null
-	const usedPct = Math.min(1, borrowed / liquidation)
-	const safePct = Math.min(1, safe / liquidation)
-	const barColor =
-		usedPct < safePct * 0.8
-			? 'bg-emerald-500'
-			: usedPct < 0.85
-				? 'bg-yellow-500'
-				: 'bg-red-500'
+	const usedPct = Math.min(1, Math.max(0, borrowed / liquidation))
+	const safePct = Math.min(1, Math.max(0, safe / liquidation))
+	const usedW = usedPct * 100
+	const headroomW = Math.max(0, safePct - usedPct) * 100
+	const liqStart = Math.max(usedPct, safePct) * 100
+	const liqW = Math.max(0, 100 - liqStart)
+	const overSafe = usedPct > safePct
+	const MIN_LABEL_ZONE = 12
+
+	const usedText = `Used ${formatUSDAdaptive(borrowed)}`
+	const safeText = `Safe ${formatUSDAdaptive(safe)}`
+	const liqText = `Liq. ${formatUSDAdaptive(liquidation)}`
+
+	const desiredUsed = usedW >= MIN_LABEL_ZONE ? usedW / 2 : Math.min(usedW, 10)
+	const desiredSafe =
+		headroomW >= MIN_LABEL_ZONE ? usedW + headroomW / 2 : safePct * 100
+	const desiredLiq = liqW >= MIN_LABEL_ZONE ? liqStart + liqW / 2 : 100
+
+	const [usedLabelAt, safeLabelAt, liqLabelAt] = packZoneLabelCenters(
+		[desiredUsed, desiredSafe, desiredLiq],
+		[zoneLabelHalfPct(usedText), zoneLabelHalfPct(safeText), zoneLabelHalfPct(liqText)],
+	)
 
 	return (
-		<div className="mt-1 space-y-1">
-			<div className="flex justify-between text-xs text-slate-500">
-				<span>Borrow Limit</span>
-				<span>{(usedPct * 100).toFixed(1)}% used</span>
-			</div>
-			<div className="relative h-2 w-full rounded-full bg-slate-700">
-				{safePct > 0 && safePct < 1 && (
+		<div
+			className="relative min-w-0 flex-1 overflow-hidden pt-2"
+			role="img"
+			aria-label={`Borrow limit: ${usedText}, ${safeText}, ${liqText}`}
+		>
+			<div className="flex h-2.5 w-full overflow-hidden rounded-full ring-1 ring-slate-700/80">
+				{usedW > 0 && (
 					<div
-						className="absolute top-0 h-2 w-0.5 rounded-sm bg-yellow-400/60"
-						style={{ left: `${safePct * 100}%` }}
+						className={`h-full shrink-0 ${overSafe ? 'bg-amber-400' : 'bg-emerald-500'}`}
+						style={{ width: `${usedW}%` }}
 					/>
 				)}
-				<div
-					className={`h-2 rounded-full transition-all ${barColor}`}
-					style={{ width: `${usedPct * 100}%` }}
-				/>
+				{headroomW > 0 && (
+					<div className="h-full shrink-0 bg-amber-500/40" style={{ width: `${headroomW}%` }} />
+				)}
+				{liqW > 0 && (
+					<div className="h-full min-w-[2px] shrink-0 bg-red-500/45" style={{ width: `${liqW}%` }} />
+				)}
 			</div>
-			<div className="flex justify-between text-[10px] text-slate-600">
-				<span>Used <span className="text-slate-400">{formatUSD(borrowed)}</span></span>
-				<span>Safe <span className="text-slate-400">{formatUSD(safe)}</span></span>
-				<span>Liq. <span className="text-slate-400">{formatUSD(liquidation)}</span></span>
+			{safePct > 0.02 && safePct < 0.98 && (
+				<div
+					className="pointer-events-none absolute top-2 z-[1] h-2.5 w-0.5 -translate-x-1/2 rounded-sm bg-amber-400"
+					style={{ left: `${safePct * 100}%` }}
+					aria-hidden
+				/>
+			)}
+			<div className="relative mt-1 h-5 text-[12px] tabular-nums leading-none">
+				<span
+					className="absolute top-0 whitespace-nowrap text-emerald-500/90"
+					style={{ left: `${usedLabelAt}%`, transform: 'translateX(-50%)' }}
+				>
+					Used <span className="font-semibold text-emerald-400">{formatUSDAdaptive(borrowed)}</span>
+				</span>
+				<span
+					className="absolute top-0 whitespace-nowrap text-amber-500/90"
+					style={{ left: `${safeLabelAt}%`, transform: 'translateX(-50%)' }}
+				>
+					Safe <span className="font-semibold text-amber-400">{formatUSDAdaptive(safe)}</span>
+				</span>
+				<span
+					className="absolute top-0 whitespace-nowrap text-red-500/90"
+					style={{ left: `${liqLabelAt}%`, transform: 'translateX(-50%)' }}
+				>
+					Liq. <span className="font-semibold text-red-400">{formatUSDAdaptive(liquidation)}</span>
+				</span>
 			</div>
 		</div>
 	)
@@ -412,7 +490,11 @@ function ProtocolSection({ snapshot }: { snapshot: LendingSnapshot }) {
 	const hasBorrows = snapshot.borrows.length > 0
 	const firstBorrow = snapshot.borrows[0]
 	const liquidationUSD = firstBorrow?.liquidationThreshold ?? 0
-	const safeUSD = liquidationUSD * 0.85
+	const safeFromSdk = firstBorrow?.safeBorrowLimit ?? 0
+	const safeUSD =
+		safeFromSdk > 0 && safeFromSdk <= liquidationUSD
+			? safeFromSdk
+			: liquidationUSD * 0.85
 	const netAprSource = snapshot.protocol === 'AlphaLend' ? 'AlphaLend SDK' : 'Navi SDK'
 	const hasRewards = snapshot.rewardsToClaim.length > 0
 
@@ -422,21 +504,21 @@ function ProtocolSection({ snapshot }: { snapshot: LendingSnapshot }) {
 			<div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
 				<StatCard
 					label="Supplied"
-					value={formatUSD(snapshot.totalSuppliedUSD)}
+					value={formatUSDAdaptive(snapshot.totalSuppliedUSD)}
 					valueClass="text-emerald-400"
 					tip="Total value supplied as collateral."
 				/>
 				{hasBorrows && (
 					<StatCard
 						label="Borrowed"
-						value={formatUSD(snapshot.totalBorrowedUSD)}
+						value={formatUSDAdaptive(snapshot.totalBorrowedUSD)}
 						valueClass="text-red-400"
 						tip="Total value currently borrowed."
 					/>
 				)}
 				<StatCard
 					label="Net Value"
-					value={formatUSD(snapshot.netValueUSD)}
+					value={formatUSDAdaptive(snapshot.netValueUSD)}
 					tip="Supplied minus borrowed."
 				/>
 				{hasBorrows && snapshot.healthFactor != null && snapshot.healthFactor > 0 && (
@@ -452,39 +534,49 @@ function ProtocolSection({ snapshot }: { snapshot: LendingSnapshot }) {
 				)}
 			</div>
 
-			{/* ── Net APR + Daily Earnings ──────────────────────────────── */}
-			{(snapshot.netAPR != null || snapshot.dailyEarningsUSD != null) && (
-				<div className="flex flex-wrap items-center gap-3">
-					{snapshot.netAPR != null && (
-						<div className="flex items-center gap-1.5 rounded-lg bg-slate-800/70 px-3 py-1.5 text-xs">
-							<span className="text-slate-500">Net APR</span>
-							<span className={`font-semibold tabular-nums ${snapshot.netAPR >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-								{formatPct(snapshot.netAPR)}
-							</span>
-							<TooltipIconButton
-								tip={`Daily Earnings × 365 / (Supplied − Borrowed). Source: ${netAprSource}.`}
-								aria-label="About Net APR"
-							/>
-						</div>
-					)}
-					{snapshot.dailyEarningsUSD != null && (
-						<div className="flex items-center gap-1.5 rounded-lg bg-slate-800/70 px-3 py-1.5 text-xs">
-							<span className="text-slate-500">Daily Earnings</span>
-							<span className={`font-semibold tabular-nums ${snapshot.dailyEarningsUSD >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-								{snapshot.dailyEarningsUSD >= 0 ? '+' : ''}{formatUSD(snapshot.dailyEarningsUSD)}
-							</span>
-						</div>
+			{/* ── Net APR + Daily Earnings + Borrow Limit chip + bar ──── */}
+			{(snapshot.netAPR != null ||
+				snapshot.dailyEarningsUSD != null ||
+				(hasBorrows && liquidationUSD > 0)) && (
+				<div className="flex flex-nowrap items-start gap-3">
+					<div className="flex shrink-0 items-center gap-3">
+						{snapshot.netAPR != null && (
+							<div className="flex items-center gap-1.5 rounded-lg bg-slate-800/70 px-3 py-1.5 text-xs">
+								<span className="text-slate-500">Net APR</span>
+								<span className={`font-semibold tabular-nums ${snapshot.netAPR >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+									{formatPct(snapshot.netAPR)}
+								</span>
+								<TooltipIconButton
+									tip={`Daily Earnings × 365 / (Supplied − Borrowed). Source: ${netAprSource}.`}
+									aria-label="About Net APR"
+								/>
+							</div>
+						)}
+						{snapshot.dailyEarningsUSD != null && (
+							<div className="flex items-center gap-1.5 rounded-lg bg-slate-800/70 px-3 py-1.5 text-xs">
+								<span className="text-slate-500">Daily Earnings</span>
+								<span className={`font-semibold tabular-nums ${snapshot.dailyEarningsUSD >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+									{snapshot.dailyEarningsUSD >= 0 ? '+' : ''}{formatUSD(snapshot.dailyEarningsUSD)}
+								</span>
+							</div>
+						)}
+						{hasBorrows && liquidationUSD > 0 && (
+							<div className="flex items-center gap-1.5 rounded-lg bg-slate-800/70 px-3 py-1.5 text-xs">
+								<span className="text-slate-500">Borrow Limit Used</span>
+								<span className="font-semibold tabular-nums text-slate-200">
+									{((snapshot.totalBorrowedUSD / liquidationUSD) * 100).toFixed(1)}%
+								</span>
+							</div>
+						)}
+					</div>
+					{hasBorrows && liquidationUSD > 0 && (
+						<BorrowLimitBar
+							borrowed={snapshot.totalBorrowedUSD}
+							safe={safeUSD}
+							liquidation={liquidationUSD}
+						/>
 					)}
 				</div>
-			)}
-
-			{/* ── Borrow limit bar ─────────────────────────────────────── */}
-			{hasBorrows && liquidationUSD > 0 && (
-				<BorrowLimitBar
-					borrowed={snapshot.totalBorrowedUSD}
-					safe={safeUSD}
-					liquidation={liquidationUSD}
-				/>
 			)}
 
 			{/* ── Supplies ─────────────────────────────────────────────── */}

@@ -2,11 +2,16 @@ import { useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
 import { useAppStore } from '@/store/appStore'
-import { WalletConnect, connectBtnClass } from '@/components/auth/WalletConnect'
+import { WalletConnect } from '@/components/auth/WalletConnect'
 import { TabNav } from '@/components/layout/TabNav'
 import { Spinner } from '@/components/ui/Spinner'
 import { clearAllLocalCaches } from '@/services/clearLocalCaches'
-import { appHeaderSurface } from '@/design/appPrimitives'
+import {
+	appBtnDisabled,
+	appBtnSecondaryCompact,
+	appHeaderActionCluster,
+	appHeaderSurface,
+} from '@/design/appPrimitives'
 
 export function Header() {
 	const { isConnected, address } = useWalletAuth()
@@ -35,65 +40,67 @@ export function Header() {
 
 	return (
 		<header className={appHeaderSurface}>
-			<div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4 md:flex-row md:items-center md:justify-between">
-				<div>
-					<div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-						<h1 className="text-lg font-semibold tracking-tight text-slate-100">
+			<div className="mx-auto flex max-w-7xl flex-nowrap items-center justify-center gap-2.5 overflow-x-auto px-4 py-3">
+				<div className="min-w-0 shrink-0">
+					<div className="flex items-baseline gap-x-2.5">
+						<h1 className="whitespace-nowrap text-base font-semibold tracking-tight text-slate-100 sm:text-lg">
 							Sui LP &amp; Lending
 						</h1>
 						<Link
 							to="/design-system"
-							className="text-xs font-medium text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+							className="hidden whitespace-nowrap text-xs font-medium text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline sm:inline"
 						>
 							Гайд стилів
 						</Link>
 					</div>
 					{isConnected && isLoading ? (
-						<p className="mt-0.5 flex items-center gap-2 font-mono text-sm text-slate-400">
-							<Spinner className="h-3.5 w-3.5 flex-shrink-0" />
+						<p className="mt-0.5 flex items-center gap-2 font-mono text-xs text-slate-400">
+							<Spinner className="h-3 w-3 flex-shrink-0" />
 							<span>Updating…</span>
 						</p>
 					) : null}
 				</div>
-				<div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-end">
-					{isConnected ? <TabNav /> : null}
-					{isConnected ? (
-						<button
-							type="button"
-							className={
-								connectBtnClass +
-								' shrink-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-sky-600'
-							}
-							onClick={refreshPrices}
-							disabled={!address || isLoading}
-							title="Refetch spot prices and balances (uses server LP history when warm)"
+
+				{isConnected ? (
+					<>
+						<TabNav />
+						<div
+							className={appHeaderActionCluster}
+							role="group"
+							aria-label="Portfolio refresh actions"
 						>
-							Refresh
-						</button>
-					) : null}
-					{isConnected ? (
-						<button
-							type="button"
-							className="shrink-0 rounded px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition-colors disabled:opacity-50"
-							onClick={forceRescanLp}
-							disabled={!address || isLoading}
-							title="Cold-scan LP events on-chain (skip server history cache)"
-						>
-							Force rescan
-						</button>
-					) : null}
-					{isConnected ? (
-						<button
-							type="button"
-							className="shrink-0 rounded px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition-colors"
-							onClick={clearCacheAndReload}
-							title="Clear local event cache and reload (fixes stale token names / symbols)"
-						>
-							Clear cache
-						</button>
-					) : null}
+							<button
+								type="button"
+								className={`${appBtnSecondaryCompact} ${appBtnDisabled} shrink-0`}
+								onClick={refreshPrices}
+								disabled={!address || isLoading}
+								title="Refetch spot prices and balances (uses server LP history when warm)"
+							>
+								Refresh
+							</button>
+							<button
+								type="button"
+								className={`${appBtnSecondaryCompact} ${appBtnDisabled} shrink-0`}
+								onClick={forceRescanLp}
+								disabled={!address || isLoading}
+								title="Cold-scan LP events on-chain (skip server history cache)"
+							>
+								Force rescan
+							</button>
+							<button
+								type="button"
+								className={`${appBtnSecondaryCompact} shrink-0`}
+								onClick={clearCacheAndReload}
+								title="Clear local event cache and reload"
+							>
+								Clear cache
+							</button>
+						</div>
+						<WalletConnect />
+					</>
+				) : (
 					<WalletConnect />
-				</div>
+				)}
 			</div>
 		</header>
 	)

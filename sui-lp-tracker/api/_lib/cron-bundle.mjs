@@ -4360,6 +4360,7 @@ async function getLendingPositions(walletAddress) {
   const totalSuppliedUSD = safeNum(p.totalSuppliedUsd);
   const totalBorrowedUSD = safeNum(p.totalBorrowedUsd);
   const liquidationUSD = safeNum(p.liquidationThreshold);
+  const safeBorrowLimitUSD = safeNum(p.safeBorrowLimit);
   const healthFactor = totalBorrowedUSD > 0 ? liquidationUSD / totalBorrowedUSD : null;
   const supplies = [];
   for (const [marketIdNum, amtDecimal] of p.suppliedAmounts.entries()) {
@@ -4436,6 +4437,7 @@ async function getLendingPositions(walletAddress) {
       collateral,
       healthFactor: healthFactor ?? 0,
       liquidationThreshold: liquidationUSD,
+      ...safeBorrowLimitUSD > 0 ? { safeBorrowLimit: safeBorrowLimitUSD } : {},
       startedAt: 0,
       daysActive: 0,
       events: [],

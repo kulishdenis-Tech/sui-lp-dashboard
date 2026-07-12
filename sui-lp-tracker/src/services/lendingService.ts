@@ -138,6 +138,7 @@ export async function getLendingPositions(
 	const totalSuppliedUSD = safeNum(p.totalSuppliedUsd)
 	const totalBorrowedUSD = safeNum(p.totalBorrowedUsd)
 	const liquidationUSD = safeNum(p.liquidationThreshold)
+	const safeBorrowLimitUSD = safeNum(p.safeBorrowLimit)
 	const healthFactor = totalBorrowedUSD > 0 ? liquidationUSD / totalBorrowedUSD : null
 
 	// ── Supplies ─────────────────────────────────────────────────────────────
@@ -221,6 +222,7 @@ export async function getLendingPositions(
 			collateral,
 			healthFactor: healthFactor ?? 0,
 			liquidationThreshold: liquidationUSD,
+			...(safeBorrowLimitUSD > 0 ? { safeBorrowLimit: safeBorrowLimitUSD } : {}),
 			startedAt: 0,
 			daysActive: 0,
 			events: [],

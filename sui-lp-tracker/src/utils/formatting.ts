@@ -47,6 +47,14 @@ export function formatUSD(n: number | null | undefined, digits = 2): string {
 	}).format(n)
 }
 
+/**
+ * USD для великих сум у дашборді: від $1,000 без центів ($83,242), менше — з центами.
+ */
+export function formatUSDAdaptive(n: number | null | undefined): string {
+	if (n == null || Number.isNaN(n)) return '—'
+	return formatUSD(n, Math.abs(n) >= 1_000 ? 0 : 2)
+}
+
 /** Format a decimal APR/APY fraction (e.g. 0.0512 → "5.12%"). */
 export function formatPct(n: number | null | undefined, digits = 2): string {
 	if (n == null || Number.isNaN(n)) return '—'

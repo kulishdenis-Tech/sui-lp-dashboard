@@ -41,7 +41,7 @@ export function TabNav() {
 					aria-controls={`tab-panel-${t.id}`}
 					id={`tab-${t.id}`}
 					className={
-						'rounded-md px-4 py-1.5 text-sm font-medium transition ' +
+						'rounded-md px-3 py-1.5 text-sm font-medium transition ' +
 						(active === t.id
 							? 'bg-sky-600 text-white'
 							: 'text-slate-400 hover:bg-slate-800 hover:text-slate-200')

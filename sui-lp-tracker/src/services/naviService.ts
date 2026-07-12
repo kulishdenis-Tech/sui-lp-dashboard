@@ -15,9 +15,8 @@
  *     Returns BCS: vector<UserStateInfo { asset_id: u8, borrow_balance: u256, supply_balance: u256 }>
  *
  *  4. Claimable rewards:
- *     REST → /ext/navi/api/navi/user/rewards
- *
- * No SDK dependency — avoids SuiClient shim / pre-bundle cache problems.
+ *     SDK → getUserAvailableLendingRewards (on-chain devInspect via incentive_v3_getter)
+ *     Note: REST /api/navi/user/rewards is claimed-history style data, not claimable balances.
  */
 import type {
 	LendingSnapshot,

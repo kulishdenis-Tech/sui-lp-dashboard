@@ -1,7 +1,6 @@
 import { type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { PROTOCOL_COLORS } from '@/utils/constants'
-import { connectBtnClass } from '@/components/auth/WalletConnect'
 import { AppCard } from '@/components/ui/AppCard'
 import { Badge } from '@/components/ui/Badge'
 import { Spinner } from '@/components/ui/Spinner'
@@ -9,7 +8,11 @@ import { TooltipIconButton } from '@/components/ui/Tooltip'
 import { ProtocolIcon } from '@/components/ui/ProtocolIcon'
 import { DataTableHeadCell } from '@/components/ui/DataTableHeadCell'
 import {
+	appBtnPrimary,
+	appBtnSecondary,
+	appBtnSecondaryCompact,
 	appCardSurface,
+	appHeaderActionCluster,
 	appTableHeadCellDefault,
 	appTableHeadLabel,
 	appTableHeadLabelSort,
@@ -272,22 +275,19 @@ export function DesignSystemPage() {
 				<Section
 					id="buttons"
 					title="Buttons"
-					lead="Primary CTA — sky; вторинні текстові лінки — underline slate. Перемикачі табів — окремий патерн (pill + active sky)."
+					lead="Primary / secondary — однакові висота й radius. Вкладки (TabNav) — окремий сегментований контроль; у хедері їх відділяє вертикальний sep від action-кластера."
 				>
 					<div className="flex flex-wrap gap-4">
-						<button type="button" className={connectBtnClass}>
-							Primary (connectBtnClass)
+						<button type="button" className={appBtnPrimary}>
+							Primary (appBtnPrimary)
 						</button>
-						<button
-							type="button"
-							className="rounded-lg border border-slate-600 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-100 hover:bg-slate-700"
-						>
-							Secondary outline
+						<button type="button" className={appBtnSecondary}>
+							Secondary (appBtnSecondary)
 						</button>
 						<button type="button" className="text-xs text-slate-500 underline hover:text-slate-300">
 							Ghost link
 						</button>
-						<button type="button" disabled className={connectBtnClass + ' cursor-not-allowed opacity-45'}>
+						<button type="button" disabled className={appBtnPrimary + ' cursor-not-allowed opacity-45'}>
 							Disabled
 						</button>
 					</div>
@@ -297,6 +297,27 @@ export function DesignSystemPage() {
 							Inactive
 						</span>{' '}
 						<span className="rounded-md bg-sky-600 px-4 py-1.5 text-sm text-white">Active</span>
+					</p>
+					<div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-slate-700 bg-slate-950/40 p-3">
+						<span className="rounded-lg border border-app-border bg-app-card/35 p-1 text-xs text-slate-400">
+							<span className="rounded-md bg-sky-600 px-3 py-1 text-white">LP</span>
+							<span className="px-3 py-1">Balance</span>
+						</span>
+						<div className={appHeaderActionCluster}>
+							<button type="button" className={appBtnSecondaryCompact}>
+								Refresh
+							</button>
+							<button type="button" className={appBtnSecondaryCompact}>
+								Force rescan
+							</button>
+							<button type="button" className={appBtnSecondaryCompact}>
+								Clear cache
+							</button>
+						</div>
+						<span className="ml-auto text-xs text-slate-500">wallet →</span>
+					</div>
+					<p className="mt-2 text-xs text-slate-500">
+						Макет хедера (1 рядок): title → TabNav → action cluster → <code className="rounded bg-slate-800 px-1">ml-auto</code> wallet.
 					</p>
 				</Section>
 
@@ -397,10 +418,10 @@ export function DesignSystemPage() {
 						<div className="flex items-center gap-2 text-sm text-slate-400">
 							<Spinner className="h-4 w-4" /> Loading…
 						</div>
-						<button type="button" className={`${connectBtnClass} cursor-wait opacity-70`}>
+						<button type="button" className={`${appBtnPrimary} cursor-wait opacity-70`}>
 							busy...
 						</button>
-						<button type="button" className={connectBtnClass + ' opacity-35'} disabled>
+						<button type="button" className={appBtnPrimary + ' opacity-35'} disabled>
 							unavailable
 						</button>
 					</div>

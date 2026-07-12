@@ -14,6 +14,31 @@ export const appCardSurface =
 /** Плаваючий хедер: напівпрозорий фон поверх контенту */
 export const appHeaderSurface = 'border-b border-app-border bg-app-header-bg'
 
+/** Primary CTA (Connect, Refresh) */
+export const appBtnPrimary =
+	'rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-500'
+
+/** Secondary outline — той самий ритм що primary, для Force rescan / Clear cache */
+export const appBtnSecondary =
+	'rounded-lg border border-slate-600 bg-slate-800/70 px-3 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:bg-slate-700 hover:text-white'
+
+/** Disabled overlay для header action-кнопок (колір hover лишає кожна кнопка) */
+export const appBtnDisabled = 'disabled:cursor-not-allowed disabled:opacity-50'
+
+/**
+ * Роздільник між TabNav (навігація) і action-кластером (Refresh…).
+ * Мобайл — горизонтальна лінія; desktop — вертикальний sep.
+ */
+export const appHeaderToolbarSep =
+	'h-px w-full shrink-0 bg-slate-700/80 sm:h-7 sm:w-px sm:self-center'
+
+/** Ряд кнопок портфеля поруч із вкладками */
+export const appHeaderActionCluster = 'flex flex-nowrap items-center gap-1.5'
+
+/** Компактні secondary у хедері (щоб вкластись в 1 рядок з TabNav + wallet) */
+export const appBtnSecondaryCompact =
+	'rounded-lg border border-slate-600 bg-slate-800/70 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition hover:border-slate-500 hover:bg-slate-700 hover:text-white'
+
 /**
  * Ліва «Pool» колонка (sticky): заголовок і комірка з тим самим фоном.
  */
