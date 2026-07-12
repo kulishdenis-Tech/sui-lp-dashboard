@@ -205,54 +205,43 @@ export function BalanceDashboard() {
 	const { bucket, isClassifying, classifyError } = useTokenClassification(tokenBalances)
 	/** When on, rows with value &lt; $0.1 go to Hidden (see section below) */
 	const [hideBelow01, setHideBelow01] = useState(true)
-	const [mainSort, setMainSort] = useState<SortState>({ col: 'value', dir: 'desc' })
-	const [otherSort, setOtherSort] = useState<SortState>({ col: 'value', dir: 'desc' })
+	const [sort, setSort] = useState<SortState>({ col: 'change24h', dir: 'desc' })
 
-	const { mainShown, otherShown, extraMicro, hiddenBase } = useMemo(() => {
+	const { pricedShown, extraMicro, hiddenBase } = useMemo(() => {
 		if (!bucket) {
 			return {
-				mainShown: [] as ClassifiedTokenBalance[],
-				otherShown: [] as ClassifiedTokenBalance[],
+				pricedShown: [] as ClassifiedTokenBalance[],
 				extraMicro: [] as ClassifiedTokenBalance[],
 				hiddenBase: [] as ClassifiedTokenBalance[],
 			}
 		}
+		const priced = [...bucket.mainVerified, ...bucket.otherUnverifiedPriced]
 		if (!hideBelow01) {
 			return {
-				mainShown: bucket.mainVerified,
-				otherShown: bucket.otherUnverifiedPriced,
+				pricedShown: priced,
 				extraMicro: [],
 				hiddenBase: bucket.hidden,
 			}
 		}
-		const m1 = takeUnderThreshold(bucket.mainVerified)
-		const m2 = takeUnderThreshold(bucket.otherUnverifiedPriced)
+		const split = takeUnderThreshold(priced)
 		return {
-			mainShown: m1.show,
-			otherShown: m2.show,
-			extraMicro: [...m1.micro, ...m2.micro],
+			pricedShown: split.show,
+			extraMicro: split.micro,
 			hiddenBase: bucket.hidden,
 		}
 	}, [bucket, hideBelow01])
 
-	const sortedMain = useMemo(
-		() => sortClassifiedBalances(mainShown, mainSort.col, mainSort.dir),
-		[mainShown, mainSort],
-	)
-	const sortedOther = useMemo(
-		() => sortClassifiedBalances(otherShown, otherSort.col, otherSort.dir),
-		[otherShown, otherSort],
+	const sortedPriced = useMemo(
+		() => sortClassifiedBalances(pricedShown, sort.col, sort.dir),
+		[pricedShown, sort],
 	)
 
-	const onSortMain = useCallback((c: BalanceSortCol) => {
-		setMainSort((s) => nextSort(s, c))
-	}, [])
-	const onSortOther = useCallback((c: BalanceSortCol) => {
-		setOtherSort((s) => nextSort(s, c))
+	const onSort = useCallback((c: BalanceSortCol) => {
+		setSort((s) => nextSort(s, c))
 	}, [])
 
 	const loadingState = (isLoading || isClassifying) && tokenBalances.length > 0
-	const nMain = mainShown.length + otherShown.length
+	const nPriced = pricedShown.length
 
 	return (
 		<section>
@@ -268,7 +257,7 @@ export function BalanceDashboard() {
 						Hide Low Asset
 					</label>
 					<TooltipIconButton
-						tip={`Hides token rows with USD value below $${HIDE_BALANCE_VALUE_BELOW_USD} in the main tables (they stay in Hidden).`}
+						tip={`Hides token rows with USD value below $${HIDE_BALANCE_VALUE_BELOW_USD} in the tokens table (they stay in Hidden).`}
 						aria-label="About Hide Low Asset"
 						className="text-slate-500"
 					/>
@@ -287,35 +276,17 @@ export function BalanceDashboard() {
 				<SkeletonCard />
 			) : (
 				<div className="space-y-6 overflow-x-auto">
-					{mainShown.length > 0 ? (
+					{pricedShown.length > 0 ? (
 						<div>
 							<p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
-								Verified ({mainShown.length})
+								Tokens ({pricedShown.length})
 							</p>
 							<div className={appTableShell}>
 								<table className="w-full min-w-[880px] table-fixed border-collapse text-left">
 									{BALANCE_TABLE_COLS}
-									<SortableTableHead sort={mainSort} onSort={onSortMain} />
+									<SortableTableHead sort={sort} onSort={onSort} />
 									<tbody>
-										{sortedMain.map((t) => (
-											<TokenRow key={t.coinType} t={t} mode="priced" />
-										))}
-									</tbody>
-								</table>
-							</div>
-						</div>
-					) : null}
-					{otherShown.length > 0 ? (
-						<div>
-							<p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
-								Other priced tokens
-							</p>
-							<div className={appTableShell}>
-								<table className="w-full min-w-[880px] table-fixed border-collapse text-left">
-									{BALANCE_TABLE_COLS}
-									<SortableTableHead sort={otherSort} onSort={onSortOther} />
-									<tbody>
-										{sortedOther.map((t) => (
+										{sortedPriced.map((t) => (
 											<TokenRow key={t.coinType} t={t} mode="priced" showStatus />
 										))}
 									</tbody>
@@ -332,10 +303,10 @@ export function BalanceDashboard() {
 								: ''
 						}
 					/>
-					{bucket && nMain === 0 && tokenBalances.length > 0 && !loadingState ? (
+					{bucket && nPriced === 0 && tokenBalances.length > 0 && !loadingState ? (
 						<p className="text-sm text-amber-200/90">
 							{hideBelow01
-								? 'All rows are &lt; $0.1 or in Hidden — turn off Hide Low Asset to show small balances in the tables.'
+								? 'All rows are &lt; $0.1 or in Hidden — turn off Hide Low Asset to show small balances in the table.'
 								: 'No priced rows — check Hidden.'}
 						</p>
 					) : null}
