@@ -68,6 +68,10 @@ Secrets у репозиторії GitHub (для worker):
 
 - `GET /api/snapshots?wallet=0x…&range=7d` — історія портфеля (лише watchlist)
 - `POST /api/snapshots` — upsert клієнтських знімків `{ snapshots: [...] }` (лише watchlist)
+- `POST /api/visits` — лог візиту `{ wallet }` (будь-який connect; cooldown 30 хв)
+- `GET /api/visits?viewer=0x…` — список візитів (лише якщо `viewer` у watchlist)
+- Schema: `supabase/app-visits.sql` (також у `schema.sql`)
+- UI: маленький чіп **Read-only** біля connect лише для watchlist-гаманців → панель Visits
 - `GET /api/lp-history?wallet=0x…&status=closed|open|all` — кеш LP events (open + closed)
 - Cron dispatch: `GET /api/cron/dispatch-portfolio-snapshot` (authorized) → GHA
 - Cron (heavy, Hobby-risky): `GET /api/cron/portfolio-snapshot` (authorized)

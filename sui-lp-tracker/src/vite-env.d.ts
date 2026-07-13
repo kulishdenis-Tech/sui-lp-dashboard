@@ -33,6 +33,8 @@ interface ImportMetaEnv {
 	readonly VITE_LP_LAZY_CLOSED?: string
 	/** `0` — devInspect unclaimed Bluefin у таблиці відкритих; за замовч. lazy (детальна картка). */
 	readonly VITE_BLUEFIN_LAZY_UNCLAIMED?: string
+	/** Comma-separated watchlist for hidden visits chip (optional; defaults to schema seed). */
+	readonly VITE_WATCH_WALLETS?: string
 }
 
 interface ImportMeta {

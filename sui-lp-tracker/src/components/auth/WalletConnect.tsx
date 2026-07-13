@@ -3,6 +3,8 @@ import { useWalletAuth } from '@/hooks/useWalletAuth'
 import { shortAddress } from '@/utils/formatting'
 import { useAppStore } from '@/store/appStore'
 import { useState, type FormEvent } from 'react'
+import { isClientWatchWallet } from '@/config/watchWallets'
+import { VisitsPanel } from '@/components/admin/VisitsPanel'
 
 function PastedAddressBar() {
 	const { address, clearManualView } = useWalletAuth()
@@ -94,6 +96,26 @@ function WalletOrPaste() {
 	)
 }
 
+/** Tiny dormant chip — opens visits log only for watchlist connected wallets. */
+function HiddenVisitsChip({ address }: { address: string }) {
+	const [open, setOpen] = useState(false)
+	if (!isClientWatchWallet(address)) return null
+	return (
+		<>
+			<button
+				type="button"
+				className="shrink-0 rounded border border-slate-700/80 bg-slate-900/40 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-slate-600 hover:border-slate-600 hover:text-slate-400"
+				title="Visits"
+				aria-label="Open visits"
+				onClick={() => setOpen(true)}
+			>
+				Read-only
+			</button>
+			<VisitsPanel viewer={address} open={open} onClose={() => setOpen(false)} />
+		</>
+	)
+}
+
 /** `useDisconnectWallet` only in this branch — not in `useWalletAuth` (avoids React 19 + useMutation max-depth). */
 function ConnectedWalletRow() {
 	const { mutate: disconnectFromKit } = useDisconnectWallet()
@@ -102,6 +124,7 @@ function ConnectedWalletRow() {
 	if (!address) return null
 	return (
 		<div className="flex items-center gap-2">
+			<HiddenVisitsChip address={address} />
 			<span className="font-mono text-sm text-sky-200">{shortAddress(address)}</span>
 			<button
 				type="button"

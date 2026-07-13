@@ -3,6 +3,7 @@ import { Header } from '@/components/layout/Header'
 import { PortfolioDataLoader } from '@/components/PortfolioDataLoader'
 import { ToastHost } from '@/components/ui/ToastHost'
 import { PriceSpikeWatcher } from '@/components/PriceSpikeWatcher'
+import { AppVisitLogger } from '@/components/AppVisitLogger'
 
 export function AppLayout() {
 	return (
@@ -10,6 +11,7 @@ export function AppLayout() {
 			<Header />
 			<PortfolioDataLoader />
 			<PriceSpikeWatcher />
+			<AppVisitLogger />
 			<ToastHost />
 			<Outlet />
 		</div>
