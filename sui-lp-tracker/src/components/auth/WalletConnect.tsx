@@ -8,12 +8,29 @@ import { VisitsPanel } from '@/components/admin/VisitsPanel'
 
 function PastedAddressBar() {
 	const { address, clearManualView } = useWalletAuth()
+	const [visitsOpen, setVisitsOpen] = useState(false)
 	if (!address) return null
+	const canOpenVisits = isClientWatchWallet(address)
 	return (
 		<div className="flex flex-nowrap items-center gap-2">
-			<span className="rounded border border-violet-500/40 bg-violet-950/50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-200">
-				Read-only
-			</span>
+			{canOpenVisits ? (
+				<>
+					<button
+						type="button"
+						className="shrink-0 rounded border border-violet-500/40 bg-violet-950/50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-200 hover:border-violet-400/60 hover:text-violet-100"
+						title="Visits"
+						aria-label="Open visits"
+						onClick={() => setVisitsOpen(true)}
+					>
+						Read-only
+					</button>
+					<VisitsPanel viewer={address} open={visitsOpen} onClose={() => setVisitsOpen(false)} />
+				</>
+			) : (
+				<span className="rounded border border-violet-500/40 bg-violet-950/50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-200">
+					Read-only
+				</span>
+			)}
 			<span className="whitespace-nowrap font-mono text-sm text-sky-200">{shortAddress(address)}</span>
 			<button
 				type="button"
