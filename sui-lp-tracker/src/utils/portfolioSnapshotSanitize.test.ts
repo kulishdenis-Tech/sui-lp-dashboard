@@ -3,6 +3,7 @@ import type { PortfolioSnapshot } from '@/services/portfolioSnapshotIdb'
 import {
 	findOutlierSnapshotIds,
 	isOutlierTotalUsd,
+	isVNeedleArtifact,
 	sanitizePortfolioSnapshots,
 	shouldSaveSnapshot,
 } from './portfolioSnapshotSanitize'
@@ -56,6 +57,28 @@ describe('portfolioSnapshotSanitize', () => {
 		expect(clean.every((s) => s.totalUSD > 50_000)).toBe(true)
 		expect(findOutlierSnapshotIds(history)).toContain('w|3')
 		expect(shouldSaveSnapshot(snap(3, 26_916), history.filter((s) => s.ts !== 3))).toBe(false)
+	})
+
+	it('removes soft ~3% V-needles but keeps real multi-bucket drifts', () => {
+		expect(isVNeedleArtifact(103_000, 99_500, 102_800)).toBe(true)
+		expect(isVNeedleArtifact(103_000, 101_000, 99_000)).toBe(false)
+
+		const history = [
+			snap(1, 103_000),
+			snap(2, 102_800),
+			snap(3, 99_500),
+			snap(4, 102_700),
+			snap(5, 102_500),
+			snap(6, 101_000),
+			snap(7, 99_500),
+			snap(8, 98_000),
+		]
+		const clean = sanitizePortfolioSnapshots(history)
+		expect(clean.some((s) => s.id === 'w|3')).toBe(false)
+		// Sustained drift 102.5 → 101 → 99.5 → 98 stays
+		expect(clean.map((s) => s.id)).toEqual(
+			expect.arrayContaining(['w|5', 'w|6', 'w|7', 'w|8']),
+		)
 	})
 
 	it('blocks saving zero or non-finite totals', () => {

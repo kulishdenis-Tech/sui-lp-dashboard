@@ -12,6 +12,13 @@ export const SNAPSHOT_LOCAL_SPIKE_MAX_RATIO = 1.8
 /** Neighbors are "stable" if max/min stays within this factor. */
 const LOCAL_NEIGHBOR_AGREE_RATIO = 1.35
 
+/**
+ * Soft V-needles on the chart: one 15-min bucket dips ~1.5–4% then recovers
+ * (incomplete LP or lending load). Left/right must agree so real trends stay.
+ */
+export const SNAPSHOT_V_NEEDLE_MIN_DROP = 0.015
+export const SNAPSHOT_V_NEEDLE_NEIGHBOR_AGREE = 0.025
+
 /** Hard ceiling when baseline is a normal personal wallet (< $2M). */
 export const SNAPSHOT_ABS_CEILING_USD = 50_000_000
 
@@ -109,7 +116,7 @@ export function sanitizePortfolioSnapshots(
 	kept = applyBootstrapCorrection(sorted, kept)
 
 	const localWindow = 4
-	return kept.filter((s, i, arr) => {
+	kept = kept.filter((s, i, arr) => {
 		const neighbors: number[] = []
 		for (let j = Math.max(0, i - localWindow); j <= Math.min(arr.length - 1, i + localWindow); j++) {
 			if (j === i) continue
@@ -121,6 +128,31 @@ export function sanitizePortfolioSnapshots(
 		if (isOutlierTotalUsd(s.totalUSD, localBase)) return false
 		return !isLocalNeedleSpike(s.totalUSD, neighbors)
 	})
+
+	// Soft V-needles (≈2–4% one-bucket dips). May need 2 passes if adjacent.
+	for (let pass = 0; pass < 2; pass++) {
+		const next = kept.filter((s, i, arr) => {
+			if (i === 0 || i === arr.length - 1) return true
+			return !isVNeedleArtifact(arr[i - 1]!.totalUSD, s.totalUSD, arr[i + 1]!.totalUSD)
+		})
+		if (next.length === kept.length) break
+		kept = next
+	}
+	return kept
+}
+
+/**
+ * One-bucket V artifact: left≈right, mid clearly below (or above) the bridge.
+ * Keeps real drifts where neighbors disagree.
+ */
+export function isVNeedleArtifact(left: number, mid: number, right: number): boolean {
+	if (!(left > 0 && mid > 0 && right > 0)) return false
+	const bridge = (left + right) / 2
+	if (bridge <= 0) return false
+	const neighborAgree = Math.abs(left - right) / bridge
+	if (neighborAgree > SNAPSHOT_V_NEEDLE_NEIGHBOR_AGREE) return false
+	const deviation = Math.abs(mid - bridge) / bridge
+	return deviation >= SNAPSHOT_V_NEEDLE_MIN_DROP
 }
 
 /** True for a one-bucket needle when surrounding points are mutually consistent. */
@@ -139,6 +171,27 @@ export function isLocalNeedleSpike(totalUSD: number, neighbors: number[]): boole
 	if (nMax / nMin > LOCAL_NEIGHBOR_AGREE_RATIO) return false
 
 	return true
+}
+
+/**
+ * Incomplete load vs previous point: total dips while LP or lending alone collapses.
+ * Used at save-time (no future neighbor yet).
+ */
+export function looksLikeIncompleteLoad(
+	snap: PortfolioSnapshot,
+	prev: PortfolioSnapshot,
+): boolean {
+	const prevTotal = prev.totalUSD
+	if (!(prevTotal > 0) || !(snap.totalUSD > 0)) return false
+	const totalDrop = prevTotal - snap.totalUSD
+	if (totalDrop / prevTotal < SNAPSHOT_V_NEEDLE_MIN_DROP) return false
+
+	const lpDrop = Math.max(0, prev.lpUSD - snap.lpUSD)
+	const lendDrop = Math.max(0, prev.lendingNetUSD - snap.lendingNetUSD)
+	const componentDrop = lpDrop + lendDrop
+	if (componentDrop < 800) return false
+	// Most of the $ drop comes from one incomplete bucket, not a broad market move.
+	return componentDrop >= totalDrop * 0.75
 }
 
 /** IDs of snapshots removed by {@link sanitizePortfolioSnapshots}. */
@@ -171,6 +224,11 @@ export function shouldSaveSnapshot(
 
 	const recentNeighbors = recentTotals.slice(-6)
 	if (isLocalNeedleSpike(snap.totalUSD, recentNeighbors)) return false
+
+	const prev = recentHistory
+		.filter((s) => Number.isFinite(s.totalUSD) && s.totalUSD > 0)
+		.at(-1)
+	if (prev && looksLikeIncompleteLoad(snap, prev)) return false
 
 	return true
 }
