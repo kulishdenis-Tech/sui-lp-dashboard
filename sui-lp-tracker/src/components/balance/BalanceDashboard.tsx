@@ -174,6 +174,8 @@ export function BalanceDashboard() {
 	/** When on, rows with value &lt; $0.1 go to Hidden (see section below) */
 	const [hideBelow01, setHideBelow01] = useState(true)
 	const [sort, setSort] = useState<SortState>({ col: 'change24h', dir: 'desc' })
+	/** Expanded spot chart under a priced token row (click icon / symbol / name). */
+	const [chartCoinType, setChartCoinType] = useState<string | null>(null)
 
 	const { pricedShown, extraMicro, hiddenBase } = useMemo(() => {
 		if (!bucket) {
@@ -206,6 +208,10 @@ export function BalanceDashboard() {
 
 	const onSort = useCallback((c: BalanceSortCol) => {
 		setSort((s) => nextSort(s, c))
+	}, [])
+
+	const onToggleTokenChart = useCallback((coinType: string) => {
+		setChartCoinType((prev) => (prev === coinType ? null : coinType))
 	}, [])
 
 	const loadingState = (isLoading || isClassifying) && tokenBalances.length > 0
@@ -255,7 +261,14 @@ export function BalanceDashboard() {
 									<SortableTableHead sort={sort} onSort={onSort} />
 									<tbody>
 										{sortedPriced.map((t) => (
-											<TokenRow key={t.coinType} t={t} mode="priced" showStatus />
+											<TokenRow
+												key={t.coinType}
+												t={t}
+												mode="priced"
+												showStatus
+												chartOpen={chartCoinType === t.coinType}
+												onToggleChart={() => onToggleTokenChart(t.coinType)}
+											/>
 										))}
 									</tbody>
 								</table>

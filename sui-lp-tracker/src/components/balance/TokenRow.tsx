@@ -3,12 +3,15 @@ import { formatUSD, shortCoinTypePackage } from '@/utils/formatting'
 import { TooltipIconButton } from '@/components/ui/Tooltip'
 import { TokenStatusBadge } from '@/components/balance/TokenStatusBadge'
 import { TokenIconOkx } from '@/components/positions/TokenIconOkx'
+import { TokenSpotChart } from '@/components/balance/TokenSpotChart'
 import { SUISCAN_COIN } from '@/utils/constants'
 import Decimal from 'decimal.js'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 
 const cell =
 	'border-b border-slate-800/60 bg-app-bg px-2 py-2 text-sm align-middle leading-tight transition-colors group-hover:bg-app-row-hover'
+
+const BALANCE_COL_COUNT = 8
 
 function CopyCoinTypeButton({ coinType }: { coinType: string }) {
 	const [copied, setCopied] = useState(false)
@@ -61,6 +64,7 @@ function CoinTypeAddressCell({ coinType }: { coinType: string }) {
 				rel="noreferrer"
 				className="min-w-0 truncate font-mono text-xs text-sky-400/90 hover:underline"
 				title={coinType}
+				onClick={(e) => e.stopPropagation()}
 			>
 				{short}
 			</a>
@@ -95,28 +99,81 @@ function changePctCell(ch: number | null | undefined) {
 	)
 }
 
+function ChartToggleHit({
+	onToggle,
+	expanded,
+	label,
+	children,
+	className,
+}: {
+	onToggle?: () => void
+	expanded?: boolean
+	label: string
+	children: ReactNode
+	className?: string
+}) {
+	if (!onToggle) return <div className={className}>{children}</div>
+	return (
+		<button
+			type="button"
+			onClick={onToggle}
+			aria-expanded={expanded}
+			aria-label={expanded ? `Hide ${label} chart` : `Show ${label} chart`}
+			title={expanded ? 'Hide chart' : 'Show chart vs stablecoin'}
+			className={[
+				'rounded text-left transition-colors',
+				'hover:text-sky-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/60',
+				expanded ? 'text-sky-300' : '',
+				className ?? '',
+			].join(' ')}
+		>
+			{children}
+		</button>
+	)
+}
+
 export function TokenRow({
 	t,
 	mode,
 	showStatus,
+	chartOpen,
+	onToggleChart,
 }: {
 	t: ClassifiedTokenBalance
 	mode: 'priced' | 'unpriced'
 	showStatus?: boolean
+	chartOpen?: boolean
+	onToggleChart?: () => void
 }) {
+	const canChart = mode === 'priced' && Boolean(onToggleChart)
+
 	/** Symbol + shortened coin type (Suiscan link) and copy button. */
 	const tokenAndAddressCell = (
 		<td className={`${cell} min-w-0 pr-2`}>
 			<div className="flex items-start gap-2">
-				<TokenIconOkx
-					coinType={t.coinType}
-					symbol={t.symbol}
-					title={t.name ?? t.symbol}
-					chainIconUrl={t.iconUrl}
-				/>
+				<ChartToggleHit
+					onToggle={canChart ? onToggleChart : undefined}
+					expanded={chartOpen}
+					label={t.symbol}
+					className="shrink-0"
+				>
+					<TokenIconOkx
+						coinType={t.coinType}
+						symbol={t.symbol}
+						title={t.name ?? t.symbol}
+						chainIconUrl={t.iconUrl}
+					/>
+				</ChartToggleHit>
 				<div className="min-w-0 flex-1">
 					<div className="font-medium text-slate-200">
-						{t.symbol}
+						<ChartToggleHit
+							onToggle={canChart ? onToggleChart : undefined}
+							expanded={chartOpen}
+							label={t.symbol}
+							className="inline font-medium"
+						>
+							{t.symbol}
+						</ChartToggleHit>
 						{showStatus ? <TokenStatusBadge t={t} /> : null}
 						{t.scallopDeposit ? (
 							<span className="ml-1 inline-flex items-center align-middle">
@@ -138,11 +195,38 @@ export function TokenRow({
 	)
 	const nameCell = (
 		<td className={`${cell} min-w-0 max-w-[16rem]`}>
-			<div className="truncate text-slate-300" title={t.name ?? undefined}>
-				{t.name?.trim() ? t.name : '—'}
-			</div>
+			{canChart ? (
+				<button
+					type="button"
+					onClick={onToggleChart}
+					aria-expanded={chartOpen}
+					title={chartOpen ? 'Hide chart' : 'Show chart vs stablecoin'}
+					className={[
+						'block w-full truncate text-left transition-colors hover:text-sky-300',
+						chartOpen ? 'text-sky-300' : 'text-slate-300',
+					].join(' ')}
+				>
+					{t.name?.trim() ? t.name : '—'}
+				</button>
+			) : (
+				<div className="truncate text-slate-300" title={t.name ?? undefined}>
+					{t.name?.trim() ? t.name : '—'}
+				</div>
+			)}
 		</td>
 	)
+
+	const chartRow =
+		canChart && chartOpen ? (
+			<tr className="bg-slate-950/40">
+				<td
+					colSpan={BALANCE_COL_COUNT}
+					className="border-b border-slate-800/80 px-3 pb-3 pt-1"
+				>
+					<TokenSpotChart coinType={t.coinType} symbol={t.symbol} />
+				</td>
+			</tr>
+		) : null
 
 	if (mode === 'unpriced') {
 		return (
@@ -160,25 +244,28 @@ export function TokenRow({
 	}
 
 	return (
-		<tr className="group text-sm">
-			{tokenAndAddressCell}
-			{nameCell}
-			<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-200`}>
-				{fmtUnitPrice(t.priceUSD)}
-			</td>
-			<td className={`${cell} whitespace-nowrap text-right font-mono text-xs`}>
-				{changePctCell(t.change5m)}
-			</td>
-			<td className={`${cell} whitespace-nowrap text-right font-mono text-xs`}>
-				{changePctCell(t.change1h)}
-			</td>
-			<td className={`${cell} whitespace-nowrap text-right font-mono text-xs`}>
-				{changePctCell(t.change24h)}
-			</td>
-			<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-300`}>{fmtBalance(t)}</td>
-			<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-200`}>
-				{formatUSD(t.valueUSD)}
-			</td>
-		</tr>
+		<>
+			<tr className="group text-sm">
+				{tokenAndAddressCell}
+				{nameCell}
+				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-200`}>
+					{fmtUnitPrice(t.priceUSD)}
+				</td>
+				<td className={`${cell} whitespace-nowrap text-right font-mono text-xs`}>
+					{changePctCell(t.change5m)}
+				</td>
+				<td className={`${cell} whitespace-nowrap text-right font-mono text-xs`}>
+					{changePctCell(t.change1h)}
+				</td>
+				<td className={`${cell} whitespace-nowrap text-right font-mono text-xs`}>
+					{changePctCell(t.change24h)}
+				</td>
+				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-300`}>{fmtBalance(t)}</td>
+				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-200`}>
+					{formatUSD(t.valueUSD)}
+				</td>
+			</tr>
+			{chartRow}
+		</>
 	)
 }
