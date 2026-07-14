@@ -34,6 +34,12 @@ export default async function handler(req: VercelReq, res: VercelRes) {
 	const headers: Record<string, string> = {}
 	const ct = req.headers['content-type']
 	if (typeof ct === 'string') headers['Content-Type'] = ct
+	const accept = req.headers['accept']
+	if (typeof accept === 'string') headers['Accept'] = accept
+	// GeckoTerminal recommends versioned Accept when client omits it.
+	if (host === 'api.geckoterminal.com' && !headers['Accept']) {
+		headers['Accept'] = 'application/json;version=20230302'
+	}
 
 	const init: RequestInit = { method, headers, signal: AbortSignal.timeout(30_000) }
 	if (method !== 'GET' && method !== 'HEAD' && req.body != null) {

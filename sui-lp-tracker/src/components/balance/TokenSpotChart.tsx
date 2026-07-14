@@ -5,7 +5,7 @@ import { GECKO_NETWORK } from '@/utils/constants'
 
 /**
  * Spot chart for a balance token — GeckoTerminal pool embed (same as LP PositionPoolChart).
- * Prefers TOKEN/USDC (then other stables) via {@link resolveTokenChartPool}.
+ * Prefers TOKEN/STABLE (incl. SUI/USDC, not USDC/SUI) via {@link resolveTokenChartPool}.
  */
 export function TokenSpotChart({
 	coinType,
@@ -23,16 +23,22 @@ export function TokenSpotChart({
 		setLoading(true)
 		setError(null)
 		setPool(null)
-		void resolveTokenChartPool(coinType, symbol).then((p) => {
-			if (cancelled) return
-			if (!p) {
+		void resolveTokenChartPool(coinType, symbol)
+			.then((p) => {
+				if (cancelled) return
+				if (!p) {
+					setError('No pool chart found for this token')
+					setLoading(false)
+					return
+				}
+				setPool(p)
+				setLoading(false)
+			})
+			.catch(() => {
+				if (cancelled) return
 				setError('No pool chart found for this token')
 				setLoading(false)
-				return
-			}
-			setPool(p)
-			setLoading(false)
-		})
+			})
 		return () => {
 			cancelled = true
 		}
