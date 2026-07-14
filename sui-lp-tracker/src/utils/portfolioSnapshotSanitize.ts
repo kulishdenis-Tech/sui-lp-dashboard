@@ -3,6 +3,15 @@ import type { PortfolioSnapshot } from '@/services/portfolioSnapshotIdb'
 /** Max allowed ratio vs robust baseline (15-min bucket cannot 25× a ~stable portfolio). */
 export const SNAPSHOT_OUTLIER_MAX_RATIO = 25
 
+/**
+ * Isolated needle vs nearby points (e.g. $100k → $27k → $100k from a partial lending load).
+ * Tighter than the global ratio — neighbors must also agree with each other.
+ */
+export const SNAPSHOT_LOCAL_SPIKE_MAX_RATIO = 1.8
+
+/** Neighbors are "stable" if max/min stays within this factor. */
+const LOCAL_NEIGHBOR_AGREE_RATIO = 1.35
+
 /** Hard ceiling when baseline is a normal personal wallet (< $2M). */
 export const SNAPSHOT_ABS_CEILING_USD = 50_000_000
 
@@ -109,8 +118,27 @@ export function sanitizePortfolioSnapshots(
 		}
 		if (neighbors.length === 0) return true
 		const localBase = median(neighbors)
-		return !isOutlierTotalUsd(s.totalUSD, localBase)
+		if (isOutlierTotalUsd(s.totalUSD, localBase)) return false
+		return !isLocalNeedleSpike(s.totalUSD, neighbors)
 	})
+}
+
+/** True for a one-bucket needle when surrounding points are mutually consistent. */
+export function isLocalNeedleSpike(totalUSD: number, neighbors: number[]): boolean {
+	if (!Number.isFinite(totalUSD) || totalUSD <= 0 || neighbors.length < 2) return false
+	const localBase = median(neighbors)
+	if (localBase <= 0) return false
+
+	const spikeRatio = Math.max(totalUSD / localBase, localBase / totalUSD)
+	if (spikeRatio < SNAPSHOT_LOCAL_SPIKE_MAX_RATIO) return false
+
+	const nMin = Math.min(...neighbors)
+	const nMax = Math.max(...neighbors)
+	if (nMin <= 0) return false
+	// Real multi-bucket moves leave neighbors disagreeing — keep those.
+	if (nMax / nMin > LOCAL_NEIGHBOR_AGREE_RATIO) return false
+
+	return true
 }
 
 /** IDs of snapshots removed by {@link sanitizePortfolioSnapshots}. */
@@ -128,19 +156,23 @@ export function shouldSaveSnapshot(
 	if (recentTotals.length === 0) return true
 
 	const baseline = robustBaseline(recentTotals)
-	if (!isOutlierTotalUsd(snap.totalUSD, baseline)) return true
-
-	// Allow first corrected totals after under-reported server snapshots.
-	if (
-		recentHistory.length <= BOOTSTRAP_MAX_SNAPS &&
-		snap.totalUSD > baseline * SNAPSHOT_OUTLIER_MAX_RATIO &&
-		snap.lendingNetUSD > 0 &&
-		snap.lpUSD > 0
-	) {
-		return true
+	if (isOutlierTotalUsd(snap.totalUSD, baseline)) {
+		// Allow first corrected totals after under-reported server snapshots.
+		if (
+			recentHistory.length <= BOOTSTRAP_MAX_SNAPS &&
+			snap.totalUSD > baseline * SNAPSHOT_OUTLIER_MAX_RATIO &&
+			snap.lendingNetUSD > 0 &&
+			snap.lpUSD > 0
+		) {
+			return true
+		}
+		return false
 	}
 
-	return false
+	const recentNeighbors = recentTotals.slice(-6)
+	if (isLocalNeedleSpike(snap.totalUSD, recentNeighbors)) return false
+
+	return true
 }
 
 /** Merge server + local snapshots by `hourBucket` (prefer higher `ts` for same bucket). */

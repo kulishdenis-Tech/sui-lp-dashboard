@@ -147,7 +147,12 @@ export function usePortfolioHistory(): PortfolioHistoryResult {
 				if (serverAll && serverAll.length > 0) {
 					// Merge server + local by hourBucket so browser 15-min saves still
 					// appear when GitHub Actions cron is delayed on a private repo.
-					const all = sanitizePortfolioSnapshots(mergeSnapshotsByBucket(serverAll, localAll))
+					const mergedRaw = mergeSnapshotsByBucket(serverAll, localAll)
+					const outlierIds = findOutlierSnapshotIds(mergedRaw)
+					if (outlierIds.length > 0) {
+						await deleteSnapshotsByIds(outlierIds).catch(console.error)
+					}
+					const all = sanitizePortfolioSnapshots(mergedRaw)
 					setAllSnapshots(all)
 					const now = Date.now()
 					const fromMs = range === 'all' ? 0 : now - RANGE_MS[range]
@@ -167,7 +172,7 @@ export function usePortfolioHistory(): PortfolioHistoryResult {
 
 					// Backfill local 15-min points that never reached Supabase (GHA gaps).
 					const serverIds = new Set(serverAll.map((s) => s.id))
-					const missing = sanitizePortfolioSnapshots(localAll)
+					const missing = all
 						.filter((s) => !serverIds.has(s.id))
 						.slice(-40)
 					if (missing.length > 0) {

@@ -43,6 +43,21 @@ describe('portfolioSnapshotSanitize', () => {
 		expect(isOutlierTotalUsd(105_000, 100_000)).toBe(false)
 	})
 
+	it('removes isolated ~70% needle spikes (partial lending load)', () => {
+		const normal = 100_000
+		const history = [
+			snap(1, normal),
+			snap(2, normal + 400),
+			snap(3, 26_916),
+			snap(4, normal - 100),
+			snap(5, normal + 200),
+		]
+		const clean = sanitizePortfolioSnapshots(history)
+		expect(clean.every((s) => s.totalUSD > 50_000)).toBe(true)
+		expect(findOutlierSnapshotIds(history)).toContain('w|3')
+		expect(shouldSaveSnapshot(snap(3, 26_916), history.filter((s) => s.ts !== 3))).toBe(false)
+	})
+
 	it('blocks saving zero or non-finite totals', () => {
 		expect(shouldSaveSnapshot(snap(4, 0), [snap(1, 100_000)])).toBe(false)
 		expect(shouldSaveSnapshot({ ...snap(4, Number.NaN), totalUSD: Number.NaN }, [snap(1, 100_000)])).toBe(false)

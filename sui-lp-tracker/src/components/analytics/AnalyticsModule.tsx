@@ -187,6 +187,13 @@ function BreakdownBar({ segments }: { segments: Segment[] }) {
 
 // ─── Chart ────────────────────────────────────────────────────────────────────
 
+const RANGE_MS_CHART: Record<TimeRange, number> = {
+	'24h': 24 * 60 * 60 * 1000,
+	'7d': 7 * 24 * 60 * 60 * 1000,
+	'30d': 30 * 24 * 60 * 60 * 1000,
+	all: 0,
+}
+
 function PortfolioChart({
 	snapshots,
 	range,
@@ -199,6 +206,29 @@ function PortfolioChart({
 	const seriesRef = useRef<ISeriesApi<'Area'> | null>(null)
 	/** Floating tooltip element — updated directly via DOM (avoids setState on every mouse move). */
 	const tooltipRef = useRef<HTMLDivElement>(null)
+	const rangeRef = useRef(range)
+	rangeRef.current = range
+
+	/** Fit X-axis to selected range. Critical after tab was `hidden` (width 0 → real width). */
+	const applyTimeScale = useRef(() => {
+		const chart = chartRef.current
+		const el = containerRef.current
+		if (!chart || !el) return
+		if (el.clientWidth < 32) return
+
+		const r = rangeRef.current
+		if (r === 'all' || RANGE_MS_CHART[r] <= 0) {
+			chart.timeScale().fitContent()
+			return
+		}
+		const to = Math.floor(Date.now() / 1000) as UTCTimestamp
+		const from = Math.floor((Date.now() - RANGE_MS_CHART[r]) / 1000) as UTCTimestamp
+		try {
+			chart.timeScale().setVisibleRange({ from, to })
+		} catch {
+			chart.timeScale().fitContent()
+		}
+	})
 
 	// Create chart once
 	useLayoutEffect(() => {
@@ -210,8 +240,9 @@ function PortfolioChart({
 		const gridColor = '#1e293b'   // slate-800
 		const borderColor = '#1e293b' // app-border ≈ slate-800
 
+		const initialWidth = Math.max(containerRef.current.clientWidth, 320)
 		const chart = createChart(containerRef.current, {
-			width: containerRef.current.clientWidth,
+			width: initialWidth,
 			height: 260,
 			layout: {
 				background: { color: 'transparent' },
@@ -342,10 +373,12 @@ function PortfolioChart({
 		// Hide when mouse leaves the chart area
 		container.addEventListener('mouseleave', hideTooltip)
 
-		// Resize observer
+		// Resize: Analytics tab mounts while `hidden` → width 0; when shown, re-fit the axis.
 		const ro = new ResizeObserver((entries) => {
 			const w = entries[0]?.contentRect.width
-			if (w && chartRef.current) chartRef.current.resize(w, 260)
+			if (!w || !chartRef.current) return
+			chartRef.current.resize(w, 260)
+			applyTimeScale.current()
 		})
 		ro.observe(container)
 
@@ -378,7 +411,10 @@ function PortfolioChart({
 			.filter((d, i, arr) => i === 0 || d.time > arr[i - 1]!.time)
 
 		seriesRef.current.setData(data)
-		chartRef.current?.timeScale().fitContent()
+		// Double-rAF: wait for layout after tab becomes visible / loading skeleton unmounts.
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => applyTimeScale.current())
+		})
 	}, [snapshots, range])
 
 	if (snapshots.length === 0) {
