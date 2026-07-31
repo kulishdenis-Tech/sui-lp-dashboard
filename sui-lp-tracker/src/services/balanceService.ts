@@ -114,7 +114,14 @@ export async function getWalletBalance(
 	onPartial?: (rows: TokenBalance[]) => void,
 	options?: WalletBalanceOptions,
 ): Promise<TokenBalance[]> {
-	const withMeta = await loadBalancesWithMetadata(walletAddress, client)
+	let withMeta: Awaited<ReturnType<typeof loadBalancesWithMetadata>>
+	try {
+		withMeta = await loadBalancesWithMetadata(walletAddress, client)
+	} catch {
+		// Single retry after 1 s — handles transient Vite dev-proxy / RPC blips.
+		await new Promise((r) => setTimeout(r, 1000))
+		withMeta = await loadBalancesWithMetadata(walletAddress, client)
+	}
 	const types = withMeta.map(({ b }) => b.coinType)
 	const symbolByType: SymbolByType = (ct) => {
 		const row = withMeta.find((x) => x.b.coinType === ct)
