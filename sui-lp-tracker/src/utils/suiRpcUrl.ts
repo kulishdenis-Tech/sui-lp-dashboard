@@ -1,4 +1,5 @@
 import { getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc'
+import { extFetchUrl } from '@/utils/externalFetchUrl'
 
 function rpcFromProcessEnv(): string | undefined {
 	if (typeof process === 'undefined' || !process.env) return undefined
@@ -32,7 +33,12 @@ export function resolveBrowserRpcUrl(): string {
 	// Node (vite-node / cron): never use Vite dev proxy paths.
 	if (typeof window === 'undefined') return absolute
 	const isDev = Boolean(import.meta.env?.DEV)
-	if (!isDev) return absolute
+	if (!isDev) {
+		// Prod browser: route through same-origin Vercel proxy so the request
+		// stays on sui-lp-dashboard.vercel.app — prevents Chrome extension fetch
+		// interception (extensions can't block same-origin requests).
+		return extFetchUrl(absolute)
+	}
 	try {
 		const u = new URL(absolute)
 		return `/ext/sui-rpc${u.pathname}${u.search}`

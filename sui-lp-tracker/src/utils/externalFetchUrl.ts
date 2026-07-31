@@ -16,6 +16,8 @@ const HOST_PREFIX: Record<string, string> = {
 	'dapi.api.sui-prod.bluefin.io': '/ext/bf-dapi',
 	'swap.api.sui-prod.bluefin.io': '/ext/bf-swap',
 	'open-api.naviprotocol.io': '/ext/navi',
+	// SUI JSON-RPC fullnode — same-origin proxy to prevent Chrome extension interception
+	'fullnode.mainnet.sui.io': '/ext/sui-rpc',
 }
 
 export function extFetchUrl(absoluteUrl: string): string {

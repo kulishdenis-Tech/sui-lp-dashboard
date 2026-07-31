@@ -10,6 +10,9 @@ export const PROXY_HOST_TO_ORIGIN: Record<string, string> = {
 	'dapi.api.sui-prod.bluefin.io': 'https://dapi.api.sui-prod.bluefin.io',
 	'swap.api.sui-prod.bluefin.io': 'https://swap.api.sui-prod.bluefin.io',
 	'open-api.naviprotocol.io': 'https://open-api.naviprotocol.io',
+	// SUI JSON-RPC fullnode — proxied in prod so browser calls stay same-origin
+	// (avoids Chrome extension fetch interception that breaks getAllBalances)
+	'fullnode.mainnet.sui.io': 'https://fullnode.mainnet.sui.io',
 }
 
 export function isAllowedProxyHost(host: string): boolean {
