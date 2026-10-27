@@ -40,6 +40,27 @@ describe('clmmRangeFromOpenPosition', () => {
 		})
 		expect(r).toBeNull()
 	})
+
+	it('використовує priceRangeOverride для DLMM (без TickMath)', () => {
+		const r = clmmRangeFromOpenPosition({
+			tickLower: 0,
+			tickUpper: 0,
+			currentTick: 0,
+			currentSqrtPrice: '0',
+			tokenA: 'SUI',
+			tokenB: 'USDC',
+			tokenADecimals: -1,
+			tokenBDecimals: -1,
+			status: 'in_range',
+			priceRangeOverride: { min: 1, max: 3, current: 2 },
+		})
+		expect(r).not.toBeNull()
+		expect(r!.priceMin).toBe(1)
+		expect(r!.priceMax).toBe(3)
+		expect(r!.priceCurrent).toBe(2)
+		expect(r!.position01).toBeCloseTo(0.5, 5)
+		expect(r!.inRange).toBe(true)
+	})
 })
 
 describe('rangeEdgePercentVsPrice', () => {

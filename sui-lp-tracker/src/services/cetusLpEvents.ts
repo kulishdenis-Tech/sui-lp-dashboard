@@ -25,6 +25,7 @@ const CETUS_LP_EVENT_STRUCT_SET = new Set([
 	'CollectRewardEvent',
 	'CollectRewardV2Event',
 	'HarvestEvent',
+	'ClosePositionEvent',
 ])
 
 const CETUS_STRUCT_TO_EVTYPE: Record<string, EventType> = {
@@ -36,6 +37,7 @@ const CETUS_STRUCT_TO_EVTYPE: Record<string, EventType> = {
 	CollectRewardEvent: 'collect_reward',
 	CollectRewardV2Event: 'collect_reward',
 	HarvestEvent: 'collect_reward',
+	ClosePositionEvent: 'close_position',
 }
 
 /**
@@ -83,11 +85,12 @@ function normSafe(id: string): string | null {
 
 /**
  * Try to read the position object ID from event parsedJson.
- * CollectFeeEvent and CollectRewardEvent reliably have 'position'.
- * AddLiquidity/RemoveLiquidity events may have 'position' or 'pos' (protocol version dependent).
+ * CLMM: CollectFee/Reward use `position`; add/remove may use `position` / `pos`.
+ * DLMM (`@cetusprotocol/dlmm` pool events): Add/Remove/Close use `position_id`;
+ * CollectFee/Reward use `position`.
  */
 function readPositionFromEvent(pj: Parsed): string | null {
-	for (const key of ['position', 'wrapped_position_id', 'pos', 'pos_id'] as const) {
+	for (const key of ['position', 'position_id', 'wrapped_position_id', 'pos', 'pos_id'] as const) {
 		const v = pj[key]
 		if (typeof v === 'string' && v.startsWith('0x')) {
 			return normSafe(v)
@@ -100,6 +103,129 @@ function readPositionFromEvent(pj: Parsed): string | null {
  * Extract reward coin type from a generic Cetus CollectReward event type string.
  * e.g. "pkg::pool::CollectRewardEvent<CoinA, CoinB, RewardCoin>" → "RewardCoin" normalized.
  */
+/** Cetus `CollectRewardV2Event` stores the coin in `rewarder_type.name` without a `0x` prefix. */
+function coinTypeFromRewardField(v: unknown): string | null {
+	const name =
+		typeof v === 'string'
+			? v
+			: v && typeof v === 'object' && typeof (v as { name?: unknown }).name === 'string'
+				? (v as { name: string }).name
+				: ''
+	let raw = name.trim()
+	if (!raw) return null
+	if (!raw.startsWith('0x') && /^[0-9a-fA-F]{1,64}::/.test(raw)) raw = `0x${raw}`
+	try {
+		return normalizeStructTag(raw)
+	} catch {
+		return raw
+	}
+}
+
+function splitTypeParams(type: string): string[] {
+	const match = type.match(/<(.+)>$/)
+	if (!match) return []
+	let depth = 0
+	const params: string[] = []
+	let cur = ''
+	for (const ch of match[1]!) {
+		if (ch === '<') { depth++; cur += ch }
+		else if (ch === '>') { depth--; cur += ch }
+		else if (ch === ',' && depth === 0) { params.push(cur.trim()); cur = '' }
+		else { cur += ch }
+	}
+	if (cur.trim()) params.push(cur.trim())
+	return params
+}
+
+/** Pool coin types from `Add/RemoveLiquidity*Event<CoinA, CoinB>`. */
+export function cetusPoolCoinsFromEventType(type: string): { coinTypeA: string; coinTypeB: string } | null {
+	const params = splitTypeParams(type)
+	if (params.length < 2) return null
+	try {
+		return {
+			coinTypeA: normalizeStructTag(params[0]!),
+			coinTypeB: normalizeStructTag(params[1]!),
+		}
+	} catch {
+		return null
+	}
+}
+
+function readCetusI32(val: unknown): number | null {
+	let bits: number
+	if (val != null && typeof val === 'object') {
+		const o = val as Record<string, unknown>
+		const fields = o.fields && typeof o.fields === 'object' ? (o.fields as Record<string, unknown>) : o
+		if (fields.bits == null) return null
+		bits = Number(fields.bits)
+	} else if (typeof val === 'number' || typeof val === 'string') {
+		bits = Number(val)
+	} else {
+		return null
+	}
+	if (!Number.isFinite(bits)) return null
+	return bits > 0x7fff_ffff ? bits - 0x1_0000_0000 : bits
+}
+
+export type CetusBurnedPositionSeed = {
+	objectId: string
+	poolId: string
+	coinTypeA: string
+	coinTypeB: string
+	lowerTick: number
+	upperTick: number
+}
+
+/**
+ * Positions whose NFT was burned by `ClosePositionEvent`.
+ * Coin types and ticks come from the add/remove events in the same wallet scan.
+ */
+export function cetusBurnedSeedsFromWalletMap(
+	rawByPosition: Map<string, { type: string; parsedJson?: unknown }[]>,
+): CetusBurnedPositionSeed[] {
+	const out: CetusBurnedPositionSeed[] = []
+	for (const [pid, evs] of rawByPosition) {
+		const close = evs.find((e) => structNameFromType(e.type) === 'ClosePositionEvent')
+		if (!close?.parsedJson || typeof close.parsedJson !== 'object') continue
+		const closePj = close.parsedJson as Parsed
+		const poolRaw = typeof closePj.pool === 'string' ? closePj.pool : ''
+		const poolId = poolRaw ? normSafe(poolRaw) : null
+		if (!poolId) continue
+
+		let coinTypeA = ''
+		let coinTypeB = ''
+		let lowerTick = 0
+		let upperTick = 0
+		let haveTicks = false
+		for (const ev of evs) {
+			const name = structNameFromType(ev.type)
+			if (
+				name !== 'AddLiquidityEvent' &&
+				name !== 'AddLiquidityV2Event' &&
+				name !== 'RemoveLiquidityEvent' &&
+				name !== 'RemoveLiquidityV2Event'
+			) continue
+			const pair = cetusPoolCoinsFromEventType(ev.type)
+			if (pair) {
+				coinTypeA = pair.coinTypeA
+				coinTypeB = pair.coinTypeB
+			}
+			if (!ev.parsedJson || typeof ev.parsedJson !== 'object') continue
+			const pj = ev.parsedJson as Parsed
+			const lo = readCetusI32(pj.tick_lower)
+			const hi = readCetusI32(pj.tick_upper)
+			if (lo != null && hi != null) {
+				lowerTick = lo
+				upperTick = hi
+				haveTicks = true
+			}
+		}
+		if (!haveTicks) continue
+		out.push({ objectId: pid, poolId, coinTypeA, coinTypeB, lowerTick, upperTick })
+	}
+	return out
+}
+
 function extractRewardCoinType(type: string): string | null {
 	const match = type.match(/<(.+)>$/)
 	if (!match) return null
@@ -181,16 +307,28 @@ export function parseCetusEvent(
 	let rewardRawAmount: string | undefined
 
 	if (et === 'add_liquidity' || et === 'remove_liquidity') {
-		tokenAAmount = rawToHuman(readU64String(pj.amount_a), tokenADecimals)
-		tokenBAmount = rawToHuman(readU64String(pj.amount_b), tokenBDecimals)
+		// CLMM: amount_a/b; DLMM Add/RemoveLiquidityEvent: total_amount_a/b
+		tokenAAmount = rawToHuman(
+			readU64String(pj.amount_a ?? pj.total_amount_a),
+			tokenADecimals,
+		)
+		tokenBAmount = rawToHuman(
+			readU64String(pj.amount_b ?? pj.total_amount_b),
+			tokenBDecimals,
+		)
 		const liqRaw = readU64String(pj.liquidity)
 		liquidityDelta = liqRaw.length < 22 ? parseFloat(liqRaw) : 0
 	} else if (et === 'collect_fee') {
-		feeAmountA = rawToHuman(readU64String(pj.amount_a), tokenADecimals)
-		feeAmountB = rawToHuman(readU64String(pj.amount_b), tokenBDecimals)
+		// CLMM: amount_a/b; DLMM CollectFeeEvent: fee_a/b
+		feeAmountA = rawToHuman(readU64String(pj.amount_a ?? pj.fee_a), tokenADecimals)
+		feeAmountB = rawToHuman(readU64String(pj.amount_b ?? pj.fee_b), tokenBDecimals)
 	} else if (et === 'collect_reward') {
-		rewardRawAmount = readU64String(pj.amount)
-		const ct = extractRewardCoinType(ev.type)
+		rewardRawAmount = readU64String(pj.amount ?? pj.reward_amount)
+		const ct =
+			coinTypeFromRewardField(pj.rewarder_type) ??
+			coinTypeFromRewardField(pj.reward_type) ??
+			coinTypeFromRewardField(pj.reward) ??
+			extractRewardCoinType(ev.type)
 		if (ct) {
 			rewardCoinType = ct
 			rewardToken = symbolTailFromCoinType(ct)
@@ -523,6 +661,19 @@ const _walletScanCache = new Map<string, Promise<Map<string, ChainEventLike[]>>>
  * Returns all Cetus LP events for one position.
  * Internally runs a wallet-wide `queryEvents({ Sender })` scan once per wallet per session.
  */
+/** Same wallet scan as `scanCetusPositionEvents`, including the 5-minute session cache. */
+export async function loadCetusWalletRawEvents(
+	walletAddress: string,
+): Promise<Map<string, ChainEventLike[]>> {
+	let scanPromise = _walletScanCache.get(walletAddress)
+	if (!scanPromise) {
+		scanPromise = scanCetusWalletEvents(walletAddress)
+		_walletScanCache.set(walletAddress, scanPromise)
+		setTimeout(() => _walletScanCache.delete(walletAddress), 5 * 60 * 1000)
+	}
+	return scanPromise
+}
+
 export async function scanCetusPositionEvents(
 	walletAddress: string,
 	positionId: string,
@@ -536,16 +687,7 @@ export async function scanCetusPositionEvents(
 		return []
 	}
 
-	// Use or create the wallet-wide scan promise (deduplicated)
-	let scanPromise = _walletScanCache.get(walletAddress)
-	if (!scanPromise) {
-		scanPromise = scanCetusWalletEvents(walletAddress)
-		_walletScanCache.set(walletAddress, scanPromise)
-		// Evict after 5 minutes so a Refresh re-scans
-		setTimeout(() => _walletScanCache.delete(walletAddress), 5 * 60 * 1000)
-	}
-
-	const rawByPosition = await scanPromise
+	const rawByPosition = await loadCetusWalletRawEvents(walletAddress)
 
 	// eslint-disable-next-line no-console
 	console.log(`[cetus-scan] Looking up posNorm=${posNorm.slice(0, 16)}… map has ${rawByPosition.size} positions, hit=${rawByPosition.has(posNorm)}`)

@@ -2,6 +2,10 @@ export const GECKO_NETWORK = 'sui-network'
 
 export const PROTOCOL_PACKAGES = {
 	CETUS_CLMM: '0x1eabed72c53feb3805120a081dc15963c204dc8d091542592abaf7a35689b2fb',
+	/** Cetus DLMM `dlmm_pool.package_id` from `@cetusprotocol/dlmm-sdk` 1.3.3 `dlmmMainnet`. */
+	CETUS_DLMM: '0x5664f9d3fd82c84023870cfbda8ea84e14c8dd56ce557ad2116e0668581a682b',
+	/** Cetus DLMM `dlmm_pool.published_at` (upgrade pointer). */
+	CETUS_DLMM_PUBLISHED_AT: '0x6b989f9b05bd11a00f1c7779443d66802c5e71631f59e87be5d2a616991f151e',
 	/** Sync with [@mmt-finance/clmm-sdk](https://github.com/mmt-finance/clmm-sdk) MainnetConfig + [офіційні deployments](https://developers.mmt.finance/clmm-smart-contracts/deployments). */
 	MOMENTUM_CLMM: '0xcf60a40f45d46fc1e828871a647c1e25a0915dec860d2662eb10fdb382c3c1d1',
 	/** Для повного шляху MoveEvent (`published_at::liquidity::…`); не плутати з packageId. */

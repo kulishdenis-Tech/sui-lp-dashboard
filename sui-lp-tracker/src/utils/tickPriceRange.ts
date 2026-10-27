@@ -33,8 +33,27 @@ export function clmmRangeFromOpenPosition(p: {
 	status: 'in_range' | 'out_of_range'
 	/** Direct price override (B per A) — used for synthetic closed positions where sqrtPrice is unavailable. */
 	priceCurrentOverride?: number
+	/** Full range prices (B per A) — Cetus DLMM; skips TickMath. */
+	priceRangeOverride?: { min: number; max: number; current: number }
 }): ClmmRangeDisplay | null {
 	const { tokenADecimals: da, tokenBDecimals: db } = p
+	if (p.priceRangeOverride) {
+		const min = p.priceRangeOverride.min
+		const max = p.priceRangeOverride.max
+		const pCur = p.priceRangeOverride.current
+		if (!Number.isFinite(min) || !Number.isFinite(max) || !Number.isFinite(pCur)) return null
+		if (min <= 0 || max <= 0 || pCur <= 0) return null
+		const span = max - min
+		const position01 = span > 0 ? (pCur - min) / span : 0.5
+		return {
+			priceMin: min,
+			priceMax: max,
+			priceCurrent: pCur,
+			position01,
+			inRange: p.status === 'in_range',
+			priceLabel: `${p.tokenB} / ${p.tokenA}`,
+		}
+	}
 	if (da < 0 || db < 0) return null
 	let pL: number
 	let pU: number

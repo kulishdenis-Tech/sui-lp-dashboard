@@ -134,9 +134,11 @@ export interface OpenPosition {
 	unclaimedFeeUSD: number
 	/**
 	 * Unclaimed farm/incentive rewards (Bluefin: `coins_owed_reward` view × spot, не struct-поле).
-	 * Інші протоколи: 0.
+	 * Cetus: сума `unclaimedRewardRows`.
 	 */
 	unclaimedRewardUSD: number
+	/** Per-token unclaimed farm rewards (Cetus rewarders). Bluefin uses `bluefinUnclaimed`. */
+	unclaimedRewardRows?: BluefinUnclaimedTokenRow[]
 	openedAt: number
 	daysOpen: number
 	/** Claimed fees/rewards from on-chain history (USD). Додай unclaimed для total — `totalLifetimeEarningsUsd()`. */
@@ -166,6 +168,17 @@ export interface OpenPosition {
 	 */
 	priceCurrentOverride?: number
 	/**
+	 * Direct min/max/current (B per A) for PositionRangeBar — Cetus DLMM bins are not CLMM ticks.
+	 */
+	priceRangeOverride?: { min: number; max: number; current: number }
+	/** Cetus DLMM open position (shown under protocol `cetus`). */
+	cetusDlmm?: {
+		lowerBinId: number
+		upperBinId: number
+		activeBinId: number
+		binStep: number
+	}
+	/**
 	 * Aftermath Farms only: per-token pending reward breakdown for display.
 	 * Each entry carries the symbol, full coin type, human amount, and USD value.
 	 */
@@ -180,6 +193,37 @@ export interface OpenPosition {
 	 * This is what is actually staked — not the underlying pool tokens.
 	 */
 	aftermathLpAmount?: number
+	/**
+	 * Cetus Vaults (Earn): fungible LP share of an automated CLMM position.
+	 * `id` is the vault object id; underlying amounts are the wallet's pro-rata share.
+	 */
+	cetusVault?: {
+		vaultId: string
+		lpTokenType: string
+		lpTokenRaw: string
+		lpTokenAmount: number
+		/** Raw LP staked in Earn incentive pool (subset of lpTokenRaw when free+staked merged). */
+		stakedLpTokenRaw?: string
+		feeLabel?: string
+		provider?: string
+		/** Vault AUM / user_tvl quote coin (Haedal `QuoteTypeEnum`). */
+		quoteCoinType?: string
+		/** Full vault AUM in USD (all LPs), when known. */
+		vaultTvlUsd?: number
+		/** User LP / vault total supply × 100. */
+		sharePct?: number
+		/** Forward trading-fee APR (%) from Cetus pool stats (underlying CLMM). */
+		vaultAprPct?: number
+		/** Forward Earn farm reward APR (%) from on-chain emission rates. */
+		rewardAprPct?: number
+		/** Earn auto-stake pending rewards (HAEDAL etc.), not CLMM fees. */
+		pendingStakeRewards?: Array<{
+			symbol: string
+			coinType: string
+			amount: number
+			amountUSD: number
+		}>
+	}
 }
 
 /** Звідки взята USD-ціна на момент події (enrichment). */
@@ -331,6 +375,8 @@ export interface SupplyPosition {
 		rewards?: { symbol: string; coinType?: string; apr: number }[]
 	}
 	currentValueUSD: number
+	/** Deposited minus withdrawn, in this coin. */
+	netDeposited?: number
 	/** Protocol liquidation threshold factor for this collateral (0–1). */
 	liquidationThresholdFactor?: number
 	/** USD spot price at which HF→1 (other collateral unchanged). */
@@ -339,6 +385,8 @@ export interface SupplyPosition {
 	daysActive: number
 	events: LendingEvent[]
 	protocol: string
+	/** Lending market name when one protocol has several (Current Main / Ember). */
+	venue?: string
 	iconUrl?: string | null
 }
 
@@ -369,6 +417,8 @@ export interface BorrowPosition {
 		rewards?: { symbol: string; coinType?: string; apr: number }[]
 	}
 	currentDebtUSD: number
+	/** Borrowed minus repaid, in this coin. */
+	netBorrowed?: number
 	collateral: CollateralInfo[]
 	healthFactor: number
 	liquidationThreshold: number
@@ -378,7 +428,23 @@ export interface BorrowPosition {
 	daysActive: number
 	events: LendingEvent[]
 	protocol: string
+	/** Lending market name when one protocol has several (Current Main / Ember). */
+	venue?: string
 	iconUrl?: string | null
+}
+
+/** Interest and rewards for one lending protocol stay. Principal price move is excluded. */
+export interface LendingCashflowUsd {
+	/** Extra supplied coins since deposit, at the current price. Closed supplies included. */
+	supplyInterestUSD: number
+	/** Extra debt since borrow, at the current price. Closed loans included. */
+	borrowInterestUSD: number
+	/** Claimed liquidity-mining rewards, USD at the claim. */
+	claimedRewardsUSD: number
+	/** Supply interest − borrow interest + claimed rewards + unclaimed rewards. */
+	resultUSD: number
+	/** A claimed reward fell back to the current spot price. */
+	usedSpotPrice: boolean
 }
 
 export interface LendingRewardToClaim {
@@ -399,6 +465,11 @@ export interface LendingSnapshot {
 	netAPR?: number | null
 	/** Daily earnings in USD across the whole lending position. SDK: dailyEarnings. */
 	dailyEarningsUSD?: number | null
+	/**
+	 * Interest accrued on the principal plus rewards.
+	 * The price move of the deposited or borrowed coins is not included.
+	 */
+	cashflowUsd?: LendingCashflowUsd | null
 	/** Scallop: pending claimable rewards (SCA etc.) */
 	rewardsToClaim: LendingRewardToClaim[]
 	/** Protocol name, e.g. 'Scallop' */
@@ -407,6 +478,8 @@ export interface LendingSnapshot {
 
 export type SpotSource =
 	| 'okx'
+	| 'cetus'
+	| 'haedal'
 	| 'dexscreener'
 	| 'aftermath'
 	| 'geckoterminal'

@@ -1,10 +1,11 @@
 /**
- * Cetus CLMM — DexAdapter обгортка.
+ * Cetus CLMM + DLMM — DexAdapter обгортка.
  * Делегує до існуючих сервісів без їх переписування.
  */
 import type { DexAdapter } from './types'
 import type { ClosedPosition, OpenPosition, PositionEvent } from '@/types'
 import { getCetusPositions } from '@/services/cetusService'
+import { getCetusDlmmPositions } from '@/services/cetusDlmmService'
 import { getCetusClosedPositions } from '@/services/cetusClosedPositions'
 import { scanCetusPositionEvents, invalidateCetusEventCache } from '@/services/cetusLpEvents'
 
@@ -12,13 +13,19 @@ export const cetusAdapter: DexAdapter = {
 	protocol: 'cetus',
 
 	async getOpenPositions(wallet: string): Promise<OpenPosition[]> {
-		try {
-			return await getCetusPositions(wallet)
-		} catch (e) {
-			// eslint-disable-next-line no-console
-			console.error('[cetusAdapter] getOpenPositions failed', e)
-			return []
-		}
+		const [clmm, dlmm] = await Promise.all([
+			getCetusPositions(wallet).catch((e) => {
+				// eslint-disable-next-line no-console
+				console.error('[cetusAdapter] CLMM getOpenPositions failed', e)
+				return [] as OpenPosition[]
+			}),
+			getCetusDlmmPositions(wallet).catch((e) => {
+				// eslint-disable-next-line no-console
+				console.error('[cetusAdapter] DLMM getOpenPositions failed', e)
+				return [] as OpenPosition[]
+			}),
+		])
+		return [...clmm, ...dlmm]
 	},
 
 	async getClosedPositions(wallet: string): Promise<ClosedPosition[]> {

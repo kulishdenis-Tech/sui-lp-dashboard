@@ -28,8 +28,78 @@ const TRACK_GRADIENT_IN =
 const TRACK_GRADIENT_OUT =
 	'linear-gradient(90deg, rgba(185,28,28,0.28) 0%, rgba(220,38,38,0.5) 16%, rgba(239,68,68,0.78) 22%, rgba(248,145,154,0.88) 50%, rgba(239,68,68,0.78) 78%, rgba(220,38,38,0.52) 84%, rgba(185,28,28,0.28) 100%)'
 
-/** CLMM: min/max @ 13% / 87%; смуга 90% комірки; м’яке затухання до країв (не до 0). */
-export function PositionRangeBar({ p }: { p: OpenPosition }) {
+const toneIn = {
+	cssTracks: TRACK_GRADIENT_IN,
+	tickCls: 'bg-indigo-400/92 shadow-[0_0_8px_rgb(165,180,252)]',
+	thumbRing: 'shadow-[0_0_12px_rgb(165,180,252),0_0_4px_rgb(255,255,255)]',
+} as const
+
+/**
+ * Earn / Haedal vault: no single CLMM tick band — show the same in-range strip
+ * with the thumb centered (auto multi-leg always active).
+ */
+export function VaultAutoRangeBar() {
+	const tip = (
+		<div className="space-y-1.5 text-[0.72rem] text-slate-100">
+			<div className="mb-1 border-b border-slate-700/55 pb-2">
+				<p className="text-center text-[11px] font-semibold uppercase tracking-wide text-indigo-300">
+					Auto · in range
+				</p>
+				<p className="mt-0.5 text-center text-[10px] text-slate-500">
+					Multi-leg vault — ranges managed automatically
+				</p>
+			</div>
+		</div>
+	)
+	return (
+		<div className="w-full min-w-0 overflow-visible">
+			<Tooltip tip={tip} className="relative block w-full">
+				<div
+					className="cursor-default"
+					tabIndex={0}
+					role="img"
+					aria-label="Vault auto range: always active multi-leg strategy"
+				>
+					<div className="mx-auto flex w-[90%] justify-center overflow-visible pt-px">
+						<div className="relative h-[7px] w-full overflow-visible rounded-full bg-slate-950/98 ring-1 ring-slate-700/45">
+							<div
+								className="pointer-events-none absolute inset-0 rounded-full opacity-[0.94]"
+								style={{ background: toneIn.cssTracks }}
+								aria-hidden
+							/>
+							<div
+								className={
+									'pointer-events-none absolute top-1/2 z-[1] h-3 w-px -translate-x-1/2 -translate-y-1/2 rounded-full ' +
+									toneIn.tickCls
+								}
+								style={{ left: '13%' }}
+								aria-hidden
+							/>
+							<div
+								className={
+									'pointer-events-none absolute top-1/2 z-[1] h-3 w-px -translate-x-1/2 -translate-y-1/2 rounded-full ' +
+									toneIn.tickCls
+								}
+								style={{ left: '87%' }}
+								aria-hidden
+							/>
+							<div
+								className={
+									'pointer-events-none absolute top-1/2 z-[2] h-[11px] w-[11px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white ring-2 ring-white/90 ' +
+									toneIn.thumbRing
+								}
+								style={{ left: '50%' }}
+								aria-hidden
+							/>
+						</div>
+					</div>
+				</div>
+			</Tooltip>
+		</div>
+	)
+}
+
+function ClmmPositionRangeBar({ p }: { p: OpenPosition }) {
 	const range = useMemo(
 		() =>
 			clmmRangeFromOpenPosition({
@@ -43,6 +113,7 @@ export function PositionRangeBar({ p }: { p: OpenPosition }) {
 				tokenBDecimals: p.tokenBDecimals,
 				status: p.status,
 				priceCurrentOverride: p.priceCurrentOverride,
+				priceRangeOverride: p.priceRangeOverride,
 			}),
 		[
 			p.tickLower,
@@ -55,6 +126,7 @@ export function PositionRangeBar({ p }: { p: OpenPosition }) {
 			p.tokenBDecimals,
 			p.status,
 			p.priceCurrentOverride,
+			p.priceRangeOverride,
 		],
 	)
 
@@ -101,13 +173,8 @@ export function PositionRangeBar({ p }: { p: OpenPosition }) {
 	}
 
 	const thumbLeftPct = rangePriceToVisualPercent(range.priceMin, range.priceMax, range.priceCurrent)
-
 	const tone = range.inRange
-		? {
-				cssTracks: TRACK_GRADIENT_IN,
-				tickCls: 'bg-indigo-400/92 shadow-[0_0_8px_rgb(165,180,252)]',
-				thumbRing: 'shadow-[0_0_12px_rgb(165,180,252),0_0_4px_rgb(255,255,255)]',
-			}
+		? toneIn
 		: {
 				cssTracks: TRACK_GRADIENT_OUT,
 				tickCls: 'bg-red-400/90 shadow-[0_0_8px_rgb(254,169,173)]',
@@ -165,4 +232,10 @@ export function PositionRangeBar({ p }: { p: OpenPosition }) {
 			</Tooltip>
 		</div>
 	)
+}
+
+/** CLMM tick range bar; Earn vaults get the auto in-range strip. */
+export function PositionRangeBar({ p }: { p: OpenPosition }) {
+	if (p.cetusVault != null) return <VaultAutoRangeBar />
+	return <ClmmPositionRangeBar p={p} />
 }
