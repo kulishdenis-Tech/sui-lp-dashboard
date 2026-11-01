@@ -8,6 +8,11 @@ on:
     # Off-peak minute within the hour — backup only if Supabase dispatch missed.
     - cron: '22 * * * *'
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Bypass 90m dedupe (FORCE_SNAPSHOT=1)'
+        type: boolean
+        default: true
 
 concurrency:
   group: portfolio-snapshot
@@ -45,6 +50,8 @@ jobs:
           OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
           OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
           OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
+          # Default gRPC+GraphQL (app default). Residual JSON-RPC uses VITE_SUI_RPC_URL / Suiet.
+          FORCE_SNAPSHOT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force && '1' || '' }}
         run: npm run snapshot:once
 
       - name: Retry snapshot
@@ -59,6 +66,7 @@ jobs:
           OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
           OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
           OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
+          FORCE_SNAPSHOT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force && '1' || '' }}
         run: |
           sleep 20
           npm run snapshot:once

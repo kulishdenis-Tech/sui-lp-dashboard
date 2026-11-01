@@ -1,5 +1,38 @@
-import { getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc'
 import { extFetchUrl } from '@/utils/externalFetchUrl'
+
+/**
+ * Mysten `fullnode.*.sui.io` JSON-RPC disabled week of 27 Jul 2026; full decommission
+ * mid-Oct 2026. Official: https://docs.sui.io/develop/accessing-data/json-rpc-migration
+ *
+ * Free no-key JSON-RPC leftovers (DEX SDKs / dapp-kit sign helpers only).
+ * PublicNode `sui-rpc.publicnode.com` now returns "JSON-RPC deprecated → use gRPC"
+ * on execute — do not use it for broadcast. Prefer Suiet for residual JSON-RPC.
+ *
+ * Portfolio + Build send use gRPC (`VITE_SUI_DATA_TRANSPORT=grpc`, Mysten public /
+ * optional BlockVision). Official: https://docs.sui.io/develop/accessing-data/json-rpc-migration
+ */
+export const DEFAULT_MAINNET_JSON_RPC_URL = 'https://mainnet.suiet.app'
+
+/**
+ * Dashboard failover peers for residual JSON-RPC (DEX SDKs / Navi rewards).
+ * Broken PublicNode / OnFinality JSON-RPC endpoints are intentionally omitted.
+ */
+export const DASHBOARD_RPC_FALLBACK_URLS: readonly string[] = [DEFAULT_MAINNET_JSON_RPC_URL]
+
+/** Hosts that no longer serve usable JSON-RPC — remap to Suiet. */
+const DEPRECATED_JSON_RPC_HOSTS = new Set([
+	'fullnode.mainnet.sui.io',
+	'fullnode.testnet.sui.io',
+	'fullnode.devnet.sui.io',
+	'sui-rpc.publicnode.com',
+	'sui.publicnode.com',
+	'sui.api.onfinality.io',
+])
+
+/** Alias host → canonical JSON-RPC URL (same backend). */
+const RPC_HOST_ALIASES: Record<string, string> = {
+	'sui.publicnode.com': DEFAULT_MAINNET_JSON_RPC_URL,
+}
 
 function rpcFromProcessEnv(): string | undefined {
 	if (typeof process === 'undefined' || !process.env) return undefined
@@ -8,15 +41,31 @@ function rpcFromProcessEnv(): string | undefined {
 	return undefined
 }
 
-/** Абсолютний RPC URL з env або Mysten fallback. */
+/** If env still points at a dead JSON-RPC host / alias — substitute Suiet. */
+export function normalizeSuiRpcUrl(url: string): string {
+	try {
+		const u = new URL(url)
+		const host = u.hostname.toLowerCase()
+		if (DEPRECATED_JSON_RPC_HOSTS.has(host)) {
+			return DEFAULT_MAINNET_JSON_RPC_URL
+		}
+		const alias = RPC_HOST_ALIASES[host]
+		if (alias) return alias
+	} catch {
+		/* keep as-is */
+	}
+	return url
+}
+
+/** Absolute RPC URL from env or Suiet default. */
 export function resolveSuiRpcUrl(): string {
 	const fromProcess = rpcFromProcessEnv()
-	if (fromProcess) return fromProcess
+	if (fromProcess) return normalizeSuiRpcUrl(fromProcess)
 	const fromEnv = import.meta.env?.VITE_SUI_RPC_URL
 	if (typeof fromEnv === 'string' && fromEnv.trim().length > 0) {
-		return fromEnv.trim()
+		return normalizeSuiRpcUrl(fromEnv.trim())
 	}
-	return getJsonRpcFullnodeUrl('mainnet')
+	return DEFAULT_MAINNET_JSON_RPC_URL
 }
 
 /** Server/cron: same as resolveSuiRpcUrl but never uses browser proxy. */
@@ -25,20 +74,17 @@ export function resolveServerSuiRpcUrl(): string {
 }
 
 /**
- * У dev — same-origin проксі `/ext/sui-rpc` (vite.config.ts), щоб уникнути CORS / «Failed to fetch»
- * у вбудованих браузерах (Cursor Simple Browser тощо). У prod — прямий URL.
+ * Dev — same-origin `/ext/sui-*` (vite.config.ts). Prod — `/api/ext`.
  */
 export function resolveBrowserRpcUrl(): string {
 	const absolute = resolveSuiRpcUrl()
-	// Node (vite-node / cron): never use Vite dev proxy paths.
 	if (typeof window === 'undefined') return absolute
 	const isDev = Boolean(import.meta.env?.DEV)
 	if (!isDev) {
-		// Prod browser: route through same-origin Vercel proxy so the request
-		// stays on sui-lp-dashboard.vercel.app — prevents Chrome extension fetch
-		// interception (extensions can't block same-origin requests).
 		return extFetchUrl(absolute)
 	}
+	const proxied = extFetchUrl(absolute)
+	if (proxied !== absolute && proxied.startsWith('/')) return proxied
 	try {
 		const u = new URL(absolute)
 		return `/ext/sui-rpc${u.pathname}${u.search}`
@@ -47,12 +93,7 @@ export function resolveBrowserRpcUrl(): string {
 	}
 }
 
-/** Target для Vite proxy (лише origin + port). */
+/** Target for Vite `/ext/sui-rpc` — Suiet JSON-RPC (separate path = separate host). */
 export function suiRpcProxyTarget(): string {
-	try {
-		const u = new URL(resolveSuiRpcUrl())
-		return `${u.protocol}//${u.host}`
-	} catch {
-		return 'https://fullnode.mainnet.sui.io:443'
-	}
+	return DEFAULT_MAINNET_JSON_RPC_URL
 }

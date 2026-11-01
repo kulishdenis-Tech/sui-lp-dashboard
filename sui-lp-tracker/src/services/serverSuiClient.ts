@@ -1,10 +1,15 @@
-import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc'
-import { resolveServerSuiRpcUrl } from '@/utils/suiRpcUrl'
+﻿import type { SuiJsonRpcClient } from '@mysten/sui/jsonRpc'
+import { getDashboardSuiClient } from '@/rpc/dashboardPool'
+import { getJsonRpcCompatClient, resolveSuiDataTransport } from '@/services/suiData'
 
-/** Sui JSON-RPC client for serverless / cron (direct URL, no browser proxy). */
+/**
+ * Sui client for serverless / cron / GHA snapshot:once.
+ * Same transport as browser portfolio reads: default gRPC+GraphQL compat
+ * (Mysten public). Opt out with VITE_SUI_DATA_TRANSPORT=jsonrpc / SUI_DATA_TRANSPORT=jsonrpc.
+ */
 export function createServerSuiClient(): SuiJsonRpcClient {
-	return new SuiJsonRpcClient({
-		url: resolveServerSuiRpcUrl(),
-		network: 'mainnet',
-	})
+	if (resolveSuiDataTransport() === 'jsonrpc') {
+		return getDashboardSuiClient()
+	}
+	return getJsonRpcCompatClient() as unknown as SuiJsonRpcClient
 }
