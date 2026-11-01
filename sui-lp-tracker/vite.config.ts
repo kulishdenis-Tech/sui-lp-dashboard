@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+import { localApiPlugin } from './vite-plugin-local-api'
+import { isLocalApiPath } from './local-api-paths'
 import { lpCandlesApiPlugin } from './vite-plugin-lp-candles'
 import { poolQuoteApiPlugin } from './vite-plugin-pool-quote'
 
@@ -73,7 +75,14 @@ const extHttpsAgent = new https.Agent({
 /** Примітка CSP: вкладені графіки GeckoTerminal iframe з `PositionPoolChart` потребують `frame-src https://www.geckoterminal.com` (+ CDN за потреби у prod). */
 
 export default defineConfig({
-	plugins: [react(), tailwindcss(), lpCandlesApiPlugin(), poolQuoteApiPlugin(), tailscaleDevUrlPlugin(DEV_PORT)],
+	plugins: [
+		react(),
+		tailwindcss(),
+		localApiPlugin(),
+		lpCandlesApiPlugin(),
+		poolQuoteApiPlugin(),
+		tailscaleDevUrlPlugin(DEV_PORT),
+	],
 	resolve: {
 		alias: {
 			'@': path.resolve(__dirname, './src'),
@@ -266,10 +275,8 @@ export default defineConfig({
 				agent: extHttpsAgent,
 				rewrite: (p) => p.replace(/^\/ext\/current/, ''),
 			},
-			// Dev: same-origin /api/* → prod (Supabase-backed history, proxies).
-			// Local candles middleware handles /api/lp/pool-candles before this proxy.
-			// Never proxy /api/_lib/* — those are shared TS modules; Vercel 402 would
-			// break the entire Vite module graph (black screen in Cursor browser).
+			// Residual /api/* not handled by `localApiPlugin` / candles / pool-quote → prod.
+			// Known routes stay on localhost (Vercel free tier returns 402 Payment Required).
 			'/api': {
 				target: 'https://sui-lp-dashboard.vercel.app',
 				changeOrigin: true,
@@ -277,9 +284,7 @@ export default defineConfig({
 				bypass(req) {
 					const orig = (req as { originalUrl?: string }).originalUrl ?? ''
 					const u = `${orig} ${req.url ?? ''}`
-					if (u.includes('/api/lp/pool-candles')) return req.url ?? orig
-					if (u.includes('/api/pool-quote')) return req.url ?? orig
-					if (u.includes('/api/_lib')) return req.url ?? orig
+					if (isLocalApiPath(u)) return req.url ?? orig
 				},
 			},
 		},
