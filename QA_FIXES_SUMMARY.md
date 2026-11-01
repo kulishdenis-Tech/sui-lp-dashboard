@@ -38,6 +38,37 @@ it('QA-2026-11-01-01: includes Current Finance in lending total', () => {
 
 ---
 
+### ✅ QA Follow-up: Fixed `computeNetWorth` deprecated API usage
+
+**Issue:** `computeNetWorth` (line 21 in `netWorth.ts`) still used deprecated `positionValueUsd`, causing snapshot `totalUSD` to be wrong when positions have incomplete unclaimed.
+
+**Root Cause:**
+- `openLpUSD` calculation used `positionValueUsd(p)` which coerces incomplete unclaimed to $0
+- This meant positions with unavailable Bluefin unclaimed showed $0 LP value in net worth
+
+**Fix:**
+- Updated to use `positionValueUsdOrNull(p) ?? liquidityUsdOrNull(p) ?? 0`
+- Now matches snapshot builder behavior: Value when complete, Liquidity when incomplete
+- Never coerces incomplete unclaimed to $0
+
+**Files Changed:**
+- `sui-lp-tracker/src/utils/netWorth.ts`
+- `sui-lp-tracker/src/utils/netWorth.test.ts` (new test)
+
+**Tests Added:**
+```typescript
+it('QA follow-up: uses positionValueUsdOrNull with fallback to liquidityUsdOrNull', () => {
+  // Incomplete unclaimed: uses liquidity only (1000)
+  // Complete unclaimed: uses Value = liquidity + fees + rewards (2150)
+  // Total: 3150
+})
+```
+
+**Verification:**
+- ✅ Unit tests pass
+- ✅ Test confirms incomplete unclaimed uses liquidity only
+- ✅ Test confirms complete unclaimed uses full Value
+
 ### ✅ P1-2: Parallelized advisor state API (QA-2026-11-01-02)
 
 **Issue:** `/api/advisor/state` took 80-100s due to sequential loading of LP sources and Current mining APR reads.
@@ -82,6 +113,13 @@ it('isolates errors per source and continues loading others', async () => {
 - Wall-clock time should drop from 80-100s to much lower (exact timing depends on network)
 - LP sources load concurrently (10x faster if network-bound)
 - Current mining APR reads happen concurrently (N+M times faster)
+- **Concurrency limit (5)** prevents event loop starvation during heavy network operations
+
+**Files Changed:**
+- `sui-lp-tracker/src/services/portfolioLpSources.ts`
+- `sui-lp-tracker/src/services/currentService.ts`
+- `sui-lp-tracker/src/services/server/advisorState.ts` (added concurrency limit)
+- `sui-lp-tracker/src/services/portfolioLpSources.test.ts` (new test)
 
 **Verification:**
 - ✅ Unit tests pass
@@ -95,7 +133,7 @@ it('isolates errors per source and continues loading others', async () => {
 **Issue:** Market01 displayed as "Market 01" via regex fallback instead of meaningful name.
 
 **Fix:**
-- Added explicit mapping: `Market01` → `'sUSN Market'`
+- Added explicit mapping: `Market01` → `'Market 01 (sUSN)'` (unconfirmed name)
 - Updated `venueName` function in `currentService.ts`
 
 **Files Changed:**
@@ -104,14 +142,15 @@ it('isolates errors per source and continues loading others', async () => {
 
 **Tests Added:**
 ```typescript
-it('maps Market01 to "sUSN Market"', () => {
-  expect(venueName('Market01')).toBe('sUSN Market')
+it('maps Market01 to "Market 01 (sUSN)"', () => {
+  expect(venueName('Market01')).toBe('Market 01 (sUSN)')
 })
 ```
 
 **Verification:**
 - ✅ Unit tests pass
 - ✅ Test confirms Market01 maps correctly
+- ⚠️ Real market name is unconfirmed - should verify with Current Finance docs
 
 ---
 
@@ -172,23 +211,24 @@ describe('QA-2026-11-01-05: Liquidation price proximity thresholds', () => {
 
 ## Test Results
 
-All new tests passing:
+All new tests passing. Full test suite results:
 
 ```
-✓ src/services/currentService.test.ts (3 tests)
-✓ src/services/portfolioLpSources.test.ts (2 tests)
-✓ src/utils/portfolioSnapshotBuild.test.ts (9 tests)
-✓ src/components/lending/LendingModule.test.ts (8 tests)
-
-Test Files  4 passed (4)
-      Tests  22 passed (22)
+Test Files  3 failed | 50 passed | 1 skipped (54)
+     Tests  2 failed | 239 passed | 1 skipped (242)
 ```
 
-Full test suite (including existing):
-```
-Test Files  49 passed | 2 skipped (51)
-      Tests  237 passed | 3 skipped (240)
-```
+**Note:** The 3 failed test files and 2 failed tests are **pre-existing failures on master branch**:
+- `snapshotCompleteness.test.ts` - missing module `@/pages/overviewLab/overviewMetrics`
+- `quotePoolImpact.test.ts` - missing module `@/poolQuote/pricing/state/ClmmStateCache`
+- `externalFetchUrl.test.ts` - 2 routing tests (environment-specific)
+
+**Our changes:**
+- ✅ 1 new test in `netWorth.test.ts` (QA follow-up for deprecated API fix)
+- ✅ 22 tests added in initial commit
+- ✅ All new tests pass (23 total)
+- ✅ Existing passing tests remain green (239 passing)
+- ✅ No new test failures introduced
 
 ---
 
@@ -205,13 +245,18 @@ Test Files  49 passed | 2 skipped (51)
    - Number of obligations and assets
    - Recommend monitoring with real usage
 
-3. **Market01 = sUSN Market** naming assumption:
+3. **Market01 = 'Market 01 (sUSN)'** naming assumption:
    - Based on QA report hypothesis
+   - Real market name is unconfirmed
    - Should verify with Current Finance documentation or team
 
 4. **Health Factor threshold visual changes:**
    - Users may notice color changes (1.5 HF now yellow instead of green)
    - Consider announcing in release notes if this causes confusion
+
+5. **Concurrency limit (5)** for LP position mapping:
+   - May need tuning based on production load
+   - Set conservatively to prevent event loop starvation
 
 ---
 
@@ -251,7 +296,12 @@ Before deploying to production:
 
 4. **Test Market01 label:**
    - Find wallet with Market01 position
-   - Verify it displays as "sUSN Market" not "Market 01"
+   - Verify it displays as "Market 01 (sUSN)" not "Market 01"
+
+5. **Test net worth calculation:**
+   - Use wallet with incomplete Bluefin unclaimed (out of range position)
+   - Verify net worth shows liquidity value, not $0
+   - Compare with wallet that has complete unclaimed
 
 ---
 
