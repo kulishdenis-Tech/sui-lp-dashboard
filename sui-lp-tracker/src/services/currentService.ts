@@ -207,7 +207,7 @@ function venueName(marketType: string): string {
 	if (name === 'AltCoinMarket') return 'AltCoin'
 	if (name === 'EthenaMarket') return 'Ethena'
 	if (name === 'MatrixGoldMarket') return 'Matrix Gold'
-	if (name === 'Market01') return 'sUSN Market'
+	if (name === 'Market01') return 'Market 01 (sUSN)'
 	return name.replace(/([a-z])([A-Z0-9])/g, '$1 $2')
 }
 

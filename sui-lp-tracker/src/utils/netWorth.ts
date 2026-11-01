@@ -1,11 +1,11 @@
 import type { LendingSnapshot, NetWorthSnapshot, OpenPosition, TokenBalance } from '@/types'
-import { positionValueUsd } from '@/utils/positionDerivedMetrics'
+import { positionValueUsdOrNull, liquidityUsdOrNull } from '@/utils/positionDerivedMetrics'
 import { finiteUsd } from '@/utils/finiteUsd'
 
 /**
  * Net worth: wallet (on-chain) + open LP − borrows.
  * `walletAssetsUSD` зазвичай передають уже **без** прихованих токенів (спам / без ціни / dust).
- * Open LP = sum of **Value** (`positionValueUsd`) per `docs/GLOSSARY.md`.
+ * Open LP = sum of **Value** (or Liquidity when Value incomplete) per `docs/GLOSSARY.md`.
  */
 export function computeNetWorth(
 	tokenBalances: TokenBalance[],
@@ -18,7 +18,10 @@ export function computeNetWorth(
 			? walletAssetsUSDOverride
 			: tokenBalances.reduce((s, t) => s + finiteUsd(t.valueUSD), 0),
 	)
-	const openLpUSD = finiteUsd(openPositions.reduce((s, p) => s + positionValueUsd(p), 0))
+	// Use Value when complete, fallback to Liquidity when unclaimed incomplete (matches snapshot builder)
+	const openLpUSD = finiteUsd(
+		openPositions.reduce((s, p) => s + (positionValueUsdOrNull(p) ?? liquidityUsdOrNull(p) ?? 0), 0)
+	)
 	const outstandingBorrowUSD = finiteUsd(
 		(lending?.borrows ?? []).reduce((s, b) => s + finiteUsd(b.currentDebtUSD), 0),
 	)

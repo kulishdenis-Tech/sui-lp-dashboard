@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 /**
  * QA-2026-11-01-03: Market01 venue name test
  * 
- * Verifies that Market01 is displayed as 'sUSN Market' instead of 'Market 01'
+ * Verifies that Market01 is displayed as 'Market 01 (sUSN)' (unconfirmed name)
  */
 
 // Extracted venueName function from currentService.ts for testing
@@ -14,14 +14,14 @@ function venueName(marketType: string): string {
 	if (name === 'AltCoinMarket') return 'AltCoin'
 	if (name === 'EthenaMarket') return 'Ethena'
 	if (name === 'MatrixGoldMarket') return 'Matrix Gold'
-	if (name === 'Market01') return 'sUSN Market'
+	if (name === 'Market01') return 'Market 01 (sUSN)'
 	return name.replace(/([a-z])([A-Z0-9])/g, '$1 $2')
 }
 
 describe('QA-2026-11-01-03: Market01 venue name mapping', () => {
-	it('maps Market01 to "sUSN Market"', () => {
-		expect(venueName('Market01')).toBe('sUSN Market')
-		expect(venueName('fe1d8929d13b00aaecd7642dec1c6d41cab82882a1b139efa46bf61dfd6380bf::market_type::Market01')).toBe('sUSN Market')
+	it('maps Market01 to "Market 01 (sUSN)"', () => {
+		expect(venueName('Market01')).toBe('Market 01 (sUSN)')
+		expect(venueName('fe1d8929d13b00aaecd7642dec1c6d41cab82882a1b139efa46bf61dfd6380bf::market_type::Market01')).toBe('Market 01 (sUSN)')
 	})
 
 	it('maps known markets correctly', () => {
