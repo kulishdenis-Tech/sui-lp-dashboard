@@ -1,0 +1,1 @@
+export const LP_LIFECYCLE_PARSER_VERSION = 1;
