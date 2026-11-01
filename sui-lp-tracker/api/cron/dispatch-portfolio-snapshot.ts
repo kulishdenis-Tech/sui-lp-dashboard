@@ -1,22 +1,22 @@
-import type { VercelReq, VercelRes } from '../_lib/vercelRequest.js'
+﻿import type { VercelReq, VercelRes } from '../_lib/vercelRequest.js'
 import { authorizeCron } from '../_lib/cronAuth.js'
 import { isSupabaseConfigured } from '../_lib/supabaseAdmin.js'
 import { getNewestSnapshotTs } from '../_lib/supabaseSnapshots.js'
 
 /** Skip re-dispatch when a snapshot landed recently (browser upload or prior GHA). */
-const MIN_INTERVAL_MS = 12 * 60 * 1000
+const MIN_INTERVAL_MS = 90 * 60 * 1000
 
 /**
  * Lightweight cron entrypoint (Hobby-safe, <2s).
  *
  * Why this exists (official limits):
  * - GitHub Actions `schedule` is best-effort and may be delayed/dropped under load
- *   (docs.github.com — Events that trigger workflows → schedule).
+ *   (docs.github.com â€” Events that trigger workflows â†’ schedule).
  * - Vercel Hobby cron is once/day and serverless maxDuration is too short for the
- *   full portfolio snapshot (~60–90s for two wallets).
+ *   full portfolio snapshot (~60â€“90s for two wallets).
  *
- * Reliable path: Supabase pg_cron (minute precision) → this endpoint →
- * GitHub `workflow_dispatch` → `npm run snapshot:once` on a GHA runner.
+ * Reliable path: Supabase pg_cron (minute precision) â†’ this endpoint â†’
+ * GitHub `workflow_dispatch` â†’ `npm run snapshot:once` on a GHA runner.
  */
 export default async function handler(req: VercelReq, res: VercelRes) {
 	if (!authorizeCron(req)) {
@@ -90,3 +90,4 @@ export default async function handler(req: VercelReq, res: VercelRes) {
 		res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
 	}
 }
+
