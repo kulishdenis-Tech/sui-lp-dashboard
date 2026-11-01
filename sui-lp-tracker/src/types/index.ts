@@ -2,6 +2,16 @@ export type LpProtocol = 'cetus' | 'momentum' | 'turbos' | 'flowx' | 'aftermath'
 
 export type { LpAction, LpActionTypeEnum, LpLifecycleDex, LpPositionLifecycle, LpTxRawRecord } from '@/types/lpLifecycle'
 export { LP_LIFECYCLE_PARSER_VERSION } from '@/types/lpLifecycle'
+export type {
+	CurrentMultiplyAprBreakdown,
+	CurrentMultiplyCompleteness,
+	CurrentMultiplyDataSource,
+	CurrentMultiplyLeg,
+	CurrentMultiplyMetricStatus,
+	CurrentMultiplyPosition,
+	CurrentMultiplyRewardRow,
+	CurrentMultiplyRisk,
+} from '@/types/currentMultiply'
 
 
 /** Bluefin: поточні unclaimed (не з логу claim). */
@@ -115,6 +125,18 @@ export interface OpenPosition {
 	currentTick: number
 	currentSqrtPrice: string
 	liquidity: string
+	/**
+	 * Principal lifecycle while the position object is still owned:
+	 * - `active` — liquidity > 0
+	 * - `empty` — liquidity === 0 (NFT remains; not Closed)
+	 * Closed (object burned) lives only on `ClosedPosition`.
+	 */
+	lifecycleStatus?: 'active' | 'empty' | 'unknown'
+	/**
+	 * Cetus CLMM only: NFT is listed in the pool `position_liquidity_snapshot`
+	 * (post-hack compensation certificate). Close/burn is permanently disabled on-chain.
+	 */
+	cetusCloseLocked?: boolean
 	status: 'in_range' | 'out_of_range'
 	tokenAAmount: number
 	tokenBAmount: number
@@ -196,6 +218,11 @@ export interface OpenPosition {
 	/**
 	 * Cetus Vaults (Earn): fungible LP share of an automated CLMM position.
 	 * `id` is the vault object id; underlying amounts are the wallet's pro-rata share.
+	 *
+	 * Current Multiply also sets a thin `cetusVault` shell (`provider: 'Current'`,
+	 * `feeLabel: 'Multiply'`) for Vaults-tab membership / branding only — never store
+	 * leverage in `lpTokenAmount` / `sharePct`. Canonical Multiply fields live in
+	 * `currentMultiply`.
 	 */
 	cetusVault?: {
 		vaultId: string
@@ -224,6 +251,11 @@ export interface OpenPosition {
 			amountUSD: number
 		}>
 	}
+	/**
+	 * Current Multiply leveraged lending obligation (collateral − debt).
+	 * Discriminator: `kind: 'current_multiply'`. Not an LP share.
+	 */
+	currentMultiply?: import('@/types/currentMultiply').CurrentMultiplyPosition
 }
 
 /** Звідки взята USD-ціна на момент події (enrichment). */
@@ -371,8 +403,10 @@ export interface SupplyPosition {
 	aprBreakdown?: {
 		baseAPR: number      // base interest component (decimal fraction)
 		stakingAPR?: number  // protocol staking yield, e.g. stSUI (decimal fraction)
-		rewardAPR: number    // incentive rewards total (decimal fraction)
+		rewardAPR: number
 		rewards?: { symbol: string; coinType?: string; apr: number }[]
+		/** complete/empty are known. partial/unavailable must not be shown as zero incentives. */
+		rewardReadStatus?: 'complete' | 'empty' | 'partial' | 'unavailable'
 	}
 	currentValueUSD: number
 	/** Deposited minus withdrawn, in this coin. */
@@ -408,13 +442,14 @@ export interface BorrowPosition {
 	accruedInterest: number
 	accruedInterestUSD: number
 	borrowAPR: number
-	borrowRewardAPR: number
+	borrowRewardAPR?: number
 	netBorrowCost: number
 	/** Optional per-component breakdown for tooltip display. */
 	aprBreakdown?: {
 		baseAPR: number    // gross borrow interest (decimal fraction)
-		rewardAPR: number  // incentive reward offset (decimal fraction)
+		rewardAPR: number
 		rewards?: { symbol: string; coinType?: string; apr: number }[]
+		rewardReadStatus?: 'complete' | 'empty' | 'partial' | 'unavailable'
 	}
 	currentDebtUSD: number
 	/** Borrowed minus repaid, in this coin. */
@@ -553,6 +588,8 @@ export interface NetWorthSnapshot {
 	walletAssetsUSD: number
 	/** Open CLMM / LP notional. */
 	openLpUSD: number
+	/** True when at least one open position had unknown equity and was omitted (not booked as $0). */
+	openLpPartial?: boolean
 	/** Outstanding debt (borrows) in USD. */
 	outstandingBorrowUSD: number
 	/** Net lending value: totalSupplied − totalBorrowed. */
