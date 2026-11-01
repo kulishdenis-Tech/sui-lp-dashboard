@@ -22,8 +22,8 @@ import type {
 // ── Health Factor ──────────────────────────────────────────────────────────
 function hfColor(hf: number) {
 	if (hf <= 0) return 'text-slate-500'
-	if (hf >= 2) return 'text-emerald-400'
-	if (hf >= 1.3) return 'text-yellow-400'
+	if (hf >= 1.8) return 'text-emerald-400'
+	if (hf >= 1.2) return 'text-yellow-400'
 	return 'text-red-400'
 }
 
@@ -264,6 +264,7 @@ function LendingPositionColgroup({ showLiqColumn }: { showLiqColumn: boolean }) 
 function supplyLiqPriceClass(currentPrice: number, liqPrice: number): string {
 	if (liqPrice <= 0 || currentPrice <= 0) return 'text-slate-500'
 	const ratio = currentPrice / liqPrice
+	// Updated thresholds: 1.05 → critical (HF ~1.2), 1.25 → warning (HF ~1.8)
 	if (ratio < 1.05) return 'text-red-400'
 	if (ratio < 1.25) return 'text-yellow-400'
 	return 'text-slate-300'
@@ -526,7 +527,7 @@ function ProtocolSection({ snapshot }: { snapshot: LendingSnapshot }) {
 						label="Health Factor"
 						value={snapshot.healthFactor.toFixed(2)}
 						valueClass={hfColor(snapshot.healthFactor)}
-						tip="Liquidation threshold / total debt. Below 1 → liquidation risk."
+						tip="Liquidation threshold / total debt. Target ≥1.8, alert <1.2, liquidation risk below 1."
 					/>
 				)}
 				{hasRewards && (

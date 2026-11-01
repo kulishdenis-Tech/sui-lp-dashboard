@@ -106,10 +106,21 @@ export async function loadAllPortfolioLpSources(
 	positions: OpenPosition[]
 	incomplete: boolean
 }> {
-	const loads: PortfolioLpSourceLoad[] = []
-	for (const id of PORTFOLIO_LP_SOURCE_IDS) {
-		loads.push(await loadPortfolioLpSource(id, wallet, opts))
-	}
+	// Parallelize LP source loading with Promise.allSettled for better error isolation
+	const results = await Promise.allSettled(
+		PORTFOLIO_LP_SOURCE_IDS.map((id) => loadPortfolioLpSource(id, wallet, opts))
+	)
+	
+	const loads: PortfolioLpSourceLoad[] = results.map((result, index) => {
+		const id = PORTFOLIO_LP_SOURCE_IDS[index]!
+		if (result.status === 'fulfilled') {
+			return result.value
+		} else {
+			const error = result.reason instanceof Error ? result.reason.message : String(result.reason)
+			return { id, ok: false, error, positions: [] }
+		}
+	})
+	
 	const statuses: PortfolioLpSourceStatus[] = loads.map((l) => ({
 		id: l.id,
 		ok: l.ok,

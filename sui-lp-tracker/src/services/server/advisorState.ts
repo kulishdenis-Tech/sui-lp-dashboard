@@ -213,22 +213,28 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 	const errors: string[] = []
 	const nowSec = Math.floor(Date.now() / 1000)
 
+	// Parallelize Current Finance and LP loading
+	const [currentResult, lpResult] = await Promise.allSettled([
+		getCurrentPositions(wallet),
+		loadAllPortfolioLpSources(wallet),
+	])
+
 	let currentSnap: LendingSnapshot = EMPTY_CURRENT_SNAP
-	try {
-		currentSnap = await getCurrentPositions(wallet)
-	} catch (e) {
-		errors.push(`current: ${errMsg(e)}`)
+	if (currentResult.status === 'fulfilled') {
+		currentSnap = currentResult.value
+	} else {
+		errors.push(`current: ${errMsg(currentResult.reason)}`)
 	}
 
 	let lpPositions: AdvisorLpPosition[] = []
-	try {
-		const lp = await loadAllPortfolioLpSources(wallet)
+	if (lpResult.status === 'fulfilled') {
+		const lp = lpResult.value
 		for (const st of lp.statuses) {
 			if (!st.ok) errors.push(`lp:${st.id}: ${st.error ?? 'unavailable'}`)
 		}
 		lpPositions = lp.positions.map(mapLpPosition)
-	} catch (e) {
-		errors.push(`lp: ${errMsg(e)}`)
+	} else {
+		errors.push(`lp: ${errMsg(lpResult.reason)}`)
 	}
 
 	const [suiPx, deepPx] = await Promise.all([
