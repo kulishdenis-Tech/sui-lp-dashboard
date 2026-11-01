@@ -49,3 +49,12 @@ export function emptyPositionClaimableUsd(p) {
     const r = Number.isFinite(p.unclaimedRewardUSD) ? p.unclaimedRewardUSD : 0;
     return Math.max(0, f) + Math.max(0, r);
 }
+/**
+ * Resolve position range status with lifecycle awareness.
+ * A position with zero liquidity must show as 'out_of_range' regardless of tick position.
+ */
+export function resolveRangeStatus(priceInRange, lifecycleStatus) {
+    if (lifecycleStatus === 'empty')
+        return 'out_of_range';
+    return priceInRange ? 'in_range' : 'out_of_range';
+}

@@ -12,6 +12,7 @@ import { readMoveUIntString } from '@/services/bluefinMoveRead'
 import { logBluefinUnclaimedDebug } from '@/services/bluefinUnclaimedDebug'
 import { getBluefinAccruedFeesAndRewards } from '@/services/bluefinAccruedSdk'
 import { isBluefinLazyUnclaimedEnabled } from '@/services/lpFeatureFlags'
+import { resolveLifecycleStatus, resolveRangeStatus } from '@/utils/lpLifecycle'
 import { PROTOCOL_PACKAGES } from '@/utils/constants'
 import { normalizeSuiAddress, normalizeStructTag } from '@mysten/sui/utils'
 import Decimal from 'decimal.js'
@@ -481,7 +482,8 @@ export async function getBluefinSpotPositions(
 
 		const openedAt = Date.now() / 1000
 		const feeLabel = parseFeeMillionthsToPctLabel(feeBps)
-		const rangeLabel = inRange ? '' : ' · OUT'
+		const lifecycleStatus = resolveLifecycleStatus(liqStr)
+		const rangeLabel = inRange && lifecycleStatus !== 'empty' ? '' : ' · OUT'
 
 		const poolIdOut = poolIdRaw || poolKey
 		const bluefinUnclaimed: BluefinUnclaimedSnapshot = {
@@ -532,7 +534,8 @@ export async function getBluefinSpotPositions(
 			currentTick: currentTickI32,
 			currentSqrtPrice: curSqrt.isZero() ? curSqrtStr : curSqrt.toString(10),
 			liquidity: liqStr,
-			status: inRange ? 'in_range' : 'out_of_range',
+			lifecycleStatus,
+			status: resolveRangeStatus(inRange, lifecycleStatus),
 			tokenAAmount: humA,
 			tokenBAmount: humB,
 			currentPriceA_USD: pxaF ?? 0,
