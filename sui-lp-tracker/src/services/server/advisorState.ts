@@ -23,6 +23,20 @@ const DEEP_COIN_TYPE =
 /** Concurrency limit for parallel LP position mapping (balance heavy network load). */
 const LP_MAP_CONCURRENCY = 5
 
+function advisorDevTimingEnabled(): boolean {
+	return process.env.VITEST !== 'true' && process.env.SUI_LP_ADVISOR_DEV_TIMING === '1'
+}
+
+async function advisorTimed<T>(label: string, fn: () => Promise<T>): Promise<T> {
+	if (!advisorDevTimingEnabled()) return fn()
+	const t0 = performance.now()
+	try {
+		return await fn()
+	} finally {
+		console.log(`[advisor-state] ${label}: ${(performance.now() - t0).toFixed(0)}ms`)
+	}
+}
+
 export type AdvisorMarketSupply = {
 	asset: string
 	coinType: string
@@ -213,14 +227,14 @@ async function softUsdPrice(
 }
 
 export async function buildAdvisorState(): Promise<AdvisorState> {
+	return advisorTimed('total', async () => {
 	const wallet = normalizeSuiAddress(ADVISOR_WALLET).toLowerCase()
 	const errors: string[] = []
 	const nowSec = Math.floor(Date.now() / 1000)
 
-	// Parallelize Current Finance and LP loading
 	const [currentResult, lpResult] = await Promise.allSettled([
-		getCurrentPositions(wallet),
-		loadAllPortfolioLpSources(wallet),
+		advisorTimed('current', () => getCurrentPositions(wallet)),
+		advisorTimed('lp-load', () => loadAllPortfolioLpSources(wallet)),
 	])
 
 	let currentSnap: LendingSnapshot = EMPTY_CURRENT_SNAP
@@ -236,16 +250,19 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 		for (const st of lp.statuses) {
 			if (!st.ok) errors.push(`lp:${st.id}: ${st.error ?? 'unavailable'}`)
 		}
-		// Map LP positions with concurrency limit to avoid overwhelming the event loop
-		lpPositions = await mapPool(lp.positions, LP_MAP_CONCURRENCY, async (p) => mapLpPosition(p))
+		lpPositions = await advisorTimed('lp-map', () =>
+			mapPool(lp.positions, LP_MAP_CONCURRENCY, async (p) => mapLpPosition(p)),
+		)
 	} else {
 		errors.push(`lp: ${errMsg(lpResult.reason)}`)
 	}
 
-	const [suiPx, deepPx] = await Promise.all([
-		softUsdPrice('SUI', NATIVE_SUI_COIN_TYPE, nowSec, errors),
-		softUsdPrice('DEEP', DEEP_COIN_TYPE, nowSec, errors),
-	])
+	const [suiPx, deepPx] = await advisorTimed('prices', () =>
+		Promise.all([
+			softUsdPrice('SUI', NATIVE_SUI_COIN_TYPE, nowSec, errors),
+			softUsdPrice('DEEP', DEEP_COIN_TYPE, nowSec, errors),
+		]),
+	)
 
 	const state: AdvisorState = {
 		timestamp: new Date().toISOString(),
@@ -264,4 +281,5 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 	}
 	if (errors.length > 0) state.errors = errors
 	return state
+	})
 }
