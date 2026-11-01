@@ -9,11 +9,14 @@ const MEM_TTL_MS = 5 * 60 * 1000
  */
 const PERSIST_TTL_MS = 2 * 60 * 60 * 1000
 
-// v2: bumped from v1 to invalidate old 24-h cached entries with stale prices
-const LS_KEY = 'sui_lp_current_spot_v2'
+// v4: observedAt (network) vs lastReadAt (local touch) — do not refresh TTL on cache hit
+const LS_KEY = 'sui_lp_current_spot_v4'
 const MAX_PERSIST_KEYS = 450
 
 type Entry = {
+	observedAt: number
+	lastReadAt: number
+	/** @deprecated use observedAt */
 	cachedAt: number
 	price: number
 	change24h: number | null
@@ -24,19 +27,32 @@ type Entry = {
 
 const mem = new Map<string, Entry>()
 
+let nowFn: () => number = () => Date.now()
+
+/** Test seam — fake clock for TTL regression. */
+export function __setSpotCacheNow(fn: (() => number) | null): void {
+	nowFn = fn ?? (() => Date.now())
+}
+
+function now(): number {
+	return nowFn()
+}
+
 type StoredEntry = {
 	price: number
 	change24h: number | null
 	change5m?: number | null
 	change1h?: number | null
 	source: SpotSource
-	cachedAt: number
+	observedAt?: number
+	lastReadAt?: number
+	cachedAt?: number
 }
 
 function readPersisted(): Record<string, StoredEntry> {
 	if (typeof window === 'undefined') return {}
 	try {
-		const raw = localStorage.getItem(LS_KEY)
+		const raw = localStorage.getItem(LS_KEY) ?? localStorage.getItem('sui_lp_current_spot_v3')
 		if (!raw) return {}
 		const o = JSON.parse(raw) as Record<string, StoredEntry>
 		return o && typeof o === 'object' ? o : {}
@@ -55,12 +71,14 @@ function writePersisted(coinType: string, e: Entry) {
 			change5m: e.change5m ?? null,
 			change1h: e.change1h ?? null,
 			source: e.source,
-			cachedAt: e.cachedAt,
+			observedAt: e.observedAt,
+			lastReadAt: e.lastReadAt,
+			cachedAt: e.observedAt,
 		}
 		const keys = Object.keys(o)
 		if (keys.length > MAX_PERSIST_KEYS) {
 			keys
-				.map((k) => ({ k, t: o[k]?.cachedAt ?? 0 }))
+				.map((k) => ({ k, t: o[k]?.observedAt ?? o[k]?.cachedAt ?? 0 }))
 				.sort((a, b) => a.t - b.t)
 				.slice(0, keys.length - MAX_PERSIST_KEYS)
 				.forEach(({ k }) => {
@@ -77,9 +95,12 @@ function getFromPersisted(coinType: string): Entry | null {
 	const o = readPersisted()
 	const e = o[coinType]
 	if (!e || !Number.isFinite(e.price) || e.price <= 0) return null
-	if (Date.now() - e.cachedAt > PERSIST_TTL_MS) return null
+	const observedAt = e.observedAt ?? e.cachedAt ?? 0
+	if (now() - observedAt > PERSIST_TTL_MS) return null
 	return {
-		cachedAt: e.cachedAt,
+		observedAt,
+		lastReadAt: e.lastReadAt ?? observedAt,
+		cachedAt: observedAt,
 		price: e.price,
 		change24h: e.change24h,
 		change5m: e.change5m ?? null,
@@ -88,28 +109,27 @@ function getFromPersisted(coinType: string): Entry | null {
 	}
 }
 
-/**
- * Лише in-memory, не старіше `MEM_TTL_MS` (без localStorage) — для рішення «чи йти в мережу в resolveSpots».
- * Інакше після 5 хв `getCurrentSpot` знову підхопить persist на 24 год — і `seedFromCache` порожнить work → жодного запиту до DexScreener.
- */
+export const SPOT_MEM_TTL_MS = MEM_TTL_MS
+
 export function getFreshMemSpot(coinType: string): Entry | null {
 	const e0 = mem.get(coinType)
 	if (!e0) return null
-	if (Date.now() - e0.cachedAt <= MEM_TTL_MS) return e0
+	if (now() - e0.observedAt <= MEM_TTL_MS) return e0
 	return null
 }
 
-/**
- * In-session memory first, then last session’s persisted spot (F5), then null.
- */
 export function getCurrentSpot(coinType: string): Entry | null {
 	const e0 = mem.get(coinType)
 	if (e0) {
-		if (Date.now() - e0.cachedAt <= MEM_TTL_MS) return e0
+		if (now() - e0.observedAt <= MEM_TTL_MS) {
+			e0.lastReadAt = now()
+			return e0
+		}
 		mem.delete(coinType)
 	}
 	const e1 = getFromPersisted(coinType)
 	if (e1) {
+		e1.lastReadAt = now()
 		mem.set(coinType, e1)
 		return e1
 	}
@@ -124,18 +144,37 @@ export function setCurrentSpot(
 		change5m?: number | null
 		change1h?: number | null
 		source: SpotSource
+		observedAt?: number
 	},
 ) {
+	const observedAt = data.observedAt ?? now()
 	const e: Entry = {
 		price: data.price,
 		change24h: data.change24h,
 		change5m: data.change5m ?? null,
 		change1h: data.change1h ?? null,
 		source: data.source,
-		cachedAt: Date.now(),
+		observedAt,
+		lastReadAt: now(),
+		cachedAt: observedAt,
 	}
 	mem.set(coinType, e)
 	writePersisted(coinType, e)
+}
+
+export function patchCurrentSpotMeta(
+	coinType: string,
+	patch: { change24h?: number | null; change5m?: number | null; change1h?: number | null },
+): boolean {
+	const e = mem.get(coinType) ?? getFromPersisted(coinType)
+	if (!e) return false
+	if (patch.change24h !== undefined) e.change24h = patch.change24h
+	if (patch.change5m !== undefined) e.change5m = patch.change5m
+	if (patch.change1h !== undefined) e.change1h = patch.change1h
+	e.lastReadAt = now()
+	mem.set(coinType, e)
+	writePersisted(coinType, e)
+	return true
 }
 
 export function seedFromCache(
@@ -151,9 +190,13 @@ export function seedFromCache(
 	return { hits, missing: [...new Set(missing)] }
 }
 
-/**
- * Для `resolveSpots`: «skip network» тільки якщо в RAM є свіже значення. Persist не дає зняти work — інакше 24 год без refetch.
- */
+function isCompleteSpotEntry(e: Entry): boolean {
+	if (e.source === 'okx' || e.source === 'dexscreener') {
+		return e.change5m != null && e.change1h != null
+	}
+	return true
+}
+
 export function seedForNetworkRefetch(
 	coinTypes: string[],
 ): { freshHits: Map<string, Entry>; needNetwork: string[] } {
@@ -161,18 +204,18 @@ export function seedForNetworkRefetch(
 	const need: string[] = []
 	for (const c of coinTypes) {
 		const e = getFreshMemSpot(c)
-		if (e) freshHits.set(c, e)
+		if (e && isCompleteSpotEntry(e)) freshHits.set(c, e)
 		else need.push(c)
 	}
 	return { freshHits, needNetwork: [...new Set(need)] }
 }
 
-/** Clear in-memory + persisted spot cache (Header «Clear cache»). */
 export function clearCurrentSpotCache(): void {
 	mem.clear()
 	if (typeof window === 'undefined') return
 	try {
 		localStorage.removeItem(LS_KEY)
+		localStorage.removeItem('sui_lp_current_spot_v3')
 	} catch {
 		/* */
 	}

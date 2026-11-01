@@ -1,21 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { ClmmStateCache } from '@/poolQuote/pricing/state/ClmmStateCache'
 import type { ClmmPoolSnapshot } from '@/poolQuote/pricing/state/types'
-import type { CetusFastQuoteEngine } from '@/poolQuote/pricing/cetus/CetusFastQuoteEngine'
-import type { TurbosFastQuoteEngine } from '@/poolQuote/pricing/turbos/TurbosFastQuoteEngine'
-import { quoteFromLoadedCache } from '@/services/server/quotePoolImpact'
+import { quoteFromLoadedCache } from '@/services/server/quotePoolImpactCache'
 
 const dummyEngines = {
 	cetus: {
 		quoteExactIn: () => {
 			throw new Error('engine should not run')
 		},
-	} as unknown as CetusFastQuoteEngine,
+	} as unknown as import('@/services/server/quotePoolImpactTypes').FastQuoteEngine,
 	turbos: {
 		quoteExactIn: () => {
 			throw new Error('engine should not run')
 		},
-	} as unknown as TurbosFastQuoteEngine,
+	} as unknown as import('@/services/server/quotePoolImpactTypes').FastQuoteEngine,
 }
 
 function snap(partial: Partial<ClmmPoolSnapshot> = {}): ClmmPoolSnapshot {

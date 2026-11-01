@@ -1,7 +1,10 @@
+import type { ReactNode } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { formatUSD } from '@/utils/formatting'
 import { TooltipIconButton } from '@/components/ui/Tooltip'
 import { AppCard } from '@/components/ui/AppCard'
+import { DataFreshnessHint } from '@/pages/overviewLab/DataFreshnessHint'
+import { useOverviewFreshness } from '@/pages/overviewLab/useOverviewFreshness'
 
 /** Matches `computeNetWorth` (`totalNetUSD`). */
 const TOTAL_VALUE_TOOLTIP =
@@ -15,6 +18,7 @@ const NET_LENDING_TOOLTIP = 'Net lending position: total supplied collateral min
 export function SummaryCards() {
 	const netWorth = useAppStore((s) => s.netWorth)
 	const openN = useAppStore((s) => s.openPositions.length)
+	const freshness = useOverviewFreshness()
 	const isRefreshing = useAppStore(
 		(s) => s.isLoadingBalances || s.isLoadingPositions || s.isLoadingLending,
 	)
@@ -55,7 +59,13 @@ export function SummaryCards() {
 				value={formatUSD(netWorth.netLendingUSD)}
 				tooltip={NET_LENDING_TOOLTIP}
 			/>
-			<Card label="Total Value" value={formatUSD(netWorth.totalNetUSD)} tooltip={TOTAL_VALUE_TOOLTIP} />
+			<Card label="Total Value" value={formatUSD(netWorth.totalNetUSD)} tooltip={TOTAL_VALUE_TOOLTIP}>
+				<DataFreshnessHint
+					updatedAtMs={freshness.displayUpdatedAtMs}
+					stale={freshness.anyStale}
+					className="mt-1"
+				/>
+			</Card>
 		</div>
 	)
 }
@@ -64,10 +74,12 @@ function Card({
 	label,
 	value,
 	tooltip,
+	children,
 }: {
 	label: string
 	value: string
 	tooltip?: string
+	children?: ReactNode
 }) {
 	return (
 		<AppCard className="h-full">
@@ -78,6 +90,7 @@ function Card({
 				) : null}
 			</p>
 			<p className="mt-1 font-mono tabular-money text-xl text-slate-100">{value}</p>
+			{children}
 		</AppCard>
 	)
 }

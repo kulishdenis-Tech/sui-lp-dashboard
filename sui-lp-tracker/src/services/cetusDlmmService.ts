@@ -42,6 +42,12 @@ const STABLECOIN_SYMS = new Set([
 
 export type CetusDlmmPositionsOptions = { forceRefreshPrices?: boolean }
 
+/** DLMM list guard — empty only when discovery succeeded; errors propagate to snapshot boundary. */
+export function requireDlmmOwnerRows<T>(rows: T[] | undefined, err: unknown): T[] {
+	if (err) throw err instanceof Error ? err : new Error(String(err))
+	return rows ?? []
+}
+
 type CoinMeta = { symbol: string; decimals: number; iconUrl: string | null }
 
 function symbolFromCoinType(ct: string): string {

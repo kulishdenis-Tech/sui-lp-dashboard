@@ -1,5 +1,7 @@
-import type { ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { useLendingPositions } from '@/hooks/useLendingPositions'
+import { useAppStore } from '@/store/appStore'
+import { positionValueUsd } from '@/utils/positionDerivedMetrics'
 import { formatUSD, formatUSDAdaptive, formatPct } from '@/utils/formatting'
 import { SkeletonCard } from '@/components/ui/SkeletonCard'
 import { Tooltip, TooltipIconButton } from '@/components/ui/Tooltip'
@@ -12,6 +14,9 @@ import {
 	appTableHeadCellDefault,
 	appTableTd,
 } from '@/design/appPrimitives'
+import { formatSupplyAprDisplay } from '@/components/lending/supplyAprDisplay'
+import { DataFreshnessHint } from '@/pages/overviewLab/DataFreshnessHint'
+import { computeDefiConcentration, currentAggregateReferenceSegment, type ConcentrationSegment } from '@/utils/defiConcentration'
 import type {
 	BorrowPosition,
 	LendingRewardToClaim,
@@ -276,19 +281,21 @@ function formatLiqPrice(n: number): string {
 	return formatUSD(n, 6)
 }
 
-function SupplyRow({ s, showLiqPrice }: { s: SupplyPosition; showLiqPrice: boolean }) {
+function SupplyRow({
+	s,
+	showLiqPrice,
+	updatedAtMs,
+}: {
+	s: SupplyPosition
+	showLiqPrice: boolean
+	updatedAtMs?: number | null
+}) {
 	const hasBreakdown = !!s.aprBreakdown
 	const currentPrice =
 		s.currentAmount > 0 && s.currentValueUSD > 0 ? s.currentValueUSD / s.currentAmount : 0
 	const liqPrice = s.liquidationPriceUSD
-	const aprText = (
-		<>
-			{formatPct(s.supplyAPR)}
-			{(s.supplyRewardAPR ?? 0) > 0 && (
-				<span className="ml-1 text-xs text-sky-400">✦</span>
-			)}
-		</>
-	)
+	const aprDisplay = formatSupplyAprDisplay(s)
+	const aprText = aprDisplay.text
 	return (
 		<tr className="group">
 			<td className={`${appTableTd} pl-3`}>
@@ -305,7 +312,8 @@ function SupplyRow({ s, showLiqPrice }: { s: SupplyPosition; showLiqPrice: boole
 				{s.currentAmount.toLocaleString(undefined, { maximumFractionDigits: 3 })}
 			</td>
 			<td className={`${appTableTd} text-right tabular-nums`}>
-				{formatUSD(s.currentValueUSD)}
+				<div>{formatUSD(s.currentValueUSD)}</div>
+				<DataFreshnessHint updatedAtMs={updatedAtMs} className="justify-end" />
 			</td>
 			<td
 				className={`${appTableTd} text-right tabular-nums text-emerald-400${showLiqPrice ? '' : ' pr-3'}`}
@@ -486,8 +494,57 @@ function ProtocolLabel({ name }: { name: string }) {
 	)
 }
 
+// ── Current venue slices ───────────────────────────────────────────────────
+function sliceCurrentVenue(snap: LendingSnapshot, venue: string): LendingSnapshot {
+	const supplies = snap.supplies.filter((s) => (s.venue ?? 'Unknown') === venue)
+	const borrows = snap.borrows.filter((b) => (b.venue ?? 'Unknown') === venue)
+	const totalSuppliedUSD = supplies.reduce((a, x) => a + x.currentValueUSD, 0)
+	const totalBorrowedUSD = borrows.reduce((a, x) => a + x.currentDebtUSD, 0)
+	return {
+		...snap,
+		supplies,
+		borrows,
+		totalSuppliedUSD,
+		totalBorrowedUSD,
+		netValueUSD: totalSuppliedUSD - totalBorrowedUSD,
+	}
+}
+
+function listCurrentVenues(snap: LendingSnapshot): string[] {
+	const set = new Set<string>()
+	for (const s of snap.supplies) set.add(s.venue ?? 'Unknown')
+	for (const b of snap.borrows) set.add(b.venue ?? 'Unknown')
+	return [...set]
+}
+
+function ConcentrationWarning({ segment }: { segment?: ConcentrationSegment }) {
+	if (!segment?.overLimit || segment.sharePct == null) return null
+	return (
+		<p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200/95">
+			Частка {segment.label} {segment.sharePct.toFixed(1)}% перевищує ліміт 15% (база — net DeFi-портфель).
+		</p>
+	)
+}
+
+function DebtExceedsHint({ segment }: { segment?: ConcentrationSegment }) {
+	if (!segment?.debtExceedsDeposit) return null
+	return (
+		<p className="text-[11px] text-slate-500">
+			Частка: — · <span className="text-amber-300/90">борг перевищує депозит</span>
+		</p>
+	)
+}
+
 // ── Single protocol section ────────────────────────────────────────────────
-function ProtocolSection({ snapshot }: { snapshot: LendingSnapshot }) {
+function ProtocolSection({
+	snapshot,
+	concentrationSegment,
+	updatedAtMs,
+}: {
+	snapshot: LendingSnapshot
+	concentrationSegment?: ConcentrationSegment
+	updatedAtMs?: number | null
+}) {
 	const hasBorrows = snapshot.borrows.length > 0
 	const firstBorrow = snapshot.borrows[0]
 	const liquidationUSD = firstBorrow?.liquidationThreshold ?? 0
@@ -501,6 +558,20 @@ function ProtocolSection({ snapshot }: { snapshot: LendingSnapshot }) {
 
 	return (
 		<AppCard className="space-y-5">
+			<div className="flex flex-wrap items-start justify-between gap-2">
+				<div className="min-w-0 space-y-1">
+					{snapshot.venue ? (
+						<p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+							{snapshot.protocol === 'Current'
+								? `Current · ${snapshot.supplies[0]?.venue ?? snapshot.borrows[0]?.venue ?? 'Market'}`
+								: snapshot.protocol}
+						</p>
+					) : null}
+					<ConcentrationWarning segment={concentrationSegment} />
+					<DebtExceedsHint segment={concentrationSegment} />
+				</div>
+				<DataFreshnessHint updatedAtMs={updatedAtMs ?? null} />
+			</div>
 			{/* ── Header stats ─────────────────────────────────────────── */}
 			<div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
 				<StatCard
@@ -612,7 +683,12 @@ function ProtocolSection({ snapshot }: { snapshot: LendingSnapshot }) {
 							</thead>
 							<tbody>
 								{snapshot.supplies.map((s) => (
-									<SupplyRow key={s.id} s={s} showLiqPrice={hasBorrows} />
+									<SupplyRow
+										key={s.id}
+										s={s}
+										showLiqPrice={hasBorrows}
+										updatedAtMs={updatedAtMs}
+									/>
 								))}
 							</tbody>
 						</table>
@@ -661,38 +737,107 @@ function ProtocolSection({ snapshot }: { snapshot: LendingSnapshot }) {
 
 // ── Main ───────────────────────────────────────────────────────────────────
 export function LendingModule() {
-	const { snapshot, naviSnapshot, isLoading, error } = useLendingPositions()
+	const { snapshot, naviSnapshot, currentSnapshot, isLoading, error, lendingDataUpdatedAtMs } =
+		useLendingPositions()
+	const openPositions = useAppStore((s) => s.openPositions)
+
+	const lpByProtocol = useMemo(() => {
+		const m = new Map<string, number>()
+		for (const p of openPositions) {
+			const v = positionValueUsd(p)
+			if (!(v > 0)) continue
+			m.set(p.protocol, (m.get(p.protocol) ?? 0) + v)
+		}
+		return [...m.entries()].map(([protocol, valueUsd]) => ({ protocol, valueUsd }))
+	}, [openPositions])
 
 	const alphaHasData = snapshot && (snapshot.supplies.length > 0 || snapshot.borrows.length > 0)
 	const naviHasData = naviSnapshot && (naviSnapshot.supplies.length > 0 || naviSnapshot.borrows.length > 0)
+	const currentHasData =
+		currentSnapshot &&
+		(currentSnapshot.supplies.length > 0 || currentSnapshot.borrows.length > 0)
 
-	if (isLoading && !alphaHasData && !naviHasData) return <SkeletonCard />
-	if (error && !alphaHasData && !naviHasData)
+	const concentration = computeDefiConcentration({
+		lpByProtocol,
+		currentVenues: currentHasData
+			? listCurrentVenues(currentSnapshot!).map((venue) => {
+					const slice = sliceCurrentVenue(currentSnapshot!, venue)
+					return { key: venue, label: venue, netUsd: slice.netValueUSD }
+				})
+			: [],
+		otherLending: [
+			alphaHasData
+				? { key: 'other:alphalend', label: 'AlphaLend', netUsd: snapshot!.netValueUSD }
+				: null,
+			naviHasData ? { key: 'other:navi', label: 'Navi', netUsd: naviSnapshot!.netValueUSD } : null,
+		].filter(Boolean) as Array<{ key: string; label: string; netUsd: number }>,
+	})
+
+	const segFor = (key: string) => concentration.segments.find((s) => s.key === key)
+
+	if (isLoading && !alphaHasData && !naviHasData && !currentHasData) return <SkeletonCard />
+	if (error && !alphaHasData && !naviHasData && !currentHasData)
 		return <p className="text-sm text-red-400">{error}</p>
 
-	if (!alphaHasData && !naviHasData) {
+	if (!alphaHasData && !naviHasData && !currentHasData) {
 		return (
 			<p className="text-sm text-slate-500">
-				No lending positions found for this wallet (AlphaLend / Navi).
+				No lending positions found for this wallet (AlphaLend / Navi / Current).
 			</p>
 		)
 	}
 
-	const showDivider = alphaHasData && naviHasData
+	const showAlpha = alphaHasData
+	const showNavi = naviHasData
+	const showCurrent = currentHasData
+	const currentVenues = showCurrent ? listCurrentVenues(currentSnapshot!) : []
+	const currentVenueNets = showCurrent
+		? currentVenues.map((venue) => ({
+				netUsd: sliceCurrentVenue(currentSnapshot!, venue).netValueUSD,
+			}))
+		: []
+	const currentRef = currentAggregateReferenceSegment(currentVenueNets, concentration.baseUsd)
 
 	return (
 		<div className="space-y-6">
-			{alphaHasData && (
+			{showAlpha && (
 				<div>
-					{showDivider && <ProtocolLabel name="AlphaLend" />}
-					<ProtocolSection snapshot={snapshot} />
+					<ProtocolLabel name="AlphaLend" />
+					<ProtocolSection
+						snapshot={snapshot!}
+						concentrationSegment={segFor('other:alphalend')}
+						updatedAtMs={lendingDataUpdatedAtMs}
+					/>
 				</div>
 			)}
-			{showDivider && <hr className="border-slate-800" />}
-			{naviHasData && (
+			{showNavi && (
 				<div>
-					{showDivider && <ProtocolLabel name="Navi" />}
-					<ProtocolSection snapshot={naviSnapshot} />
+					{showAlpha && <hr className="border-slate-800" />}
+					<ProtocolLabel name="Navi" />
+					<ProtocolSection
+						snapshot={naviSnapshot!}
+						concentrationSegment={segFor('other:navi')}
+						updatedAtMs={lendingDataUpdatedAtMs}
+					/>
+				</div>
+			)}
+			{showCurrent && (
+				<div className="space-y-6">
+					{(showAlpha || showNavi) && <hr className="border-slate-800" />}
+					<ProtocolLabel name="Current Finance" />
+					{currentRef ? (
+						<p className="mb-3 text-xs text-slate-500">
+							Частка Current у DeFi: {currentRef.sharePct?.toFixed(1)}% (довідка, без ліміту)
+						</p>
+					) : null}
+					{currentVenues.map((venue) => (
+						<ProtocolSection
+							key={venue}
+							snapshot={{ ...sliceCurrentVenue(currentSnapshot!, venue), protocol: 'Current' }}
+							concentrationSegment={segFor(`current:${venue}`)}
+							updatedAtMs={lendingDataUpdatedAtMs}
+						/>
+					))}
 				</div>
 			)}
 		</div>
