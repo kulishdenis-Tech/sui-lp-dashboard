@@ -1052,9 +1052,27 @@ async function loadCashflowTokens(
 	return { deposited, borrowed, claimedRewardsUSD, usedSpotPrice, historyFailed }
 }
 
+function currentAdvisorTimingEnabled(): boolean {
+	return process.env.VITEST !== 'true' && process.env.SUI_LP_ADVISOR_DEV_TIMING === '1'
+}
+
+function logCurrentAdvisorStep(step: string, ms: number): void {
+	console.log(`[advisor-state] current/${step}: ${ms.toFixed(0)}ms`)
+}
+
+async function currentAdvisorTimed<T>(step: string, fn: () => Promise<T>): Promise<T> {
+	if (!currentAdvisorTimingEnabled()) return fn()
+	const t0 = performance.now()
+	try {
+		return await fn()
+	} finally {
+		logCurrentAdvisorStep(step, performance.now() - t0)
+	}
+}
+
 export async function getCurrentPositions(walletAddress: string): Promise<LendingSnapshot> {
-	const obligations = await getJson<ObligationRow[]>(
-		`/user/getObligationList/${walletAddress}`,
+	const obligations = await currentAdvisorTimed('obligations-rest', () =>
+		getJson<ObligationRow[]>(`/user/getObligationList/${walletAddress}`),
 	)
 	const rows = (obligations ?? []).filter((o) => o.obligationObject && o.marketType)
 	if (rows.length === 0) return EMPTY_CURRENT_SNAP
@@ -1068,7 +1086,26 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 	const borrowWeightOf = new Map<BorrowPosition, number>()
 	/** Per-supply API `maxLTV` for safe borrow limit. */
 	const maxLtvOf = new Map<SupplyPosition, number>()
-	const allListed = await fetchAllMarketRows()
+	const allListed = await currentAdvisorTimed('markets-rest', () => fetchAllMarketRows())
+
+	let devInspectMs = 0
+	let miningMs = 0
+	let claimableMs = 0
+	async function currentAdvisorAccum<T>(
+		bucket: 'devInspect' | 'mining' | 'claimable',
+		fn: () => Promise<T>,
+	): Promise<T> {
+		if (!currentAdvisorTimingEnabled()) return fn()
+		const t0 = performance.now()
+		try {
+			return await fn()
+		} finally {
+			const delta = performance.now() - t0
+			if (bucket === 'devInspect') devInspectMs += delta
+			else if (bucket === 'mining') miningMs += delta
+			else claimableMs += delta
+		}
+	}
 
 	let skippedObligations = 0
 	for (const ob of rows) {
@@ -1084,19 +1121,24 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 		if (!marketObjectId) {
 			throw new Error(`Current market object missing for ${marketType}`)
 		}
-		const overview = await inspectOverview(marketType, marketObjectId, ob.obligationObject!, walletAddress)
+		const overview = await currentAdvisorAccum('devInspect', () =>
+			inspectOverview(marketType, marketObjectId, ob.obligationObject!, walletAddress),
+		)
 		const assets = [
 			...overview.deposits.map((d) => d.asset),
 			...overview.borrows.map((b) => b.asset),
 		]
-		const rates = await inspectRates(marketType, marketObjectId, assets, walletAddress)
-		const chainApr =
+		const rates = await currentAdvisorAccum('devInspect', () =>
+			inspectRates(marketType, marketObjectId, assets, walletAddress),
+		)
+		const chainApr = await currentAdvisorAccum('devInspect', async () =>
 			listed.length > 0
 				? new Map<string, { supply: number; borrow: number }>()
 				: await inspectInterestApr(marketType, marketObjectId, assets, walletAddress).catch((err) => {
 						console.warn('[Current] interest overview', marketType, err)
 						return new Map<string, { supply: number; borrow: number }>()
-					})
+					}),
+		)
 
 		// Parallelize mining APR reads for all deposits and borrows
 		const depositMiningReads = overview.deposits.map((dep) => {
@@ -1145,10 +1187,9 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 			}))
 		})
 
-		const [depositMiningResults, borrowMiningResults] = await Promise.all([
-			Promise.all(depositMiningReads),
-			Promise.all(borrowMiningReads),
-		])
+		const [depositMiningResults, borrowMiningResults] = await currentAdvisorAccum('mining', () =>
+			Promise.all([Promise.all(depositMiningReads), Promise.all(borrowMiningReads)]),
+		)
 
 		for (let i = 0; i < overview.deposits.length; i++) {
 			const dep = overview.deposits[i]!
@@ -1260,18 +1301,20 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 			borrows.push(borrow)
 		}
 
-		const mined = await readClaimableMining(
-			marketObjectId,
-			ob.obligationObject!,
-			overview.deposits.map((d) => d.asset),
-			overview.borrows.map((b) => b.asset),
-			priceRows,
-		).catch((err) => ({
-			status: 'unavailable' as const,
-			rows: [] as ClaimableMiningRow[],
-			reason: err instanceof Error ? err.message : String(err),
-			readAtMs: Date.now(),
-		}))
+		const mined = await currentAdvisorAccum('claimable', () =>
+			readClaimableMining(
+				marketObjectId,
+				ob.obligationObject!,
+				overview.deposits.map((d) => d.asset),
+				overview.borrows.map((b) => b.asset),
+				priceRows,
+			).catch((err) => ({
+				status: 'unavailable' as const,
+				rows: [] as ClaimableMiningRow[],
+				reason: err instanceof Error ? err.message : String(err),
+				readAtMs: Date.now(),
+			})),
+		)
 		if (mined.status === 'unavailable') {
 			console.warn('[Current] claimable rewards unavailable', ob.obligationObject, mined.reason)
 		} else {
@@ -1294,6 +1337,12 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 		throw new Error(
 			`Current: ${skippedObligations} obligation(s) failed to load (borrows unavailable, not confirmed zero)`,
 		)
+	}
+
+	if (currentAdvisorTimingEnabled()) {
+		logCurrentAdvisorStep('devInspect', devInspectMs)
+		logCurrentAdvisorStep('mining', miningMs)
+		logCurrentAdvisorStep('claimable-rewards', claimableMs)
 	}
 
 	const totalSuppliedUSD = supplies.reduce((s, x) => s + x.currentValueUSD, 0)
@@ -1367,7 +1416,9 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 	const netAPR = totalSuppliedUSD > 0 ? (supplyYield - borrowCost) / totalSuppliedUSD : null
 	const rewardsToClaim = mergeClaimed(claimed)
 	const unclaimedUSD = rewardsToClaim.reduce((s, r) => s + r.valueUSD, 0)
-	const loaded = await loadCashflowTokens(walletAddress, marketTypes, allListed).catch(() => null)
+	const loaded = await currentAdvisorTimed('cashflow', () =>
+		loadCashflowTokens(walletAddress, marketTypes, allListed).catch(() => null),
+	)
 	let cashflowUsd: LendingCashflowUsd | null = null
 	if (loaded) {
 		const listPrice = (coin: string) => {
