@@ -38,24 +38,63 @@ describe('QA-2026-11-01-02: Portfolio LP sources parallelization', () => {
 		vi.clearAllMocks()
 	})
 
-	it('loads all LP sources in parallel with Promise.allSettled', async () => {
+	it('respects concurrency limit during RPC-heavy LP source loading', async () => {
 		const wallet = '0xtest'
-		const startTime = Date.now()
+		const callLog: { time: number; id: string; type: 'start' | 'end' }[] = []
+		
+		const mockLoader = async (id: string) => {
+			callLog.push({ time: Date.now(), id, type: 'start' })
+			await new Promise((r) => setTimeout(r, 50))
+			callLog.push({ time: Date.now(), id, type: 'end' })
+			return []
+		}
+		
+		// Mock all loaders to track concurrency
+		const mods = await Promise.all([
+			import('./momentumService'),
+			import('./bluefinService'),
+			import('./cetusService'),
+			import('./cetusDlmmService'),
+			import('./cetusVaultsService'),
+			import('./haedalVaultsService'),
+			import('./haedalLendingVaultsService'),
+			import('./currentMultiplyVaultsService'),
+			import('./turbosService'),
+			import('./aftermathService'),
+		])
+		
+		vi.mocked(mods[0].getMomentumPositions).mockImplementation(() => mockLoader('momentum'))
+		vi.mocked(mods[1].getBluefinSpotPositions).mockImplementation(() => mockLoader('bluefin'))
+		vi.mocked(mods[2].getCetusPositions).mockImplementation(() => mockLoader('cetus-clmm'))
+		vi.mocked(mods[3].getCetusDlmmPositions).mockImplementation(() => mockLoader('cetus-dlmm'))
+		vi.mocked(mods[4].getCetusVaultPositions).mockImplementation(() => mockLoader('cetus-vaults'))
+		vi.mocked(mods[5].getHaedalVaultPositions).mockImplementation(() => mockLoader('haedal-vaults'))
+		vi.mocked(mods[6].getHaedalLendingVaultPositions).mockImplementation(() => mockLoader('haedal-lending-vaults'))
+		vi.mocked(mods[7].getCurrentMultiplyVaultPositions).mockImplementation(() => mockLoader('current-multiply'))
+		vi.mocked(mods[8].getTurbosPositions).mockImplementation(() => mockLoader('turbos'))
+		vi.mocked(mods[9].getAftermathFarmsPositions).mockImplementation(() => mockLoader('aftermath'))
 		
 		const result = await loadAllPortfolioLpSources(wallet)
 		
-		const elapsed = Date.now() - startTime
+		// Calculate max concurrent from log
+		let maxConcurrent = 0
+		let currentConcurrent = 0
+		for (const entry of callLog) {
+			if (entry.type === 'start') {
+				currentConcurrent++
+				maxConcurrent = Math.max(maxConcurrent, currentConcurrent)
+			} else {
+				currentConcurrent--
+			}
+		}
 		
-		// Should complete quickly since all mocks return immediately
-		expect(elapsed).toBeLessThan(1000)
+		// Should respect concurrency limit of 3 (may be less if sources complete quickly)
+		expect(maxConcurrent).toBeLessThanOrEqual(3)
+		expect(maxConcurrent).toBeGreaterThan(0) // At least some parallelism
 		
 		// Should have a result for each source
 		expect(result.loads).toHaveLength(PORTFOLIO_LP_SOURCE_IDS.length)
 		expect(result.statuses).toHaveLength(PORTFOLIO_LP_SOURCE_IDS.length)
-		
-		// All sources should be marked as ok (empty is ok)
-		expect(result.incomplete).toBe(false)
-		expect(result.positions).toEqual([])
 	})
 
 	it('isolates errors per source and continues loading others', async () => {

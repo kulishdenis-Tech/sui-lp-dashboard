@@ -19,8 +19,17 @@ export function computeNetWorth(
 			: tokenBalances.reduce((s, t) => s + finiteUsd(t.valueUSD), 0),
 	)
 	// Use Value when complete, fallback to Liquidity when unclaimed incomplete (matches snapshot builder)
+	let hasUnknownPosition = false
 	const openLpUSD = finiteUsd(
-		openPositions.reduce((s, p) => s + (positionValueUsdOrNull(p) ?? liquidityUsdOrNull(p) ?? 0), 0)
+		openPositions.reduce((s, p) => {
+			const value = positionValueUsdOrNull(p)
+			const liquidity = liquidityUsdOrNull(p)
+			if (value != null) return s + value
+			if (liquidity != null) return s + liquidity
+			// Position with unknown equity — mark as partial, don't book as $0
+			hasUnknownPosition = true
+			return s
+		}, 0)
 	)
 	const outstandingBorrowUSD = finiteUsd(
 		(lending?.borrows ?? []).reduce((s, b) => s + finiteUsd(b.currentDebtUSD), 0),
@@ -32,6 +41,7 @@ export function computeNetWorth(
 	return {
 		walletAssetsUSD,
 		openLpUSD,
+		...(hasUnknownPosition && { openLpPartial: true }),
 		outstandingBorrowUSD,
 		netLendingUSD,
 		totalNetUSD,

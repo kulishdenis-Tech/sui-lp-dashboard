@@ -13,6 +13,10 @@ import { getHaedalLendingVaultPositions } from '@/services/haedalLendingVaultsSe
 import { getCurrentMultiplyVaultPositions } from '@/services/currentMultiplyVaultsService'
 import { getTurbosPositions } from '@/services/turbosService'
 import { getAftermathFarmsPositions } from '@/services/aftermathService'
+import { mapPool } from '@/utils/concurrency'
+
+/** Concurrency limit for parallel LP source loading (RPC-heavy operations). */
+const LP_SOURCE_CONCURRENCY = 3
 
 export const PORTFOLIO_LP_SOURCE_IDS = [
 	'momentum',
@@ -106,20 +110,19 @@ export async function loadAllPortfolioLpSources(
 	positions: OpenPosition[]
 	incomplete: boolean
 }> {
-	// Parallelize LP source loading with Promise.allSettled for better error isolation
-	const results = await Promise.allSettled(
-		PORTFOLIO_LP_SOURCE_IDS.map((id) => loadPortfolioLpSource(id, wallet, opts))
-	)
-	
-	const loads: PortfolioLpSourceLoad[] = results.map((result, index) => {
-		const id = PORTFOLIO_LP_SOURCE_IDS[index]!
-		if (result.status === 'fulfilled') {
-			return result.value
-		} else {
-			const error = result.reason instanceof Error ? result.reason.message : String(result.reason)
-			return { id, ok: false, error, positions: [] }
+	// Parallelize LP source loading with concurrency limit to avoid overwhelming RPC
+	const loads = await mapPool(
+		PORTFOLIO_LP_SOURCE_IDS,
+		LP_SOURCE_CONCURRENCY,
+		async (id) => {
+			try {
+				return await loadPortfolioLpSource(id, wallet, opts)
+			} catch (e) {
+				const error = e instanceof Error ? e.message : String(e)
+				return { id, ok: false, error, positions: [] } as PortfolioLpSourceLoad
+			}
 		}
-	})
+	)
 	
 	const statuses: PortfolioLpSourceStatus[] = loads.map((l) => ({
 		id: l.id,
