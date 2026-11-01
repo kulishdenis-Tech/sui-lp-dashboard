@@ -22,14 +22,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCurrentAccount } from '@mysten/dapp-kit'
 import { useAppStore } from '@/store/appStore'
-import { positionValueUsd } from '@/utils/positionDerivedMetrics'
-import { finiteUsd } from '@/utils/finiteUsd'
 import { getEffectiveWalletAddress } from '@/utils/walletAddress'
+import { buildPortfolioSnapshot } from '@/utils/portfolioSnapshotBuild'
 import {
-	currentHourBucket,
 	deleteSnapshotsByIds,
 	getSnapshots,
-	makeSnapshotId,
 	pruneOldSnapshots,
 	saveSnapshot,
 	type PortfolioHistoryRange,
@@ -77,35 +74,7 @@ export type PortfolioHistoryResult = {
 /** Build a snapshot from current store state. Returns null if data isn't ready. */
 function buildSnapshot(walletAddr: string): PortfolioSnapshot | null {
 	const state = useAppStore.getState()
-	if (!state.netWorth) return null
-
-	const hourBucket = currentHourBucket()
-	let lpUSD = 0
-	let aftermathUSD = 0
-	for (const p of state.openPositions) {
-		const val = positionValueUsd(p)
-		if (p.protocol === 'aftermath') aftermathUSD += val
-		else lpUSD += val
-	}
-	const lendingNetUSD = finiteUsd(
-		finiteUsd(state.lendingSnapshot?.netValueUSD) + finiteUsd(state.naviSnapshot?.netValueUSD),
-	)
-	const walletUSD = finiteUsd(state.netWorth.walletAssetsUSD)
-	const totalUSD = finiteUsd(walletUSD + lpUSD + aftermathUSD + lendingNetUSD)
-
-	if (totalUSD <= 0) return null
-
-	return {
-		id: makeSnapshotId(walletAddr, hourBucket),
-		walletAddr,
-		hourBucket,
-		ts: hourBucket,
-		lpUSD: finiteUsd(lpUSD),
-		aftermathUSD: finiteUsd(aftermathUSD),
-		lendingNetUSD,
-		walletUSD,
-		totalUSD,
-	}
+	return buildPortfolioSnapshot(walletAddr, state)
 }
 
 export function usePortfolioHistory(): PortfolioHistoryResult {

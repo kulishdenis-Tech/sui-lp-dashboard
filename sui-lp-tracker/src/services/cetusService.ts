@@ -23,6 +23,7 @@ import { normalizeStructTag, normalizeSuiAddress } from '@mysten/sui/utils'
 import { PROTOCOL_PACKAGES, RPC_CONCURRENCY } from '@/utils/constants'
 import { mapPool } from '@/utils/concurrency'
 import { fetchCetusAccruedFees } from '@/services/cetusAccruedInspect'
+import { resolveLifecycleStatus, resolveRangeStatus } from '@/utils/lpLifecycle'
 import Decimal from 'decimal.js'
 import BN from 'bn.js'
 
@@ -622,9 +623,10 @@ export async function getCetusPositions(
 		)
 
 		// --- Fee rate & range status ---
-		const inRange = pool.currentTick >= pos.lowerTick && pool.currentTick <= pos.upperTick
+		const priceInRange = pool.currentTick >= pos.lowerTick && pool.currentTick <= pos.upperTick
+		const lifecycleStatus = resolveLifecycleStatus(pos.liquidity)
 		const feeLabelPct = `${(pool.feeRate * 100).toFixed(3)}%`
-		const pair = `${symA}/${symB} · ${feeLabelPct}${inRange ? '' : ' · OUT'}`
+		const pair = `${symA}/${symB} · ${feeLabelPct}${priceInRange && lifecycleStatus !== 'empty' ? '' : ' · OUT'}`
 
 		out.push({
 			id: pos.objectId,
@@ -645,7 +647,8 @@ export async function getCetusPositions(
 			currentTick: pool.currentTick,
 			currentSqrtPrice: pool.sqrtPriceStr,
 			liquidity: pos.liquidity,
-			status: inRange ? 'in_range' : 'out_of_range',
+			lifecycleStatus,
+			status: resolveRangeStatus(priceInRange, lifecycleStatus),
 			tokenAAmount: humA,
 			tokenBAmount: humB,
 			currentPriceA_USD: pxaF ?? 0,

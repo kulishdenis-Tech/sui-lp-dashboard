@@ -207,6 +207,7 @@ function venueName(marketType: string): string {
 	if (name === 'AltCoinMarket') return 'AltCoin'
 	if (name === 'EthenaMarket') return 'Ethena'
 	if (name === 'MatrixGoldMarket') return 'Matrix Gold'
+	if (name === 'Market01') return 'Market 01 (sUSN)'
 	return name.replace(/([a-z])([A-Z0-9])/g, '$1 $2')
 }
 
@@ -1097,19 +1098,15 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 						return new Map<string, { supply: number; borrow: number }>()
 					})
 
-		for (const dep of overview.deposits) {
+		// Parallelize mining APR reads for all deposits and borrows
+		const depositMiningReads = overview.deposits.map((dep) => {
 			const own = marketByToken(listed, dep.asset)
 			const meta = own ?? marketByToken(priceRows, dep.asset)
 			const rate = rates.get(typeKey(dep.asset))
 			const exchange = rate?.exchange ?? DECIMAL_SCALE
 			const decimals = Number(meta?.tokenInfo?.decimals ?? 9)
-			const raw = coinRaw(BigInt(dep.ctoken_amount) * exchange)
-			const amount = humanFromRaw(raw, decimals)
-			if (amount <= 0) continue
 			const price = Number(meta?.tokenInfo?.price ?? 0)
-			const usd = amount * (Number.isFinite(price) ? price : 0)
-			const baseApr = Number(own?.supplyAPY ?? chainApr.get(typeKey(dep.asset))?.supply ?? 0)
-			const mining = await readMiningRewardApr(
+			return readMiningRewardApr(
 				marketObjectId,
 				'deposit',
 				dep.asset,
@@ -1124,6 +1121,49 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 				reason: err instanceof Error ? err.message : String(err),
 				readAtMs: Date.now(),
 			}))
+		})
+
+		const borrowMiningReads = overview.borrows.map((bor) => {
+			const own = marketByToken(listed, bor.asset)
+			const meta = own ?? marketByToken(priceRows, bor.asset)
+			const decimals = Number(meta?.tokenInfo?.decimals ?? 6)
+			const price = Number(meta?.tokenInfo?.price ?? 0)
+			return readMiningRewardApr(
+				marketObjectId,
+				'borrow',
+				bor.asset,
+				DECIMAL_SCALE,
+				decimals,
+				price,
+				priceRows,
+			).catch((err) => ({
+				status: 'unavailable' as const,
+				apr: null,
+				parts: [] as MiningAprPart[],
+				reason: err instanceof Error ? err.message : String(err),
+				readAtMs: Date.now(),
+			}))
+		})
+
+		const [depositMiningResults, borrowMiningResults] = await Promise.all([
+			Promise.all(depositMiningReads),
+			Promise.all(borrowMiningReads),
+		])
+
+		for (let i = 0; i < overview.deposits.length; i++) {
+			const dep = overview.deposits[i]!
+			const mining = depositMiningResults[i]!
+			const own = marketByToken(listed, dep.asset)
+			const meta = own ?? marketByToken(priceRows, dep.asset)
+			const rate = rates.get(typeKey(dep.asset))
+			const exchange = rate?.exchange ?? DECIMAL_SCALE
+			const decimals = Number(meta?.tokenInfo?.decimals ?? 9)
+			const raw = coinRaw(BigInt(dep.ctoken_amount) * exchange)
+			const amount = humanFromRaw(raw, decimals)
+			if (amount <= 0) continue
+			const price = Number(meta?.tokenInfo?.price ?? 0)
+			const usd = amount * (Number.isFinite(price) ? price : 0)
+			const baseApr = Number(own?.supplyAPY ?? chainApr.get(typeKey(dep.asset))?.supply ?? 0)
 			const rewardKnown = mining.status === 'complete' || mining.status === 'empty'
 			const rewardApr = rewardKnown ? (mining.apr ?? 0) : 0
 			const symbol = meta?.tokenInfo?.symbol ?? dep.asset.split('::').pop() ?? '?'
@@ -1162,7 +1202,9 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 			supplies.push(supply)
 		}
 
-		for (const bor of overview.borrows) {
+		for (let i = 0; i < overview.borrows.length; i++) {
+			const bor = overview.borrows[i]!
+			const mining = borrowMiningResults[i]!
 			const own = marketByToken(listed, bor.asset)
 			const meta = own ?? marketByToken(priceRows, bor.asset)
 			const rate = rates.get(typeKey(bor.asset))
@@ -1178,21 +1220,6 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 			const baseApr = Number(own?.borrowAPY ?? chainApr.get(typeKey(bor.asset))?.borrow ?? 0)
 			const bwRaw = Number(own?.borrowWeight ?? 1)
 			const borrowWeight = Number.isFinite(bwRaw) && bwRaw > 0 ? bwRaw : 1
-			const mining = await readMiningRewardApr(
-				marketObjectId,
-				'borrow',
-				bor.asset,
-				DECIMAL_SCALE,
-				decimals,
-				price,
-				priceRows,
-			).catch((err) => ({
-				status: 'unavailable' as const,
-				apr: null,
-				parts: [] as MiningAprPart[],
-				reason: err instanceof Error ? err.message : String(err),
-				readAtMs: Date.now(),
-			}))
 			const rewardKnown = mining.status === 'complete' || mining.status === 'empty'
 			const rewardApr = rewardKnown ? (mining.apr ?? 0) : 0
 			const netCost = (Number.isFinite(baseApr) ? baseApr : 0) - (rewardKnown ? rewardApr : 0)

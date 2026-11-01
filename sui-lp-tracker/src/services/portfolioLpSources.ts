@@ -13,6 +13,10 @@ import { getHaedalLendingVaultPositions } from '@/services/haedalLendingVaultsSe
 import { getCurrentMultiplyVaultPositions } from '@/services/currentMultiplyVaultsService'
 import { getTurbosPositions } from '@/services/turbosService'
 import { getAftermathFarmsPositions } from '@/services/aftermathService'
+import { mapPool } from '@/utils/concurrency'
+
+/** Concurrency limit for parallel LP source loading (RPC-heavy operations). */
+const LP_SOURCE_CONCURRENCY = 3
 
 export const PORTFOLIO_LP_SOURCE_IDS = [
 	'momentum',
@@ -106,10 +110,20 @@ export async function loadAllPortfolioLpSources(
 	positions: OpenPosition[]
 	incomplete: boolean
 }> {
-	const loads: PortfolioLpSourceLoad[] = []
-	for (const id of PORTFOLIO_LP_SOURCE_IDS) {
-		loads.push(await loadPortfolioLpSource(id, wallet, opts))
-	}
+	// Parallelize LP source loading with concurrency limit to avoid overwhelming RPC
+	const loads = await mapPool(
+		PORTFOLIO_LP_SOURCE_IDS,
+		LP_SOURCE_CONCURRENCY,
+		async (id) => {
+			try {
+				return await loadPortfolioLpSource(id, wallet, opts)
+			} catch (e) {
+				const error = e instanceof Error ? e.message : String(e)
+				return { id, ok: false, error, positions: [] } as PortfolioLpSourceLoad
+			}
+		}
+	)
+	
 	const statuses: PortfolioLpSourceStatus[] = loads.map((l) => ({
 		id: l.id,
 		ok: l.ok,

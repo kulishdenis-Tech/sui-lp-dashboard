@@ -9,6 +9,7 @@ import { getUsdPerTokenAtTimestamp } from '@/services/priceService'
 import { coingeckoIdForSymbol, coingeckoSimpleBatch } from '@/services/spotPrice/coingecko24hBatch'
 import { clmmRangeFromOpenPosition } from '@/utils/tickPriceRange'
 import { NATIVE_SUI_COIN_TYPE, normalizeCoinTypeForMatch } from '@/utils/suiCoinType'
+import { mapPool } from '@/utils/concurrency'
 import type { BorrowPosition, LendingSnapshot, OpenPosition, SupplyPosition } from '@/types'
 
 /** Hardcoded advisor wallet (read-only). */
@@ -18,6 +19,9 @@ const ADVISOR_WALLET =
 /** DeepBook DEEP mainnet coin type (see `hardcodedVerifiedCoins` / tokenDecimalsAudit). */
 const DEEP_COIN_TYPE =
 	'0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP'
+
+/** Concurrency limit for parallel LP position mapping (balance heavy network load). */
+const LP_MAP_CONCURRENCY = 5
 
 export type AdvisorMarketSupply = {
 	asset: string
@@ -213,22 +217,29 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 	const errors: string[] = []
 	const nowSec = Math.floor(Date.now() / 1000)
 
+	// Parallelize Current Finance and LP loading
+	const [currentResult, lpResult] = await Promise.allSettled([
+		getCurrentPositions(wallet),
+		loadAllPortfolioLpSources(wallet),
+	])
+
 	let currentSnap: LendingSnapshot = EMPTY_CURRENT_SNAP
-	try {
-		currentSnap = await getCurrentPositions(wallet)
-	} catch (e) {
-		errors.push(`current: ${errMsg(e)}`)
+	if (currentResult.status === 'fulfilled') {
+		currentSnap = currentResult.value
+	} else {
+		errors.push(`current: ${errMsg(currentResult.reason)}`)
 	}
 
 	let lpPositions: AdvisorLpPosition[] = []
-	try {
-		const lp = await loadAllPortfolioLpSources(wallet)
+	if (lpResult.status === 'fulfilled') {
+		const lp = lpResult.value
 		for (const st of lp.statuses) {
 			if (!st.ok) errors.push(`lp:${st.id}: ${st.error ?? 'unavailable'}`)
 		}
-		lpPositions = lp.positions.map(mapLpPosition)
-	} catch (e) {
-		errors.push(`lp: ${errMsg(e)}`)
+		// Map LP positions with concurrency limit to avoid overwhelming the event loop
+		lpPositions = await mapPool(lp.positions, LP_MAP_CONCURRENCY, async (p) => mapLpPosition(p))
+	} else {
+		errors.push(`lp: ${errMsg(lpResult.reason)}`)
 	}
 
 	const [suiPx, deepPx] = await Promise.all([
