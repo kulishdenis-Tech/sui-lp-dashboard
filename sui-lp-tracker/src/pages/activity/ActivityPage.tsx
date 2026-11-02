@@ -3,6 +3,7 @@ import { PageShell } from '@/components/ui/PageShell'
 import { AppCard } from '@/components/ui/AppCard'
 import { Button } from '@/components/ui/Button'
 import { TokenIconOkx } from '@/components/positions/TokenIconOkx'
+import { useWalletLabel } from '@/config/walletNicknameStore'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
 import { isJunkToken } from '@/config/junkTokens'
 import { HARDCODED_VERIFIED } from '@/config/hardcodedVerifiedCoins'
@@ -102,8 +103,14 @@ function download(filename: string, body: string, type: string) {
 	URL.revokeObjectURL(url)
 }
 
+function NamedAddress({ address }: { address: string }) {
+	const label = useWalletLabel(address, 8, 6)
+	return <span title={label.title}>{label.label}</span>
+}
+
 export function ActivityPage() {
 	const { address, isManualView } = useWalletAuth()
+	const walletLabel = useWalletLabel(address, 8, 6)
 	const [rows, setRows] = useState<ActivityTransaction[]>([])
 	const [meta, setMeta] = useState<ActivitySyncMeta | null>(null)
 	const [phase, setPhase] = useState<'idle' | 'loading' | 'ready' | 'error'>(address ? 'loading' : 'idle')
@@ -444,8 +451,8 @@ export function ActivityPage() {
 						transactions only.
 					</p>
 				</div>
-				<div className="text-xs text-slate-500">
-					{address ? shortAddress(address, 8, 6) : 'No address'}
+				<div className="text-xs text-slate-500" title={walletLabel.title}>
+					{address ? walletLabel.label : 'No address'}
 				</div>
 			</div>
 
@@ -668,7 +675,11 @@ function ActivityRow({ tx, onOpen }: { tx: ActivityTransaction; onOpen: () => vo
 			<td className="px-2 py-3"><AssetChanges tx={tx} /></td>
 			<td className="px-2 py-3 text-slate-300">
 				{tx.activities.find((a) => a.protocol)?.protocol ??
-					(tx.activities[0]?.counterparty ? shortAddress(tx.activities[0].counterparty) : '—')}
+					(tx.activities[0]?.counterparty ? (
+						<NamedAddress address={tx.activities[0].counterparty} />
+					) : (
+						'—'
+					))}
 			</td>
 			<td className="px-2 py-3 text-right font-mono text-slate-300">
 				{tx.feePaidByWallet && tx.netFeeRaw ? humanRaw(tx.netFeeRaw.startsWith('-') ? tx.netFeeRaw : `-${tx.netFeeRaw}`, 9) + ' SUI' : '—'}
@@ -733,8 +744,8 @@ function ActivityDrawer({
 				<dl className="space-y-2 text-sm text-slate-300">
 					<div className="flex justify-between gap-3"><dt>Time</dt><dd>{tx.timestampMs ? new Date(tx.timestampMs).toLocaleString('en-US') : '—'}</dd></div>
 					<div className="flex justify-between gap-3"><dt>Checkpoint</dt><dd className="font-mono">{tx.checkpoint ?? '—'}</dd></div>
-					<div className="flex justify-between gap-3"><dt>Sender</dt><dd className="font-mono">{tx.sender ? shortAddress(tx.sender, 8, 6) : '—'}</dd></div>
-					<div className="flex justify-between gap-3"><dt>Fee payer</dt><dd className="font-mono">{tx.feePayer ? shortAddress(tx.feePayer, 8, 6) : '—'}</dd></div>
+					<div className="flex justify-between gap-3"><dt>Sender</dt><dd className="font-mono">{tx.sender ? <NamedAddress address={tx.sender} /> : '—'}</dd></div>
+					<div className="flex justify-between gap-3"><dt>Fee payer</dt><dd className="font-mono">{tx.feePayer ? <NamedAddress address={tx.feePayer} /> : '—'}</dd></div>
 					<div className="flex justify-between gap-3"><dt>Gas budget</dt><dd className="font-mono">{tx.gasBudget ?? '—'}</dd></div>
 					<div className="flex justify-between gap-3"><dt>Network fee</dt><dd className="font-mono">{tx.netFeeRaw ?? '—'} MIST</dd></div>
 				</dl>

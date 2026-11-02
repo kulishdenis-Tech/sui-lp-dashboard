@@ -7,6 +7,7 @@ import { BuildPage } from '@/pages/autopilot/BuildPage'
 import { MarketsRoutePage } from '@/pages/autopilot/MarketsRoutePage'
 import { OverviewLabPage } from '@/pages/overviewLab/OverviewLabPage'
 import { ActivityPage } from '@/pages/activity/ActivityPage'
+import { SettingsPage } from '@/pages/settings/SettingsPage'
 
 function App() {
 	return (
@@ -23,6 +24,7 @@ function App() {
 				<Route path="lp/build" element={<BuildPage />} />
 				<Route path="lp/markets" element={<MarketsRoutePage />} />
 				<Route path="activity" element={<ActivityPage />} />
+				<Route path="settings" element={<SettingsPage />} />
 			</Route>
 		</Routes>
 	)

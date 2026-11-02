@@ -174,6 +174,13 @@ describe('buildOverviewRiskRows', () => {
 			verified: false,
 			suiLiquidationPriceUSD: null,
 		})
+		const named = buildOverviewRiskRows(
+			null,
+			[withLegs],
+			[{ walletId: 'wallet-main', label: 'OKX', current: null }],
+			{ m1: 'wallet-main' },
+		)
+		expect(named[0]?.title).toBe('Multiplier · OKX · SUI/USDC')
 	})
 
 	it('colors the USDSUI/USDC loop by the peg, not by an HF of 1.13', () => {

@@ -415,10 +415,11 @@ export function OverviewLabPage() {
 		(lendingDebt ?? 0) > 0 && healthByProtocol.length > 0
 			? healthByProtocol.reduce((a, b) => (a.hf <= b.hf ? a : b))
 			: null
-	const { books: watchBooks, extraMultiply } = useWatchWalletRiskBooks(
+	const { books: watchBooks, extraMultiply, multiplyOwner } = useWatchWalletRiskBooks(
 		walletAddr,
 		currentSnapshot,
 		isLoadingLending,
+		openPositions,
 	)
 	const riskPositions = useMemo(() => {
 		if (extraMultiply.length === 0) return openPositions
@@ -426,8 +427,8 @@ export function OverviewLabPage() {
 		return [...openPositions, ...extraMultiply.filter((position) => !seen.has(position.id))]
 	}, [openPositions, extraMultiply])
 	const riskRows = useMemo(
-		() => buildOverviewRiskRows(currentSnapshot, riskPositions, watchBooks),
-		[currentSnapshot, riskPositions, watchBooks],
+		() => buildOverviewRiskRows(currentSnapshot, riskPositions, watchBooks, multiplyOwner),
+		[currentSnapshot, riskPositions, watchBooks, multiplyOwner],
 	)
 
 	const goLending = () => {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useWalletLabel } from '@/config/walletNicknameStore'
 import { shortAddress } from '@/utils/formatting'
 import { fetchAppVisits, type AppVisitRow } from '@/services/serverVisitsApi'
 
@@ -18,6 +19,15 @@ type Props = {
 	viewer: string
 	open: boolean
 	onClose: () => void
+}
+
+function VisitWallet({ address }: { address: string }) {
+	const label = useWalletLabel(address)
+	return (
+		<td className="px-3 py-1.5 font-mono text-sky-200" title={label.title ?? shortAddress(address)}>
+			{label.label}
+		</td>
+	)
 }
 
 export function VisitsPanel({ viewer, open, onClose }: Props) {
@@ -108,9 +118,7 @@ export function VisitsPanel({ viewer, open, onClose }: Props) {
 										<td className="whitespace-nowrap px-3 py-1.5 tabular-nums text-slate-400">
 											{formatVisitTime(r.visitedAt)}
 										</td>
-										<td className="px-3 py-1.5 font-mono text-sky-200" title={r.walletAddr}>
-											{shortAddress(r.walletAddr)}
-										</td>
+										<VisitWallet address={r.walletAddr} />
 									</tr>
 								))}
 							</tbody>

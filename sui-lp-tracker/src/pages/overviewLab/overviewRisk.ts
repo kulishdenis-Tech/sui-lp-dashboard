@@ -170,6 +170,7 @@ export function buildOverviewRiskRows(
 	current: LendingSnapshot | null | undefined,
 	positions: readonly OpenPosition[],
 	wallets?: readonly OverviewWalletBook[],
+	multiplyOwner?: Readonly<Record<string, string>>,
 ): OverviewRiskRow[] {
 	const rows: OverviewRiskRow[] = []
 
@@ -190,10 +191,13 @@ export function buildOverviewRiskRows(
 		const price = risk?.liquidationPriceCollateralUsd
 		const pegRate = usdsuiUsdcLoopRate(position)
 		const stableLoop = pegRate != null || isUsdsuiUsdcPair(position)
+		const pair = position.pair || 'vault'
+		const owner = multiplyOwner?.[position.id]
+		const book = owner ? wallets?.find((item) => item.walletId === owner) : undefined
 		rows.push({
 			id: `multiply:${position.id}`,
 			kind: 'multiply',
-			title: `Multiplier · ${position.pair || 'vault'}`,
+			title: book ? `Multiplier · ${book.label} · ${pair}` : `Multiplier · ${pair}`,
 			healthFactor: multiplyHealthFactor(risk?.currentLtv, risk?.liquidationLtv),
 			verified: false,
 			suiCollateral: stableLoop ? false : sui,

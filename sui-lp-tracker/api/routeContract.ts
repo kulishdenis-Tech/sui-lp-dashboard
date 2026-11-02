@@ -32,6 +32,11 @@ export const API_ROUTES: readonly ApiRoute[] = [
 	{ path: '/api/snapshots', module: '/api/snapshots.ts', devAdapter: 'analytics-plugin' },
 	{ path: '/api/lp-history', module: '/api/lp-history.ts', devAdapter: 'analytics-plugin' },
 	{ path: '/api/visits', module: '/api/visits.ts', devAdapter: 'analytics-plugin' },
+	{
+		path: '/api/wallet-nicknames',
+		module: '/api/wallet-nicknames.ts',
+		devAdapter: 'analytics-plugin',
+	},
 	{ path: '/api/coingecko', module: '/api/coingecko.ts', devAdapter: 'dedicated-plugin' },
 	{ path: '/api/okx', module: '/api/okx.ts', devAdapter: 'dedicated-plugin' },
 	{ path: '/api/pool-quote', module: '/api/pool-quote.ts', devAdapter: 'dedicated-plugin' },

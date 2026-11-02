@@ -4,7 +4,7 @@ import { useWalletSigner } from '@/wallet/useWalletSigner'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { clearAwAuth, getAwAuthAddress, revokeAwSession } from '@/pages/autopilot/autoWithdrawStore'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
-import { shortAddress } from '@/utils/formatting'
+import { useWalletLabel } from '@/config/walletNicknameStore'
 import { useAppStore } from '@/store/appStore'
 import { isClientWatchWallet } from '@/config/watchWallets'
 import { VisitsPanel } from '@/components/admin/VisitsPanel'
@@ -34,6 +34,7 @@ function AdminVisitsButton({ address }: { address: string }) {
 
 function PastedAddressBar() {
 	const { address, clearManualView } = useWalletAuth()
+	const viewing = useWalletLabel(address)
 	if (!address) return null
 	return (
 		<div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
@@ -45,8 +46,15 @@ function PastedAddressBar() {
 					<span className="sm:hidden">Viewing</span>
 					<span className="hidden sm:inline">Viewing Address</span>
 				</span>
-				<span className="font-mono font-normal tabular-nums text-slate-100">
-					{shortAddress(address)}
+				<span
+					className={
+						viewing.title
+							? 'font-medium text-slate-100'
+							: 'font-mono font-normal tabular-nums text-slate-100'
+					}
+					title={viewing.title}
+				>
+					{viewing.label}
 				</span>
 			</span>
 			<AdminVisitsButton address={address} />
@@ -129,6 +137,7 @@ function ConnectedWalletRow() {
 	const { disconnectWallet } = useWalletSigner()
 	const acc = useCurrentAccount()
 	const address = acc?.address
+	const viewing = useWalletLabel(address)
 	if (!address) return null
 	return (
 		<div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
@@ -137,8 +146,15 @@ function ConnectedWalletRow() {
 					<span className="sm:hidden">Connected</span>
 					<span className="hidden sm:inline">Connected Wallet</span>
 				</span>
-				<span className="font-mono font-normal tabular-nums text-slate-100">
-					{shortAddress(address)}
+				<span
+					className={
+						viewing.title
+							? 'font-medium text-slate-100'
+							: 'font-mono font-normal tabular-nums text-slate-100'
+					}
+					title={viewing.title}
+				>
+					{viewing.label}
 				</span>
 			</span>
 			<AdminVisitsButton address={address} />
