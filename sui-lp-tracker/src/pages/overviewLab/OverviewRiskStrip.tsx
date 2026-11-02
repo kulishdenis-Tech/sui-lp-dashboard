@@ -1,6 +1,6 @@
 import { CURRENT_LENDING_HF_THRESHOLDS, healthFactorColorClass } from '@/config/lendingHealthFactorThresholds'
 import { formatUSDAdaptive } from '@/utils/formatting'
-import type { OverviewRiskRow } from '@/pages/overviewLab/overviewRisk'
+import { stableLoopColorClass, type OverviewRiskRow } from '@/pages/overviewLab/overviewRisk'
 
 function healthClass(row: OverviewRiskRow): string {
 	const hf = row.healthFactor
@@ -32,6 +32,25 @@ export function OverviewRiskStrip({
 			<p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-slate-500">Risk</p>
 			<ul className="flex flex-col gap-1.5">
 				{rows.map((row) => {
+					if (row.stableLoop) {
+						const rate =
+							row.pegRate != null && Number.isFinite(row.pegRate) ? row.pegRate.toFixed(4) : '—'
+						const distance =
+							row.pegDistancePct != null && Number.isFinite(row.pegDistancePct)
+								? `${row.pegDistancePct.toFixed(1)}% to 0.8825`
+								: '—'
+						return (
+							<li key={row.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
+								<span className="font-medium text-slate-200">{row.title}</span>
+								<span className={`tabular-nums font-semibold ${stableLoopColorClass(row.pegAlert)}`}>
+									USDSUI/USDC {rate}
+								</span>
+								<span className={`text-xs tabular-nums ${stableLoopColorClass(row.pegAlert)}`}>
+									{distance}
+								</span>
+							</li>
+						)
+					}
 					const hfText =
 						row.healthFactor != null && Number.isFinite(row.healthFactor)
 							? row.healthFactor.toFixed(2)

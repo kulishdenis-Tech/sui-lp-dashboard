@@ -1,7 +1,7 @@
 {
   "name": "sui-dashboard",
   "private": true,
-  "version": "2.0.9",
+  "version": "2.0.10",
   "description": "SUI LP Tracker (5180) + Autopilot bot (5191)",
   "workspaces": [
     "sui-lp-tracker",

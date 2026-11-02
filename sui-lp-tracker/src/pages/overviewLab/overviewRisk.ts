@@ -4,6 +4,13 @@ import { isNativeSuiCoinType } from '@/utils/suiCoinType'
 
 export type OverviewRiskKind = 'current_market' | 'multiply'
 
+/** Liquidation peg for the USDSUI/USDC 4x loop. Warning below 0.97, P0 below 0.93. */
+export const USDSUI_USDC_LIQUIDATION_RATE = 0.8825
+export const USDSUI_USDC_WARN_BELOW = 0.97
+export const USDSUI_USDC_P0_BELOW = 0.93
+
+export type StableLoopAlert = 'ok' | 'warning' | 'p0'
+
 /** One watch wallet's Current book. The open `?wallet=` is not the only source. */
 export interface OverviewWalletBook {
 	walletId: string
@@ -24,6 +31,11 @@ export interface OverviewRiskRow {
 	verified: boolean
 	suiCollateral: boolean
 	suiLiquidationPriceUSD: number | null
+	/** USDSUI/USDC loop: color follows the peg, not the lending HF scale. */
+	stableLoop?: boolean
+	pegRate?: number | null
+	pegDistancePct?: number | null
+	pegAlert?: StableLoopAlert | null
 }
 
 function isSuiName(asset: string | null | undefined, coinType: string | null | undefined): boolean {
@@ -56,6 +68,61 @@ function multiplyHealthFactor(
 		return null
 	}
 	return liquidationLtv / currentLtv
+}
+
+function symbolOf(value: string | null | undefined): string {
+	return (value ?? '').trim().toUpperCase()
+}
+
+/** USDSUI priced in USDC. Null when either leg has no price. */
+export function usdsuiUsdcLoopRate(position: OpenPosition): number | null {
+	const collateral = position.currentMultiply?.collateral
+	const debt = position.currentMultiply?.debt
+	if (!collateral || !debt) return null
+	const collateralSymbol = symbolOf(collateral.symbol)
+	const debtSymbol = symbolOf(debt.symbol)
+	const usdsuiIsCollateral = collateralSymbol === 'USDSUI' && debtSymbol === 'USDC'
+	const usdsuiIsDebt = collateralSymbol === 'USDC' && debtSymbol === 'USDSUI'
+	if (!usdsuiIsCollateral && !usdsuiIsDebt) return null
+	const collateralPrice = collateral.priceUsd
+	const debtPrice = debt.priceUsd
+	if (collateralPrice == null || debtPrice == null || !(collateralPrice > 0) || !(debtPrice > 0)) {
+		return null
+	}
+	return usdsuiIsCollateral ? collateralPrice / debtPrice : debtPrice / collateralPrice
+}
+
+function isUsdsuiUsdcPair(position: OpenPosition): boolean {
+	const hay = [
+		position.currentMultiply?.collateral?.symbol,
+		position.currentMultiply?.debt?.symbol,
+		position.tokenA,
+		position.tokenB,
+		position.pair,
+	]
+		.map(symbolOf)
+		.join(' ')
+	return hay.includes('USDSUI') && hay.includes('USDC')
+}
+
+/** How far the peg can fall, in percent of the current rate, before 0.8825. */
+export function stableLoopDistancePct(rate: number): number | null {
+	if (!Number.isFinite(rate) || rate <= 0) return null
+	return ((rate - USDSUI_USDC_LIQUIDATION_RATE) / rate) * 100
+}
+
+export function stableLoopAlert(rate: number): StableLoopAlert | null {
+	if (!Number.isFinite(rate) || rate <= 0) return null
+	if (rate < USDSUI_USDC_P0_BELOW) return 'p0'
+	if (rate < USDSUI_USDC_WARN_BELOW) return 'warning'
+	return 'ok'
+}
+
+export function stableLoopColorClass(alert: StableLoopAlert | null | undefined): string {
+	if (alert === 'p0') return 'text-red-400'
+	if (alert === 'warning') return 'text-yellow-400'
+	if (alert === 'ok') return 'text-emerald-400'
+	return 'text-slate-400'
 }
 
 function lendingRowsFromSnapshot(
@@ -121,15 +188,25 @@ export function buildOverviewRiskRows(
 		const collateral = position.currentMultiply?.collateral
 		const sui = isSuiName(collateral?.symbol ?? position.tokenA, collateral?.coinType ?? position.tokenAAddress)
 		const price = risk?.liquidationPriceCollateralUsd
+		const pegRate = usdsuiUsdcLoopRate(position)
+		const stableLoop = pegRate != null || isUsdsuiUsdcPair(position)
 		rows.push({
 			id: `multiply:${position.id}`,
 			kind: 'multiply',
 			title: `Multiplier · ${position.pair || 'vault'}`,
 			healthFactor: multiplyHealthFactor(risk?.currentLtv, risk?.liquidationLtv),
 			verified: false,
-			suiCollateral: sui,
+			suiCollateral: stableLoop ? false : sui,
 			suiLiquidationPriceUSD:
-				sui && price != null && Number.isFinite(price) && price > 0 ? price : null,
+				!stableLoop && sui && price != null && Number.isFinite(price) && price > 0 ? price : null,
+			...(stableLoop
+				? {
+						stableLoop: true,
+						pegRate,
+						pegDistancePct: pegRate != null ? stableLoopDistancePct(pegRate) : null,
+						pegAlert: pegRate != null ? stableLoopAlert(pegRate) : null,
+					}
+				: {}),
 		})
 	}
 

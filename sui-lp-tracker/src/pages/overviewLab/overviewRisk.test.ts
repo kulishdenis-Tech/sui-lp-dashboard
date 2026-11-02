@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { LendingSnapshot, OpenPosition } from '@/types'
 import { CURRENT_LENDING_HF_THRESHOLDS, healthFactorColorClass } from '@/config/lendingHealthFactorThresholds'
-import { buildOverviewRiskRows } from './overviewRisk'
+import { buildOverviewRiskRows, stableLoopAlert, stableLoopColorClass, stableLoopDistancePct } from './overviewRisk'
 
 function currentSnap(partial: Partial<LendingSnapshot>): LendingSnapshot {
 	return {
@@ -174,5 +174,54 @@ describe('buildOverviewRiskRows', () => {
 			verified: false,
 			suiLiquidationPriceUSD: null,
 		})
+	})
+
+	it('colors the USDSUI/USDC loop by the peg, not by an HF of 1.13', () => {
+		const healthy = {
+			id: 'loop-ok',
+			pair: 'USDSUI/USDC',
+			tokenA: 'USDSUI',
+			tokenB: 'USDC',
+			currentMultiply: {
+				kind: 'current_multiply',
+				collateral: { symbol: 'USDSUI', coinType: '0xusdsui', priceUsd: 0.99 },
+				debt: { symbol: 'USDC', coinType: '0xusdc', priceUsd: 1 },
+				risk: {
+					currentLtv: 0.78,
+					liquidationLtv: 0.882,
+					liquidationPriceCollateralUsd: 0.8825,
+					protocolRisk: null,
+				},
+			},
+		} as OpenPosition
+		const warning = {
+			...healthy,
+			id: 'loop-warn',
+			currentMultiply: {
+				...healthy.currentMultiply,
+				collateral: { symbol: 'USDSUI', coinType: '0xusdsui', priceUsd: 0.95 },
+			},
+		} as OpenPosition
+		const p0 = {
+			...healthy,
+			id: 'loop-p0',
+			currentMultiply: {
+				...healthy.currentMultiply,
+				collateral: { symbol: 'USDSUI', coinType: '0xusdsui', priceUsd: 0.92 },
+			},
+		} as OpenPosition
+		const [okRow, warnRow, p0Row] = buildOverviewRiskRows(null, [healthy, warning, p0])
+		expect(okRow).toMatchObject({ stableLoop: true, pegAlert: 'ok' })
+		expect(okRow.pegRate).toBeCloseTo(0.99)
+		expect(okRow.pegDistancePct).toBeCloseTo(stableLoopDistancePct(0.99)!)
+		expect(okRow.healthFactor).toBeCloseTo(0.882 / 0.78)
+		expect(stableLoopColorClass(okRow.pegAlert)).toBe('text-emerald-400')
+		expect(stableLoopColorClass(okRow.pegAlert)).not.toBe('text-red-400')
+		expect(warnRow.pegAlert).toBe('warning')
+		expect(stableLoopColorClass(warnRow.pegAlert)).toBe('text-yellow-400')
+		expect(p0Row.pegAlert).toBe('p0')
+		expect(stableLoopColorClass(p0Row.pegAlert)).toBe('text-red-400')
+		expect(stableLoopAlert(0.97)).toBe('ok')
+		expect(stableLoopAlert(0.93)).toBe('warning')
 	})
 })
