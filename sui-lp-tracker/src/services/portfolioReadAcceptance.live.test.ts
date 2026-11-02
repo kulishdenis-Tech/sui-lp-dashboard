@@ -148,14 +148,16 @@ describe.skipIf(!runLive)('portfolio read acceptance (live, gRPC default)', () =
 		expect(ns).toBeLessThan(95_500)
 	}, 180_000)
 
-	it('Cetus cascades + USDSUI multiply present', async () => {
+	it('Cetus cascades + USDSUI multiply present with value', async () => {
 		const lp = await loadAllPortfolioLpSources(ADVISOR)
 		expect(lp.positions.some((p) => p.protocol === 'cetus')).toBe(true)
 		expect(lp.positions.filter((p) => p.protocol === 'cetus').length).toBeGreaterThanOrEqual(3)
-		expect(
-			lp.positions.some(
-				(p) => /USDSUI/i.test(pairHay(p)) || isCurrentMultiplyVaultPosition(p),
-			),
-		).toBe(true)
+		const multiply = lp.positions.find(
+			(p) => /USDSUI/i.test(pairHay(p)) || isCurrentMultiplyVaultPosition(p),
+		)
+		expect(multiply).toBeDefined()
+		expect(multiply!.currentValueUSD).toBeGreaterThan(9_000)
+		const multLoad = lp.loads.find((l) => l.id === 'current-multiply')
+		expect(multLoad?.ok).toBe(true)
 	}, 180_000)
 })

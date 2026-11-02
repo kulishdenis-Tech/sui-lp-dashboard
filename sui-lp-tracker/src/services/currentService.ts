@@ -1231,9 +1231,25 @@ export async function getCurrentPositions(
 			}))
 		})
 
-		const [depositMiningResults, borrowMiningResults] = await currentAdvisorAccum('mining', () =>
-			Promise.all([Promise.all(depositMiningReads), Promise.all(borrowMiningReads)]),
-		)
+		const [depositMiningResults, borrowMiningResults, mined] = await Promise.all([
+			currentAdvisorAccum('mining', () =>
+				Promise.all([Promise.all(depositMiningReads), Promise.all(borrowMiningReads)]),
+			),
+			currentAdvisorAccum('claimable', () =>
+				readClaimableMining(
+					marketObjectId,
+					ob.obligationObject!,
+					overview.deposits.map((d) => d.asset),
+					overview.borrows.map((b) => b.asset),
+					priceRows,
+				).catch((err) => ({
+					status: 'unavailable' as const,
+					rows: [] as ClaimableMiningRow[],
+					reason: err instanceof Error ? err.message : String(err),
+					readAtMs: Date.now(),
+				})),
+			),
+		])
 
 		for (let i = 0; i < overview.deposits.length; i++) {
 			const dep = overview.deposits[i]!
@@ -1367,20 +1383,6 @@ export async function getCurrentPositions(
 			borrows.push(borrow)
 		}
 
-		const mined = await currentAdvisorAccum('claimable', () =>
-			readClaimableMining(
-				marketObjectId,
-				ob.obligationObject!,
-				overview.deposits.map((d) => d.asset),
-				overview.borrows.map((b) => b.asset),
-				priceRows,
-			).catch((err) => ({
-				status: 'unavailable' as const,
-				rows: [] as ClaimableMiningRow[],
-				reason: err instanceof Error ? err.message : String(err),
-				readAtMs: Date.now(),
-			})),
-		)
 		if (mined.status === 'unavailable') {
 			console.warn('[Current] claimable rewards unavailable', ob.obligationObject, mined.reason)
 		} else {

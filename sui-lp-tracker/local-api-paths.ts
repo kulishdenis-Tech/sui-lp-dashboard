@@ -1,6 +1,7 @@
 /** API paths handled in Vite dev middleware (never forward to Vercel — free tier returns 402). */
 const LOCAL_API_PATHS = new Set([
 	'/api/advisor/state',
+	'/api/advisor/current-cashflow',
 	'/api/coingecko',
 	'/api/cron/dispatch-portfolio-snapshot',
 	'/api/cron/portfolio-snapshot',
@@ -29,6 +30,8 @@ export function localApiHandlerModule(pathname: string): string | null {
 	switch (pathname) {
 		case '/api/advisor/state':
 			return '/api/advisor/state.ts'
+		case '/api/advisor/current-cashflow':
+			return '/api/advisor/current-cashflow.ts'
 		case '/api/coingecko':
 			return '/api/coingecko.ts'
 		case '/api/cron/dispatch-portfolio-snapshot':

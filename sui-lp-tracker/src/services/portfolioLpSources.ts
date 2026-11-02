@@ -17,7 +17,7 @@ import { mapPool } from '@/utils/concurrency'
 
 /** Concurrency limit for parallel LP source loading (RPC-heavy operations). */
 const LP_SOURCE_CONCURRENCY = (() => {
-	const n = Number(process.env.PORTFOLIO_LP_SOURCE_CONCURRENCY ?? 6)
+	const n = Number(process.env.PORTFOLIO_LP_SOURCE_CONCURRENCY ?? 4)
 	return Number.isFinite(n) && n >= 1 && n <= 12 ? n : 6
 })()
 
@@ -113,20 +113,29 @@ export async function loadAllPortfolioLpSources(
 	positions: OpenPosition[]
 	incomplete: boolean
 }> {
-	// Parallelize LP source loading with concurrency limit to avoid overwhelming RPC
-	const loads = await mapPool(
-		PORTFOLIO_LP_SOURCE_IDS,
-		LP_SOURCE_CONCURRENCY,
-		async (id) => {
-			try {
-				return await loadPortfolioLpSource(id, wallet, opts)
-			} catch (e) {
-				const error = e instanceof Error ? e.message : String(e)
-				return { id, ok: false, error, positions: [] } as PortfolioLpSourceLoad
-			}
+	// Parallelize RPC-heavy sources; Current Multiply runs after (devInspect + hedge winner).
+	const parallelIds = PORTFOLIO_LP_SOURCE_IDS.filter((id) => id !== 'current-multiply')
+	const parallelLoads = await mapPool(parallelIds, LP_SOURCE_CONCURRENCY, async (id) => {
+		try {
+			return await loadPortfolioLpSource(id, wallet, opts)
+		} catch (e) {
+			const error = e instanceof Error ? e.message : String(e)
+			return { id, ok: false, error, positions: [] } as PortfolioLpSourceLoad
 		}
-	)
-	
+	})
+	let multiplyLoad: PortfolioLpSourceLoad
+	try {
+		multiplyLoad = await loadPortfolioLpSource('current-multiply', wallet, opts)
+	} catch (e) {
+		const error = e instanceof Error ? e.message : String(e)
+		multiplyLoad = { id: 'current-multiply', ok: false, error, positions: [] }
+	}
+	const byId = new Map<PortfolioLpSourceId, PortfolioLpSourceLoad>([
+		...parallelLoads.map((l) => [l.id, l] as const),
+		[multiplyLoad.id, multiplyLoad],
+	])
+	const loads = PORTFOLIO_LP_SOURCE_IDS.map((id) => byId.get(id)!)
+
 	const statuses: PortfolioLpSourceStatus[] = loads.map((l) => ({
 		id: l.id,
 		ok: l.ok,

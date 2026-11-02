@@ -13,10 +13,12 @@ import { mapPool } from '@/utils/concurrency'
 import type { BorrowPosition, LendingSnapshot, OpenPosition, SupplyPosition } from '@/types'
 import {
 	getPortfolioReadRpcSource,
+	getPortfolioReadRpcSourceReason,
 	resetPortfolioReadRpcSource,
 } from '@/services/portfolioReadRpcSource'
 import { getLastPublicNodeGrpcFailureReason } from '@/services/grpcEndpointHealth'
 import { ensurePortfolioReadTransportReady } from '@/services/portfolioSuiReadClient'
+import { inferPortfolioLpSourceId } from '@/utils/portfolioPositionKeys'
 import {
 	isSuiReadProfilingEnabled,
 	logSuiReadProfile,
@@ -85,6 +87,8 @@ export type AdvisorLpPosition = {
 	tokenA: string
 	tokenB: string
 	currentValueUSD: number
+	/** Last good row after partial RPC failure for this source. */
+	readStale?: boolean
 }
 
 export type AdvisorState = {
@@ -92,6 +96,8 @@ export type AdvisorState = {
 	wallet: string
 	/** Transport that served on-chain reads for this response. */
 	rpcSource: import('@/services/portfolioReadRpcSource').PortfolioReadRpcSource
+	/** Set when rpcSource is jsonrpc after gRPC failure (e.g. timeout:6000ms). */
+	rpcSourceReason?: string | null
 	current: {
 		healthFactor: number | null
 		usdcDebt: number
@@ -181,7 +187,12 @@ function suiLiquidationPrice(snap: LendingSnapshot): number | null {
 	return Math.min(...prices)
 }
 
-function mapLpPosition(p: OpenPosition): AdvisorLpPosition {
+function mapLpPosition(p: OpenPosition, staleSourceIds: ReadonlySet<string>): AdvisorLpPosition {
+	const sourceId = inferPortfolioLpSourceId(p)
+	const readStale =
+		p.readStale === true ||
+		p.currentMultiply?.readStale === true ||
+		(sourceId != null && staleSourceIds.has(sourceId))
 	const range = clmmRangeFromOpenPosition({
 		tickLower: p.tickLower,
 		tickUpper: p.tickUpper,
@@ -207,6 +218,40 @@ function mapLpPosition(p: OpenPosition): AdvisorLpPosition {
 		tokenA: p.tokenA,
 		tokenB: p.tokenB,
 		currentValueUSD: p.currentValueUSD,
+		...(readStale ? { readStale: true } : {}),
+	}
+}
+
+function collectLpStaleSourceIds(
+	errors: string[],
+	positions: OpenPosition[],
+): Set<string> {
+	const stale = new Set<string>()
+	for (const e of errors) {
+		const m = /^lp:([^:]+):/.exec(e)
+		if (m) stale.add(m[1]!)
+	}
+	for (const p of positions) {
+		if (p.readStale || p.currentMultiply?.readStale) {
+			const id = inferPortfolioLpSourceId(p)
+			if (id) stale.add(id)
+		}
+	}
+	return stale
+}
+
+function appendStaleCachedErrors(
+	errors: string[],
+	positions: OpenPosition[],
+): void {
+	for (const p of positions) {
+		if (!p.readStale && !p.currentMultiply?.readStale) continue
+		const id = inferPortfolioLpSourceId(p)
+		if (!id) continue
+		const tag = `lp:${id}:`
+		if (!errors.some((e) => e.startsWith(tag))) {
+			errors.push(`${tag} stale cached read`)
+		}
 	}
 }
 
@@ -269,8 +314,10 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 		for (const st of lp.statuses) {
 			if (!st.ok) errors.push(`lp:${st.id}: ${st.error ?? 'unavailable'}`)
 		}
+		appendStaleCachedErrors(errors, lp.positions)
+		const staleSourceIds = collectLpStaleSourceIds(errors, lp.positions)
 		lpPositions = await advisorTimed('lp-map', () =>
-			mapPool(lp.positions, LP_MAP_CONCURRENCY, async (p) => mapLpPosition(p)),
+			mapPool(lp.positions, LP_MAP_CONCURRENCY, async (p) => mapLpPosition(p, staleSourceIds)),
 		)
 	} else {
 		errors.push(`lp: ${errMsg(lpResult.reason)}`)
@@ -283,10 +330,12 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 		]),
 	)
 
+	const rpcReason = getPortfolioReadRpcSourceReason()
 	const state: AdvisorState = {
 		timestamp: new Date().toISOString(),
 		wallet,
 		rpcSource: getPortfolioReadRpcSource(),
+		...(rpcReason ? { rpcSourceReason: rpcReason } : {}),
 		current: {
 			healthFactor: currentSnap.healthFactor,
 			usdcDebt: usdcDebtFrom(currentSnap),
@@ -304,9 +353,40 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 	if (isSuiReadProfilingEnabled()) {
 		state.readProfile = logSuiReadProfile('advisor-state')
 	}
+	const extraLog = [
+		pnFail ? `publicnode: ${pnFail}` : '',
+		rpcReason ? `jsonrpc: ${rpcReason}` : '',
+	]
+		.filter(Boolean)
+		.join('; ')
 	console.log(
-		`[advisor-state] rpcSource: ${state.rpcSource}${pnFail ? `; publicnode: ${pnFail}` : ''}`,
+		`[advisor-state] rpcSource: ${state.rpcSource}${extraLog ? `; ${extraLog}` : ''}`,
 	)
 	return state
 	})
+}
+
+export async function buildAdvisorCurrentCashflow(): Promise<{
+	timestamp: string
+	wallet: string
+	rpcSource: import('@/services/portfolioReadRpcSource').PortfolioReadRpcSource
+	rpcSourceReason?: string | null
+	cashflowUsd: import('@/types').LendingCashflowUsd | null | undefined
+	supplies: SupplyPosition[]
+	borrows: BorrowPosition[]
+}> {
+	resetPortfolioReadRpcSource()
+	await ensurePortfolioReadTransportReady()
+	const wallet = normalizeSuiAddress(ADVISOR_WALLET).toLowerCase()
+	const snap = await getCurrentPositions(wallet, { skipCashflow: false })
+	const rpcReason = getPortfolioReadRpcSourceReason()
+	return {
+		timestamp: new Date().toISOString(),
+		wallet,
+		rpcSource: getPortfolioReadRpcSource(),
+		...(rpcReason ? { rpcSourceReason: rpcReason } : {}),
+		cashflowUsd: snap.cashflowUsd ?? null,
+		supplies: snap.supplies,
+		borrows: snap.borrows,
+	}
 }

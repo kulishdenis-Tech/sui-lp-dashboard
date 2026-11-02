@@ -14,13 +14,26 @@ export type PortfolioReadRpcSource =
 	| 'jsonrpc'
 
 let active: PortfolioReadRpcSource | null = null
+let jsonRpcFallbackReason: string | null = null
 
 export function resetPortfolioReadRpcSource(): void {
 	active = null
+	jsonRpcFallbackReason = null
 }
 
 export function recordPortfolioReadRpcSource(source: PortfolioReadRpcSource): void {
 	active = source
+	if (source !== 'jsonrpc') jsonRpcFallbackReason = null
+}
+
+/** Record JSON-RPC fallback after gRPC transport failure (surfaced in advisor rpcSourceReason). */
+export function recordPortfolioJsonRpcFallback(reason: string): void {
+	active = 'jsonrpc'
+	jsonRpcFallbackReason = reason
+}
+
+export function getPortfolioReadRpcSourceReason(): string | null {
+	return jsonRpcFallbackReason
 }
 
 export function grpcUrlToRpcSource(url: string): PortfolioReadRpcSource {

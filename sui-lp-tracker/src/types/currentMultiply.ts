@@ -157,6 +157,8 @@ export interface CurrentMultiplyPosition {
 	observedAtMs: number
 	freshness: CurrentMultiplyFreshness
 	source: CurrentMultiplyDataSource
+	/** When true, row is last good cache after a failed refresh. */
+	readStale?: boolean
 	completeness: CurrentMultiplyCompleteness
 	/** Vault page on Current (market + pair); wallet must be connected there for the obligation. */
 	appUrl: string

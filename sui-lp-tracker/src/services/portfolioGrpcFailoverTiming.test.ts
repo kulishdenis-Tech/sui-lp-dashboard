@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
 	_resetPortfolioReadSuiClientForTests,
 	simulatePortfolioReadWithDeadPrimaryEndpoint,
-	PORTFOLIO_GRPC_ATTEMPT_TIMEOUT_MS,
 } from '@/services/portfolioSuiReadClient'
 
 describe('portfolio gRPC failover timing (PublicNode dead)', () => {

@@ -114,6 +114,9 @@ async function invokeLocalHandler(server: ViteDevServer, req: ConnectReq, res: C
 	return true
 }
 
+import { warmAdvisorReadCaches } from '../src/services/server/advisorWarmup.ts'
+import { probePortfolioReadGrpcEndpoints } from '../src/services/portfolioSuiReadClient.ts'
+
 /**
  * Dev-only: run `api/*.ts` serverless handlers locally (same as Vercel), including `/api/advisor/state`.
  * Runs before the `/api` → Vercel proxy so free-tier 402/timeouts do not hit local dev.
@@ -125,6 +128,8 @@ export function localApiPlugin(): Plugin {
 		configureServer(server) {
 			hydrateViteServerEnv(server.config.mode)
 			process.env.SUI_LP_ADVISOR_DEV_TIMING = '1'
+			void warmAdvisorReadCaches()
+			void probePortfolioReadGrpcEndpoints()
 
 			const handle = async (req: ConnectReq, res: ConnectRes, next: () => void) => {
 				try {

@@ -17,15 +17,12 @@ describe('suiData config (gRPC default)', () => {
 		expect(resolveSuiDataTransport()).toBe('grpc')
 	})
 
-	it('defaults gRPC URL to PublicNode when env unset', () => {
-		expect(resolveSuiGrpcUrl()).toBe(PUBLICNODE_PUBLIC_GRPC_URL)
+	it('defaults gRPC URL to Mysten when env unset', () => {
+		expect(resolveSuiGrpcUrl()).toBe(MYSTEN_PUBLIC_GRPC_URL)
 	})
 
-	it('lists PublicNode then Mysten as free grpc backups', () => {
-		expect(resolvePublicGrpcEndpoints()).toEqual([
-			PUBLICNODE_PUBLIC_GRPC_URL,
-			MYSTEN_PUBLIC_GRPC_URL,
-		])
+	it('lists Mysten only by default (PublicNode needs native gRPC)', () => {
+		expect(resolvePublicGrpcEndpoints()).toEqual([MYSTEN_PUBLIC_GRPC_URL])
 	})
 
 	it('SUI_GRPC_ENDPOINTS reorders aliases', () => {

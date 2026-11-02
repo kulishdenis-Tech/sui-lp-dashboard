@@ -182,6 +182,8 @@ export interface OpenPosition {
 	aprEstimatePct: number
 	/** Сканування історії обірвано (ліміт сторінок / RPC). */
 	historyPartial?: boolean
+	/** Row kept from last good read after source refresh failed. */
+	readStale?: boolean
 	/** Bluefin: деталізація unclaimed (fee/reward) з on-chain + spot. */
 	bluefinUnclaimed?: BluefinUnclaimedSnapshot
 	/**
