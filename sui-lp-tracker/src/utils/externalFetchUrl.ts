@@ -18,6 +18,7 @@ const HOST_PREFIX: Record<string, string> = {
 	'open-api.naviprotocol.io': '/ext/navi',
 	// SUI JSON-RPC fullnode — same-origin proxy to prevent Chrome extension interception
 	'fullnode.mainnet.sui.io': '/ext/sui-rpc',
+	'sui-grpc.publicnode.com': '/ext/sui-grpc-publicnode',
 }
 
 export function extFetchUrl(absoluteUrl: string): string {

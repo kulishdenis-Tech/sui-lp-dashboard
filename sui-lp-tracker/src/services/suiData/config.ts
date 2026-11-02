@@ -23,6 +23,8 @@ export type SuiDataTransport = 'grpc' | 'jsonrpc'
 
 /** Default Mysten public-good endpoints (no key; rate-limited). */
 export const MYSTEN_PUBLIC_GRPC_URL = 'https://fullnode.mainnet.sui.io'
+/** Free public gRPC (no API key) — primary dashboard read transport since v1.2. */
+export const PUBLICNODE_PUBLIC_GRPC_URL = 'https://sui-grpc.publicnode.com:443'
 export const MYSTEN_PUBLIC_GRAPHQL_URL = 'https://graphql.mainnet.sui.io/graphql'
 export const BLOCKVISION_GRPC_WEB_URL = 'https://sui-mainnet-grpc-web.blockvision.org'
 
@@ -41,7 +43,7 @@ export function resolveSuiGrpcUrl(): string {
 	const fromEnv = envStr('VITE_SUI_GRPC_URL') ?? envStr('SUI_GRPC_URL')
 	if (fromEnv) return fromEnv.replace(/\/$/, '')
 	if (key) return BLOCKVISION_GRPC_WEB_URL
-	return MYSTEN_PUBLIC_GRPC_URL
+	return PUBLICNODE_PUBLIC_GRPC_URL
 }
 
 export function resolveSuiGraphqlUrl(): string {

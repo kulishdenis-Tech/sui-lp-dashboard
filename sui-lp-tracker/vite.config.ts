@@ -155,7 +155,15 @@ export default defineConfig({
 				agent: extHttpsAgent,
 				rewrite: (p) => p.replace(/^\/ext\/sui-onfinality/, '') || '/',
 			},
-			// Mysten public gRPC-Web (default portfolio transport; no API key).
+			// PublicNode public gRPC (default portfolio read transport; no API key).
+			'/ext/sui-grpc-publicnode': {
+				target: 'https://sui-grpc.publicnode.com:443',
+				changeOrigin: true,
+				secure: true,
+				agent: extHttpsAgent,
+				rewrite: (p) => p.replace(/^\/ext\/sui-grpc-publicnode/, '') || '/',
+			},
+			// Mysten public gRPC-Web (override via VITE_SUI_GRPC_URL=fullnode…).
 			'/ext/sui-grpc-web': {
 				target: 'https://fullnode.mainnet.sui.io',
 				changeOrigin: true,

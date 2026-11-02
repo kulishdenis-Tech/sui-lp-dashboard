@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased (v1.2.0 — крок 1)
+
+- Читання позицій (LP, Current, balances): **gRPC** за замовчуванням на `sui-grpc.publicnode.com:443` через `portfolioSuiReadClient` (compat поверх gRPC + GraphQL).
+- **Fallback:** при збої gRPC — JSON-RPC pool (Suiet / `DASHBOARD_RPC_FALLBACK_URLS`); примусовий JSON-RPC через `SUI_DATA_TRANSPORT=jsonrpc`.
+- Browser `suiClient` більше не ходить на deprecated Mysten JSON-RPC fullnode для portfolio reads.
+
 ## v1.1.1 — 2026-11-02
 
 - **Current / AltCoin:** назва ринку з API або `market_type` (не з першого токена в списку); DEEP залишається на **AltCoin**, не «WAL Market».
