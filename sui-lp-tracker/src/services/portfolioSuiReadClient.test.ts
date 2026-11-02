@@ -21,7 +21,10 @@ describe('wrapGrpcEndpointFailover', () => {
 		const backup = {
 			getObject: vi.fn().mockResolvedValue({ data: { objectId: '0xabc' } }),
 		}
-		const wrapped = wrapGrpcEndpointFailover([primary, backup] as never)
+		const wrapped = wrapGrpcEndpointFailover([
+			{ url: 'https://sui-grpc.publicnode.com:443', client: primary as never },
+			{ url: 'https://fullnode.mainnet.sui.io', client: backup as never },
+		])
 		const res = await wrapped.getObject({ id: '0xabc' })
 		expect(res).toEqual({ data: { objectId: '0xabc' } })
 		expect(backup.getObject).toHaveBeenCalledTimes(1)

@@ -11,6 +11,10 @@ import { clmmRangeFromOpenPosition } from '@/utils/tickPriceRange'
 import { NATIVE_SUI_COIN_TYPE, normalizeCoinTypeForMatch } from '@/utils/suiCoinType'
 import { mapPool } from '@/utils/concurrency'
 import type { BorrowPosition, LendingSnapshot, OpenPosition, SupplyPosition } from '@/types'
+import {
+	getPortfolioReadRpcSource,
+	resetPortfolioReadRpcSource,
+} from '@/services/portfolioReadRpcSource'
 
 /** Hardcoded advisor wallet (read-only). */
 const ADVISOR_WALLET =
@@ -78,6 +82,8 @@ export type AdvisorLpPosition = {
 export type AdvisorState = {
 	timestamp: string
 	wallet: string
+	/** Transport that served on-chain reads for this response. */
+	rpcSource: import('@/services/portfolioReadRpcSource').PortfolioReadRpcSource
 	current: {
 		healthFactor: number | null
 		usdcDebt: number
@@ -228,6 +234,7 @@ async function softUsdPrice(
 
 export async function buildAdvisorState(): Promise<AdvisorState> {
 	return advisorTimed('total', async () => {
+	resetPortfolioReadRpcSource()
 	const wallet = normalizeSuiAddress(ADVISOR_WALLET).toLowerCase()
 	const errors: string[] = []
 	const nowSec = Math.floor(Date.now() / 1000)
@@ -267,6 +274,7 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 	const state: AdvisorState = {
 		timestamp: new Date().toISOString(),
 		wallet,
+		rpcSource: getPortfolioReadRpcSource(),
 		current: {
 			healthFactor: currentSnap.healthFactor,
 			usdcDebt: usdcDebtFrom(currentSnap),
@@ -280,6 +288,7 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 		prices: { SUI: suiPx, DEEP: deepPx },
 	}
 	if (errors.length > 0) state.errors = errors
+	console.log(`[advisor-state] rpcSource: ${state.rpcSource}`)
 	return state
 	})
 }

@@ -13,6 +13,19 @@ import {
 } from '@/services/suiData/jsonRpcCompat'
 import { createDashboardGrpcClient, _resetDashboardGrpcClientForTests } from '@/services/suiData/createGrpcClient'
 import { resolvePublicGrpcEndpoints, resolveSuiDataTransport } from '@/services/suiData/config'
+import {
+	grpcUrlToRpcSource,
+	recordPortfolioReadRpcSource,
+	resetPortfolioReadRpcSource,
+	type PortfolioReadRpcSource,
+} from '@/services/portfolioReadRpcSource'
+
+export type { PortfolioReadRpcSource }
+export {
+	getPortfolioReadRpcSource,
+	resetPortfolioReadRpcSource,
+	recordPortfolioReadRpcSource,
+} from '@/services/portfolioReadRpcSource'
 
 export function isGrpcTransportFailure(err: unknown): boolean {
 	const msg = err instanceof Error ? err.message : String(err)
@@ -21,29 +34,34 @@ export function isGrpcTransportFailure(err: unknown): boolean {
 	)
 }
 
+type GrpcEndpointClient = { url: string; client: JsonRpcCompatClient }
+
 /** Try each gRPC compat client in order before giving up (PublicNode → Mysten). */
-export function wrapGrpcEndpointFailover(clients: JsonRpcCompatClient[]): JsonRpcCompatClient {
-	if (clients.length === 0) return getJsonRpcCompatClient()
+export function wrapGrpcEndpointFailover(endpoints: GrpcEndpointClient[]): JsonRpcCompatClient {
+	if (endpoints.length === 0) return getJsonRpcCompatClient()
 	let activeIndex = 0
 
-	const pick = (): JsonRpcCompatClient => clients[Math.min(activeIndex, clients.length - 1)]!
+	const pick = (): GrpcEndpointClient =>
+		endpoints[Math.min(activeIndex, endpoints.length - 1)]!
 
-	return new Proxy(clients[0]!, {
+	return new Proxy(endpoints[0]!.client, {
 		get(_target, prop, receiver) {
+			const ep = pick()
 			if (prop === 'grpc') {
-				return pick().grpc
+				return ep.client.grpc
 			}
-			const first = Reflect.get(pick() as object, prop, receiver)
+			const first = Reflect.get(ep.client as object, prop, receiver)
 			if (typeof first !== 'function') return first
 			return async (...args: unknown[]) => {
 				let lastErr: unknown
-				for (let i = activeIndex; i < clients.length; i++) {
-					const client = clients[i]!
+				for (let i = activeIndex; i < endpoints.length; i++) {
+					const { url, client } = endpoints[i]!
 					const fn = Reflect.get(client as object, prop, receiver)
 					if (typeof fn !== 'function') continue
 					try {
 						const out = await (fn as (...a: unknown[]) => unknown).apply(client, args)
 						activeIndex = i
+						recordPortfolioReadRpcSource(grpcUrlToRpcSource(url))
 						return out
 					} catch (e) {
 						lastErr = e
@@ -83,10 +101,13 @@ export function wrapPortfolioReadWithJsonRpcFallback(
 					throw new TypeError(`suiClient.${String(prop)} is not a function`)
 				}
 				try {
-					return await (fn as (...a: unknown[]) => unknown).apply(client, args)
+					const out = await (fn as (...a: unknown[]) => unknown).apply(client, args)
+					if (useFallback) recordPortfolioReadRpcSource('jsonrpc')
+					return out
 				} catch (e) {
 					if (!useFallback && isGrpcTransportFailure(e)) {
 						useFallback = true
+						recordPortfolioReadRpcSource('jsonrpc')
 						const fbFn = Reflect.get(fallback as object, prop, receiver)
 						if (typeof fbFn === 'function') {
 							return (fbFn as (...a: unknown[]) => unknown).apply(fallback, args)
@@ -100,15 +121,17 @@ export function wrapPortfolioReadWithJsonRpcFallback(
 }
 
 function createGrpcCompatStack(): JsonRpcCompatClient {
-	const endpoints = resolvePublicGrpcEndpoints()
-	const clients = endpoints.map((url) =>
-		createJsonRpcCompatClient(createDashboardGrpcClient({ baseUrl: url })),
-	)
-	return wrapGrpcEndpointFailover(clients)
+	const urls = resolvePublicGrpcEndpoints()
+	const endpoints = urls.map((url) => ({
+		url,
+		client: createJsonRpcCompatClient(createDashboardGrpcClient({ baseUrl: url })),
+	}))
+	return wrapGrpcEndpointFailover(endpoints)
 }
 
 export function createPortfolioReadSuiClient(): SuiJsonRpcClient {
 	if (resolveSuiDataTransport() === 'jsonrpc') {
+		recordPortfolioReadRpcSource('jsonrpc')
 		return getDashboardSuiClient()
 	}
 	return wrapPortfolioReadWithJsonRpcFallback(createGrpcCompatStack())
@@ -124,6 +147,7 @@ export function getPortfolioReadSuiClient(): SuiJsonRpcClient {
 /** Test helper — also resets gRPC/compat singletons used by the read client. */
 export function _resetPortfolioReadSuiClientForTests(): void {
 	shared = null
+	resetPortfolioReadRpcSource()
 	_resetJsonRpcCompatClientForTests()
 	_resetDashboardGrpcClientForTests()
 }
@@ -132,6 +156,9 @@ export function _resetPortfolioReadSuiClientForTests(): void {
 export function createPortfolioReadSuiClientForcedTransport(
 	transport: 'grpc' | 'jsonrpc',
 ): SuiJsonRpcClient {
-	if (transport === 'jsonrpc') return getDashboardSuiClient()
+	if (transport === 'jsonrpc') {
+		recordPortfolioReadRpcSource('jsonrpc')
+		return getDashboardSuiClient()
+	}
 	return wrapPortfolioReadWithJsonRpcFallback(createGrpcCompatStack())
 }

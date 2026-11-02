@@ -3,7 +3,9 @@
 ## v1.2.0 — 2026-11-02
 
 - **Portfolio reads (LP, Current, balances):** gRPC за замовчуванням (`sui-grpc.publicnode.com:443`), резерв Mysten gRPC, далі JSON-RPC (Suiet). Browser `suiClient` через `portfolioSuiReadClient`.
+- **Bluefin ticks:** `readMoveI32` — gRPC `{ bits }` і JSON-RPC `{ fields: { bits } }`; live bounds SUI/USDC + DEEP/SUI.
 - **STALE при збої read:** збереження попередніх рядків, `onChainReadDegraded` + підказка STALE (не $0 / не порожні секції на refresh).
+- **`/api/advisor/state`:** поле `rpcSource` + лог `[advisor-state] rpcSource: …`.
 - **Snapshots:** повтор спроби з `SUI_DATA_TRANSPORT=jsonrpc`, якщо gRPC-load incomplete; GHA retry з JSON-RPC fallback.
 - Live acceptance (opt-in `SUI_LP_LIVE_RPC=1`): допуск до v1.1.1 — суми 1%, HF ±0.01.
 
