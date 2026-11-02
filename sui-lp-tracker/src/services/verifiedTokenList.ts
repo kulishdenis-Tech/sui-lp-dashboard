@@ -5,11 +5,14 @@ import { fetchAftermathBatch } from '@/services/spotPrice/aftermathSpot'
 import { GECKO_NETWORK } from '@/utils/constants'
 import { GT_HEADER } from '@/services/spotPrice/http'
 
-const DEFAULT_LIST_URLS = [
-	'https://raw.githubusercontent.com/suiet/sui-coin-list/main/src/coins.json',
-	'https://cdn.jsdelivr.net/gh/suiet/sui-coin-list@main/src/coins.json',
-] as const
+/**
+ * Suiet's GitHub/jsDelivr coin list returns 404. Allowlist is hardcoded coins,
+ * GeckoTerminal pools, and Aftermath. An optional `VITE_SUIET_COIN_LIST_URL`
+ * is still tried when set.
+ */
+const DEFAULT_LIST_URLS = [] as const
 
+/** Suiet guardians list. After 14 Nov 2026 this host may go away; a miss yields an empty set. */
 const BLOCKLIST_URL = 'https://guardians.suiet.app/coin-list.json'
 const LS_VERIFIED = 'suiet_verified_coins'
 const LS_BLOCK = 'suiet_blocklist_coins'
@@ -299,7 +302,7 @@ export async function getSuietBlocklist(): Promise<Set<string>> {
 		return expandBlocklistSet(c.data)
 	}
 	try {
-		const r = await fetch(BLOCKLIST_URL)
+		const r = await fetch(BLOCKLIST_URL, { signal: AbortSignal.timeout(8_000) })
 		if (r.ok) {
 			const j = (await r.json()) as { blocklist?: string[] }
 			const bl = j?.blocklist

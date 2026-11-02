@@ -6310,10 +6310,7 @@ function dynamicFieldChildId(item) {
 
 // src/services/verifiedTokenList.ts
 import { normalizeSuiAddress as normalizeSuiAddress2 } from "@mysten/sui/utils";
-var DEFAULT_LIST_URLS = [
-  "https://raw.githubusercontent.com/suiet/sui-coin-list/main/src/coins.json",
-  "https://cdn.jsdelivr.net/gh/suiet/sui-coin-list@main/src/coins.json"
-];
+var DEFAULT_LIST_URLS = [];
 var BLOCKLIST_URL = "https://guardians.suiet.app/coin-list.json";
 var LS_VERIFIED = "suiet_verified_coins";
 var LS_BLOCK = "suiet_blocklist_coins";
@@ -6539,7 +6536,7 @@ async function getSuietBlocklist() {
     return expandBlocklistSet(c.data);
   }
   try {
-    const r = await fetch(BLOCKLIST_URL);
+    const r = await fetch(BLOCKLIST_URL, { signal: AbortSignal.timeout(8e3) });
     if (r.ok) {
       const j = await r.json();
       const bl = j?.blocklist;

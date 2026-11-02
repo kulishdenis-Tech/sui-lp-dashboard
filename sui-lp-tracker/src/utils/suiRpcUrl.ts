@@ -1,15 +1,17 @@
 import { extFetchUrl } from '@/utils/externalFetchUrl'
 
 /**
- * Mysten `fullnode.*.sui.io` JSON-RPC disabled week of 27 Jul 2026; full decommission
- * mid-Oct 2026. Official: https://docs.sui.io/develop/accessing-data/json-rpc-migration
+ * Residual JSON-RPC for dapp-kit 1.x, Navi rewards, and DEX SDKs that still
+ * require `SuiJsonRpcClient`. Portfolio reads use gRPC, not this URL.
  *
- * Free no-key JSON-RPC leftovers (DEX SDKs / dapp-kit sign helpers only).
- * PublicNode `sui-rpc.publicnode.com` now returns "JSON-RPC deprecated → use gRPC"
- * on execute — do not use it for broadcast. Prefer Suiet for residual JSON-RPC.
- *
- * Portfolio + Build send use gRPC (`VITE_SUI_DATA_TRANSPORT=grpc`, Mysten public /
- * optional BlockVision). Official: https://docs.sui.io/develop/accessing-data/json-rpc-migration
+ * Official: JSON-RPC on `fullnode.mainnet.sui.io` was disabled the week of
+ * 27 Jul 2026 and the service was removed mid-October 2026.
+ * https://docs.sui.io/develop/accessing-data/json-rpc-migration
+ * A live `sui_getLatestCheckpointSequenceNumber` against that host returns
+ * "Method not found". PublicNode, Suiscan, OnFinality, Blast, Ankr, and dRPC
+ * also no longer serve open JSON-RPC. Suiet (`mainnet.suiet.app`) still does,
+ * and Suiet says its API runs through 14 Nov 2026 (https://suiet.app/).
+ * Do not "fix" this by pointing JSON-RPC at the official fullnode.
  */
 export const DEFAULT_MAINNET_JSON_RPC_URL = 'https://mainnet.suiet.app'
 

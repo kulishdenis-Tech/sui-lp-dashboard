@@ -13,8 +13,7 @@ export const PROXY_HOST_TO_ORIGIN: Record<string, string> = {
 	'api.current.finance': 'https://api.current.finance',
 	// SUI JSON-RPC — proxied in prod so browser calls stay same-origin
 	// (avoids Chrome extension fetch interception that breaks getAllBalances)
-	// Mysten public fullnode JSON-RPC deprecated Jul 2026; keep host for old env,
-	// PublicNode is the current default (see src/utils/suiRpcUrl.ts).
+	// fullnode host is gRPC/GraphQL, not JSON-RPC. Residual JSON-RPC default is Suiet.
 	'fullnode.mainnet.sui.io': 'https://fullnode.mainnet.sui.io',
 	'sui-rpc.publicnode.com': 'https://sui-rpc.publicnode.com',
 	'sui.publicnode.com': 'https://sui.publicnode.com',

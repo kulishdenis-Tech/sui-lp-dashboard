@@ -5,7 +5,7 @@ import { resolveSuiDataTransport } from '@/services/suiData'
 
 /**
  * Read-only Sui client for portfolio / LP / Current reads.
- * Default: gRPC failover (PublicNode + Mysten) with JSON-RPC fallback.
+ * Default: Mysten public gRPC (`fullnode.mainnet.sui.io`) with Suiet JSON-RPC fallback.
  * Opt out with VITE_SUI_DATA_TRANSPORT=jsonrpc.
  */
 export const suiClient: SuiJsonRpcClient = new Proxy({} as SuiJsonRpcClient, {
