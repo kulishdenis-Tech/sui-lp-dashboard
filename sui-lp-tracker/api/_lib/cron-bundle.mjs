@@ -5826,7 +5826,6 @@ function classifyTokenBalance(t, verifiedList, blocklist) {
     return {
       coinType,
       status: "verified",
-      suietData: verifiedList.get(normalizeCoinType(coinType)),
       metadata: meta
     };
   }

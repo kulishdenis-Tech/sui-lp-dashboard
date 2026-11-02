@@ -2,7 +2,7 @@ import type {
 	ClassifiedTokenBalance,
 	CoinClassification,
 	SpotSource,
-	SuietCoin,
+	VerifiedCoin,
 	TokenBalance,
 } from '@/types'
 import { JUNK_COIN_TYPE_DENYLIST } from '@/config/junkTokens'
@@ -78,7 +78,7 @@ function metadataFromBalance(t: TokenBalance): MetaNonNull {
  */
 export function classifyTokenBalance(
 	t: TokenBalance,
-	verifiedList: Map<string, SuietCoin>,
+	verifiedList: Map<string, VerifiedCoin>,
 	blocklist: Set<string>,
 ): CoinClassification {
 	const coinType = t.coinType
@@ -100,7 +100,6 @@ export function classifyTokenBalance(
 		return {
 			coinType,
 			status: 'verified',
-			suietData: verifiedList.get(normalizeCoinType(coinType)),
 			metadata: meta,
 		}
 	}

@@ -1,5 +1,5 @@
 import { normalizeSuiAddress } from '@mysten/sui/utils'
-import type { SuietCoin } from '@/types'
+import type { VerifiedCoin } from '@/types'
 import { HARDCODED_VERIFIED } from '@/config/hardcodedVerifiedCoins'
 import { fetchAftermathBatch } from '@/services/spotPrice/aftermathSpot'
 import { GECKO_NETWORK } from '@/utils/constants'
@@ -36,7 +36,7 @@ export function normalizeCoinType(coinType: string): string {
 	}
 }
 
-export function isVerified(coinType: string, verifiedList: Map<string, SuietCoin>): boolean {
+export function isVerified(coinType: string, verifiedList: Map<string, VerifiedCoin>): boolean {
 	return verifiedList.has(normalizeCoinType(coinType))
 }
 
@@ -63,12 +63,12 @@ function migrateOldCaches() {
 	}
 }
 
-function readV2Cache(): { data: SuietCoin[]; ok: boolean } {
+function readV2Cache(): { data: VerifiedCoin[]; ok: boolean } {
 	if (typeof localStorage === 'undefined') return { data: [], ok: false }
 	try {
 		const raw = localStorage.getItem(CACHE_KEY)
 		if (!raw) return { data: [], ok: false }
-		const { data, timestamp } = JSON.parse(raw) as { data: SuietCoin[]; timestamp: number }
+		const { data, timestamp } = JSON.parse(raw) as { data: VerifiedCoin[]; timestamp: number }
 		if (!Array.isArray(data) || !timestamp) return { data: [], ok: false }
 		if (Date.now() - timestamp > CACHE_TTL) return { data: [], ok: false }
 		if (data.length < 10) return { data: [], ok: false }
@@ -78,7 +78,7 @@ function readV2Cache(): { data: SuietCoin[]; ok: boolean } {
 	}
 }
 
-function writeV2Cache(coins: SuietCoin[]) {
+function writeV2Cache(coins: VerifiedCoin[]) {
 	if (typeof localStorage === 'undefined') return
 	try {
 		localStorage.setItem(
@@ -97,17 +97,17 @@ function stripGeckoTokenId(id: string): string | null {
 	return ct.includes('::') ? ct : null
 }
 
-function mergeMap(base: SuietCoin[]): Map<string, SuietCoin> {
-	const m = new Map<string, SuietCoin>()
+function mergeMap(base: VerifiedCoin[]): Map<string, VerifiedCoin> {
+	const m = new Map<string, VerifiedCoin>()
 	for (const c of base) {
 		m.set(normalizeCoinType(c.type), c)
 	}
 	return m
 }
 
-export async function fetchGeckoPoolTokensForWhitelist(): Promise<SuietCoin[]> {
+export async function fetchGeckoPoolTokensForWhitelist(): Promise<VerifiedCoin[]> {
 	const GT = 'https://api.geckoterminal.com/api/v2'
-	const out = new Map<string, SuietCoin>()
+	const out = new Map<string, VerifiedCoin>()
 
 	for (let page = 1; page <= GT_PAGES; page++) {
 		try {
@@ -155,10 +155,10 @@ export async function fetchGeckoPoolTokensForWhitelist(): Promise<SuietCoin[]> {
 
 async function fetchAftermathWhitelisted(
 	candidates: string[],
-): Promise<SuietCoin[]> {
+): Promise<VerifiedCoin[]> {
 	const uniq = [...new Set(candidates.map((c) => normalizeCoinType(c)))]
 	if (uniq.length === 0) return []
-	const out: SuietCoin[] = []
+	const out: VerifiedCoin[] = []
 	for (let i = 0; i < uniq.length; i += AF_CHUNK) {
 		const chunk = uniq.slice(i, i + AF_CHUNK)
 		const rows = await fetchAftermathBatch(chunk)
@@ -184,7 +184,7 @@ async function fetchAftermathWhitelisted(
  * Агрегований allowlist: hardcoded → Aftermath (ціна) → Gecko пули.
  * Кеш 6h у `sui_verified_tokens_v2`.
  */
-export async function getVerifiedCoinList(): Promise<Map<string, SuietCoin>> {
+export async function getVerifiedCoinList(): Promise<Map<string, VerifiedCoin>> {
 	migrateOldCaches()
 	const v2 = readV2Cache()
 	if (v2.ok) {

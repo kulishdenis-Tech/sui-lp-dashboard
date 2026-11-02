@@ -539,8 +539,8 @@ export type SpotSource =
 
 export type TokenStatus = 'verified' | 'unverified' | 'spam'
 
-/** Suiet-style verified entry (allowlist) */
-export interface SuietCoin {
+/** Verified allowlist entry. */
+export interface VerifiedCoin {
 	type: string
 	symbol: string
 	name: string
@@ -556,7 +556,6 @@ export interface SuietCoin {
 export interface CoinClassification {
 	coinType: string
 	status: TokenStatus
-	suietData?: SuietCoin
 	metadata?: {
 		symbol: string
 		name: string

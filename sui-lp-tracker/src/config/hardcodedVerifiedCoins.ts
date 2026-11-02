@@ -1,10 +1,10 @@
-import type { SuietCoin } from '@/types'
+import type { VerifiedCoin } from '@/types'
 
 /**
  * Статичний allowlist (mainnet). Адреси звірено з пулами GeckoTerminal / екосистемою.
  * Доповнює динамічні джерела в `verifiedTokenList.ts`.
  */
-export const HARDCODED_VERIFIED: SuietCoin[] = [
+export const HARDCODED_VERIFIED: VerifiedCoin[] = [
 	{
 		type: '0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI',
 		symbol: 'SUI',
