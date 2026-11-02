@@ -10,6 +10,8 @@ import {
 	walletStatusOnLoadStart,
 	walletStatusOnSuccess,
 	walletStatusReset,
+	labelAmountOrStale,
+	withAgeStale,
 } from '@/pages/overviewLab/overviewSourceStatus'
 
 const T0 = 1_700_000_000_000
@@ -128,5 +130,26 @@ describe('snapshot freshness vs limited history', () => {
 		expect(isPortfolioSnapshotStale(T0, T0 + 60_000)).toBe(false)
 		expect(isPortfolioSnapshotStale(null, now)).toBe(false)
 		expect(isPortfolioSnapshotStale(undefined, now)).toBe(false)
+	})
+})
+
+describe('stale source amounts', () => {
+	it('shows STALE instead of a zero when the source was never read', () => {
+		const missing = { id: 'lending', label: 'Lending', status: 'stale' as const, receivedAtMs: null }
+		expect(labelAmountOrStale(0, missing, '$0.00')).toBe('STALE')
+		const known = { id: 'lending', label: 'Lending', status: 'stale' as const, receivedAtMs: T0 }
+		expect(labelAmountOrStale(12, known, '$12.00')).toBe('$12.00')
+	})
+
+	it('ages an ok on-chain source into stale and keeps its time', () => {
+		const fresh = withAgeStale(
+			{ id: 'lp', label: 'LP', status: 'ok', receivedAtMs: T0 },
+			T0 + 16 * 60 * 1000,
+		)
+		expect(fresh.status).toBe('stale')
+		expect(fresh.receivedAtMs).toBe(T0)
+		const unseen = withAgeStale({ id: 'lp', label: 'LP', status: 'ok', receivedAtMs: null }, T0)
+		expect(unseen.status).toBe('stale')
+		expect(unseen.receivedAtMs).toBeNull()
 	})
 })

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '@/store/appStore'
 import type { OverviewSourceHealth } from '@/pages/overviewLab/overviewMetrics'
-import { walletSourceHealth } from '@/pages/overviewLab/overviewSourceStatus'
+import { walletSourceHealth, withAgeStale } from '@/pages/overviewLab/overviewSourceStatus'
 
 /** Live source rows for Overview sync label + attention (wallet / LP / lending). */
 export function useOverviewSources(): OverviewSourceHealth[] {
@@ -33,26 +33,32 @@ export function useOverviewSources(): OverviewSourceHealth[] {
 	)
 
 	return useMemo(() => {
-		const wallet = walletSourceHealth({
-			status: isLoadingBalances ? 'loading' : walletBalancesStatus,
-			error: walletBalancesError,
-			observedAtMs: balancesLastUpdated,
-		})
+		const wallet = withAgeStale(
+			walletSourceHealth({
+				status: isLoadingBalances ? 'loading' : walletBalancesStatus,
+				error: walletBalancesError,
+				observedAtMs: balancesLastUpdated,
+			}),
+		)
 		const rows: OverviewSourceHealth[] = [
 			wallet,
-			{
+			withAgeStale({
 				id: 'lp',
 				label: 'LP',
 				status: isLoadingPositions ? 'loading' : 'ok',
 				receivedAtMs: positionsLastUpdated,
-			},
-			{
+			}),
+			withAgeStale({
 				id: 'lending',
 				label: 'Lending',
-				status: isLoadingLending ? 'loading' : lendingError ? 'error' : 'ok',
+				status: isLoadingLending
+					? 'loading'
+					: lendingError
+						? 'stale'
+						: 'ok',
 				detail: lendingError ?? undefined,
-				receivedAtMs: lendingError ? null : lendingLastUpdated,
-			},
+				receivedAtMs: lendingLastUpdated,
+			}),
 		]
 		if (
 			lastLoadError &&

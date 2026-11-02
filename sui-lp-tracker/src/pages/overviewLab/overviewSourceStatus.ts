@@ -165,3 +165,35 @@ export function formatUpdatedAtKyiv(updatedAtMs: number | null | undefined): str
 		hour12: false,
 	}).format(new Date(updatedAtMs))
 }
+
+export function sourceHasObservation(source: { receivedAtMs?: number | null }): boolean {
+	return source.receivedAtMs != null && source.receivedAtMs > 0
+}
+
+/**
+ * A failed or aged source with no successful read must not look like a real zero.
+ * A known observation keeps its amount; the caller still marks the row STALE.
+ */
+export function labelAmountOrStale(
+	amount: number | null | undefined,
+	source: OverviewSourceHealth | undefined,
+	formatted: string,
+): string {
+	if (!source) return formatted
+	const bad = source.status === 'stale' || source.status === 'error' || source.status === 'empty'
+	if (bad && !sourceHasObservation(source)) return 'STALE'
+	if ((amount == null || !Number.isFinite(amount)) && bad) return 'STALE'
+	return formatted
+}
+
+/** Ok rows past the on-chain window, and rows that never arrived, become stale. */
+export function withAgeStale(source: OverviewSourceHealth, nowMs = Date.now()): OverviewSourceHealth {
+	if (source.status === 'loading' || source.status === 'error') return source
+	if (!sourceHasObservation(source)) {
+		return { ...source, status: 'stale', detail: source.detail ?? 'нема даних' }
+	}
+	if (source.status === 'ok' && isOnChainDataStale(source.receivedAtMs, nowMs)) {
+		return { ...source, status: 'stale' }
+	}
+	return source
+}

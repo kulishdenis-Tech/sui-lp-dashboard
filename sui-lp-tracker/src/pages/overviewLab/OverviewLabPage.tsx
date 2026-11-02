@@ -39,6 +39,9 @@ import {
 } from '@/pages/overviewLab/overviewMetrics'
 import { buildOverviewRiskRows } from '@/pages/overviewLab/overviewRisk'
 import { useWatchWalletRiskBooks } from '@/pages/overviewLab/useWatchWalletRiskBooks'
+import { useOverviewSources } from '@/pages/overviewLab/useOverviewSources'
+import { labelAmountOrStale } from '@/pages/overviewLab/overviewSourceStatus'
+import { DataFreshnessHint } from '@/pages/overviewLab/DataFreshnessHint'
 import { OverviewRiskStrip } from '@/pages/overviewLab/OverviewRiskStrip'
 import {
 	buildLendingAttentionItems,
@@ -57,6 +60,8 @@ import { PortfolioHistoryMeta } from '@/components/portfolioHistory/PortfolioHis
 import { isChartableSnapshot } from '@/utils/snapshotCompleteness'
 import { livePortfolioParts } from '@/utils/portfolioSnapshotBuild'
 import { useOverviewSources } from '@/pages/overviewLab/useOverviewSources'
+import { labelAmountOrStale } from '@/pages/overviewLab/overviewSourceStatus'
+import { DataFreshnessHint } from '@/pages/overviewLab/DataFreshnessHint'
 import '@/pages/overviewLab/overviewLab.css'
 
 const RANGES: { id: TimeRange; label: string }[] = [
@@ -135,6 +140,7 @@ export function OverviewLabPage() {
 	useAutoWithdrawServerSync(walletAddr)
 	useSyncExternalStore(subscribeAutoWithdrawRules, getAutoWithdrawRulesVersion, () => 0)
 	const auroraOn = useAuroraActive()
+	const sources = useOverviewSources()
 
 	const {
 		netWorth,
@@ -731,21 +737,33 @@ export function OverviewLabPage() {
 									tip: 'Supplied − borrowed (AlphaLend, Navi, Current).',
 								},
 							] as const
-						).map((card) => (
+						).map((card) => {
+							const sourceId =
+								card.label === 'Wallet' ? 'wallet' : card.label === 'LP Value' ? 'lp' : 'lending'
+							const source = sources.find((row) => row.id === sourceId)
+							const shown = labelAmountOrStale(card.value, source, money(card.value, hideAmounts))
+							const sourceStale = source?.status === 'stale' || source?.status === 'error'
+							return (
 							<div key={card.label} className="overview-lab__panel overview-lab__panel--quiet p-3">
 								<p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
 									{card.label}
 								</p>
 								<p className="overview-lab__money overview-lab__kpi-value mt-1 text-lg font-semibold text-slate-100 sm:text-xl">
 									<MetricValueWithPartial
-										value={money(card.value, hideAmounts)}
+										value={shown}
 										partial={!!card.partial}
 										coverage={'coverage' in card ? card.coverage : undefined}
 										tip={card.tip}
 									/>
 								</p>
+								<DataFreshnessHint
+									updatedAtMs={source?.receivedAtMs}
+									stale={sourceStale}
+									lastSuccessAtMs={source?.receivedAtMs}
+								/>
 							</div>
-						))}
+							)
+						})}
 					</div>
 
 					<ValueChangeCardsRow
