@@ -22,20 +22,25 @@ function Fail([string]$Message) {
 	exit 1
 }
 
-function Get-Listener([int]$LocalPort) {
-	$conn = Get-NetTCPConnection -LocalPort $LocalPort -State Listen -ErrorAction SilentlyContinue |
+function Get-OurNode([string]$Needle) {
+	# Get-NetTCPConnection on this machine often returns no listeners even while
+	# the port answers. Match our own node.exe by command line instead.
+	Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
+		Where-Object {
+			$_.CommandLine -and
+			$_.CommandLine -like "*$Marker*" -and
+			$_.CommandLine -like "*$Needle*"
+		} |
 		Select-Object -First 1
-	if (-not $conn) { return $null }
-	$proc = Get-CimInstance Win32_Process -Filter "ProcessId=$($conn.OwningProcess)"
-	[pscustomobject]@{
-		Pid = [int]$conn.OwningProcess
-		CommandLine = [string]$proc.CommandLine
-	}
 }
 
-function Test-OurProcess([string]$CommandLine) {
-	if (-not $CommandLine) { return $false }
-	return $CommandLine -like "*$Marker*"
+function Test-HttpUp([string]$Uri) {
+	try {
+		$res = Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec 3
+		return ($res.StatusCode -ge 200 -and $res.StatusCode -lt 500)
+	} catch {
+		return $false
+	}
 }
 
 function Start-HiddenNode {
@@ -107,21 +112,22 @@ if (-not (Test-Path (Join-Path $Root 'node_modules'))) {
 	if ($LASTEXITCODE -ne 0) { Fail "npm install завершився з кодом $LASTEXITCODE" }
 }
 
-$trackerListen = Get-Listener $Port
-if ($trackerListen -and -not (Test-OurProcess $trackerListen.CommandLine)) {
-	Fail "Порт $Port зайнятий іншим процесом PID $($trackerListen.Pid). Це не SUI Dashboard 2.0.0 з цієї папки. Процес не зупинено.`n$($trackerListen.CommandLine)"
-}
+$ourVite = Get-OurNode 'vite.js'
+$ourBot = Get-OurNode 'dist\main.js'
+$botUrl = "http://127.0.0.1:${ApiPort}/api/auto-withdraw/status"
 
-$botListen = Get-Listener $ApiPort
-if ($botListen -and -not (Test-OurProcess $botListen.CommandLine)) {
-	Fail "Порт $ApiPort зайнятий іншим процесом PID $($botListen.Pid). Це не бот цієї папки. Процес не зупинено.`n$($botListen.CommandLine)"
+if (-not $ourVite -and (Test-HttpUp $Url)) {
+	Fail "Порт $Port уже відповідає, але це не Vite з цієї папки. Процес не зупинено."
+}
+if (-not $ourBot -and (Test-HttpUp $botUrl)) {
+	Fail "Порт $ApiPort уже відповідає, але це не бот цієї папки. Другий бот не запущено."
 }
 
 $env:DATABASE_URL = "file:$DbFile"
 $env:AUTOPILOT_MODE = 'MONITOR_ONLY'
 $env:API_PORT = "$ApiPort"
 
-if (-not $botListen) {
+if (-not $ourBot) {
 	if (Test-AutopilotDistStale) {
 		Write-Host 'Збираю autopilot (engine → cetus → db → bot). Старий dist не використовується.'
 		& npm run build:autopilot
@@ -139,17 +145,20 @@ if (-not $botListen) {
 	$botErr = Join-Path $LogDir 'bot-5191.err.log'
 	Write-Host "Запускаю бота на 127.0.0.1:$ApiPort (MONITOR_ONLY, без вікна)."
 	Start-HiddenNode -NodeExe $node -ArgumentList @($botMain) -WorkingDirectory $BotDir -StdoutPath $botOut -StderrPath $botErr
-	if (-not (Wait-Http "http://127.0.0.1:$ApiPort/api/auto-withdraw/status" 45)) {
+	if (-not (Wait-Http $botUrl 45)) {
 		$tail = ''
 		if (Test-Path $botErr) { $tail = (Get-Content $botErr -Tail 30) -join "`n" }
 		Fail "Бот не відповів на http://127.0.0.1:$ApiPort/api/auto-withdraw/status за 45 с.`n$tail"
 	}
 	Write-Host "Бот готовий: http://127.0.0.1:$ApiPort/"
 } else {
-	Write-Host "Бот цієї збірки вже слухає порт $ApiPort (PID $($botListen.Pid)) — другий екземпляр не запускаю."
+	Write-Host "Бот цієї збірки вже працює (PID $($ourBot.ProcessId)) — другий екземпляр не запускаю."
+	if (-not (Test-HttpUp $botUrl)) {
+		Fail "Процес бота є, але $botUrl не відповідає."
+	}
 }
 
-if (-not $trackerListen) {
+if (-not $ourVite) {
 	$node = (Get-Command node).Source
 	$vite = Join-Path $Root 'node_modules\vite\bin\vite.js'
 	if (-not (Test-Path $vite)) {
@@ -167,17 +176,15 @@ if (-not $trackerListen) {
 	}
 	Write-Host "Tracker готовий: $Url"
 } else {
-	Write-Host "Tracker цієї збірки вже слухає порт $Port (PID $($trackerListen.Pid))."
-	try {
-		Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 5 | Out-Null
-	} catch {
-		Fail "Порт $Port слухає наш процес, але $Url не відповідає."
+	Write-Host "Tracker цієї збірки вже працює (PID $($ourVite.ProcessId))."
+	if (-not (Test-HttpUp $Url)) {
+		Fail "Процес Vite є, але $Url не відповідає."
 	}
 }
 
 Start-Process $Url
 Write-Host ""
-Write-Host "SUI Dashboard 2.0.0 відкрито: $Url"
+Write-Host "SUI Dashboard 2.0.1 відкрито: $Url"
 Write-Host "Бот: http://127.0.0.1:$ApiPort/  режим MONITOR_ONLY"
 Write-Host "База: $DbFile"
 exit 0

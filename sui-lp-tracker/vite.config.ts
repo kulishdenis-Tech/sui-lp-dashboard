@@ -18,10 +18,10 @@ import { poolQuoteApiPlugin } from './vite-plugin-pool-quote'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-/** Workspace installs hoist React to the repo root; a nested copy wins when present. */
+/** Prefer this package's node_modules. Root is only the fallback when a dep is still hoisted. */
 function hoistedPkg(name: string): string {
 	const local = path.resolve(__dirname, 'node_modules', name)
-	if (existsSync(local)) return local
+	if (existsSync(path.join(local, 'package.json'))) return local
 	return path.resolve(__dirname, '../node_modules', name)
 }
 
@@ -158,10 +158,9 @@ export default defineConfig({
 			'react-dom': hoistedPkg('react-dom'),
 			'react/jsx-runtime': path.join(hoistedPkg('react'), 'jsx-runtime.js'),
 			'react/jsx-dev-runtime': path.join(hoistedPkg('react'), 'jsx-dev-runtime.js'),
-			// Workspaces hoist deps to root node_modules — resolve from repo root.
-			buffer: path.resolve(__dirname, '../node_modules/buffer/index.js'),
+			buffer: path.join(hoistedPkg('buffer'), 'index.js'),
 			// aftermath-ts-sdk imports bare `dayjs/plugin/duration` (Node ESM needs .js)
-			'dayjs/plugin/duration': path.resolve(__dirname, '../node_modules/dayjs/plugin/duration.js'),
+			'dayjs/plugin/duration': path.join(hoistedPkg('dayjs'), 'plugin', 'duration.js'),
 			// Shim: @mysten/sui v2 no longer exports SuiClient from ./client.
 			// Momentum CLMM SDK still imports that path. AlphaLend 4 uses GraphQL.
 			'@mysten/sui/client': path.resolve(
@@ -367,7 +366,7 @@ export default defineConfig({
 				agent: extHttpsAgent,
 				rewrite: (p) => p.replace(/^\/ext\/current/, ''),
 			},
-			// Autopilot bot (MANUAL_SIGN) — local only; former Vercel `/api/*` catch-all removed.
+			// Bot stays on loopback. Tailscale opens :5180; this proxy is the only path to :5191.
 			'/api/autopilot': {
 				target: 'http://127.0.0.1:5191',
 				changeOrigin: true,

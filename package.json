@@ -1,7 +1,7 @@
 {
   "name": "sui-dashboard",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "SUI LP Tracker (5180) + Autopilot bot (5191)",
   "workspaces": [
     "sui-lp-tracker",
@@ -11,14 +11,14 @@
     "sui-lp-autopilot/packages/bot"
   ],
   "scripts": {
-    "postinstall": "node sui-lp-autopilot/scripts/fix-noble-curves-exports.mjs && node sui-lp-tracker/scripts/fix-dayjs-esm.mjs",
+    "postinstall": "node scripts/isolate-dep-boundaries.mjs && node sui-lp-autopilot/scripts/fix-noble-curves-exports.mjs && node sui-lp-tracker/scripts/fix-dayjs-esm.mjs",
     "dev": "concurrently -n tracker,bot -c cyan,magenta \"npm run dev -w sui-lp-tracker\" \"npm run bot\"",
     "bot": "npm run start -w @autopilot/bot",
     "build": "npm run build -w sui-lp-tracker",
     "preview": "npm run preview -w sui-lp-tracker",
     "build:autopilot": "npm run build -w @autopilot/engine && npm run build -w @autopilot/cetus && npm run build -w @autopilot/db && npm run build -w @autopilot/bot",
     "typecheck": "npm run typecheck -w sui-lp-tracker && npm run typecheck --prefix sui-lp-autopilot",
-    "test": "npm run test -w sui-lp-tracker && npm run test --prefix sui-lp-autopilot",
+    "test": "node scripts/check-dep-boundaries.mjs && npm run test -w sui-lp-tracker && npm run test --prefix sui-lp-autopilot",
     "lint": "npm run lint -w sui-lp-tracker && npm exec -w sui-lp-tracker -- eslint -c eslint.autopilot.config.js --no-error-on-unmatched-pattern ../sui-lp-autopilot/packages/bot/src ../sui-lp-autopilot/packages/engine/src ../sui-lp-autopilot/packages/db/src ../sui-lp-autopilot/packages/cetus/src",
     "ci": "npm run typecheck && npm run test && npm run lint && npm run build:autopilot && npm run build"
   },

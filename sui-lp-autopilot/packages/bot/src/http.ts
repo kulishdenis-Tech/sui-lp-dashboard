@@ -1190,6 +1190,7 @@ export function startApi(opts?: {
 		}
 	})
 	const port = opts?.port ?? PORT
+	// Loopback only. The dashboard on :5180 proxies /api/autopilot here. Do not publish 5191.
 	server.listen(port, '127.0.0.1', () => {
 		const bound = server.address()
 		const shown = typeof bound === 'object' && bound ? bound.port : port

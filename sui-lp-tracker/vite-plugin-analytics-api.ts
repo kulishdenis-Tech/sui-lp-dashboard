@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { Plugin } from 'vite'
+import { routesFor } from './api/routeContract.ts'
 import { hydrateViteServerEnv } from './vite-server-env.ts'
 
 /** Same shape as `api/_lib/vercelRequest.ts` (avoid importing that module in node tsconfig — it references `window`). */
@@ -19,13 +20,13 @@ type VercelRes = {
 	end(): void
 }
 
-const ANALYTICS_ROUTES = {
-	'/api/snapshots': '/api/snapshots.ts',
-	'/api/lp-history': '/api/lp-history.ts',
-	'/api/visits': '/api/visits.ts',
-} as const
+const ANALYTICS_ROUTES: Record<string, string> = Object.fromEntries(
+	routesFor('analytics-plugin')
+		.filter((route) => route.module)
+		.map((route) => [route.path, route.module as string]),
+)
 
-type AnalyticsPath = keyof typeof ANALYTICS_ROUTES
+type AnalyticsPath = string
 
 type ConnectReq = {
 	url?: string

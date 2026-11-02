@@ -1,12 +1,19 @@
 import { resolve } from 'node:path'
-import { AutopilotStore } from '@autopilot/db'
+import { AutopilotStore, isEmptyStubDbPath } from '@autopilot/db'
 import { loadPoolWhitelist } from '@autopilot/cetus'
 import { DEFAULT_MODE } from '@autopilot/engine'
 import { startApi } from './http.js'
 import { runLoop } from './loop.js'
 
 const dataPath = process.env.DATABASE_URL?.replace(/^file:/, '') ?? './data/autopilot.db.json'
-const store = new AutopilotStore(resolve(process.cwd(), dataPath))
+const resolvedDb = resolve(process.cwd(), dataPath)
+if (isEmptyStubDbPath(resolvedDb)) {
+	console.error(
+		'[autopilot] refusing sui-lp-autopilot/data/autopilot.db.json — that file is an empty stub. The store is packages/bot/data/autopilot.db.json.',
+	)
+	process.exit(1)
+}
+const store = new AutopilotStore(resolvedDb)
 
 if (!store.getMode()) store.setMode(DEFAULT_MODE)
 // Force safe default on first boot if unset

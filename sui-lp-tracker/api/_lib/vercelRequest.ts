@@ -20,7 +20,7 @@ export function q(v: string | string[] | undefined): string {
 
 /** Base URL for same-deployment API when running on Vercel (cron / serverless). */
 export function deploymentOrigin(): string | null {
-	if (typeof window !== 'undefined') return null
+	if (typeof globalThis !== 'undefined' && 'window' in globalThis) return null
 	const vercel = process.env.VERCEL_URL
 	if (vercel) return `https://${vercel}`
 	const custom = process.env.SERVER_PUBLIC_URL

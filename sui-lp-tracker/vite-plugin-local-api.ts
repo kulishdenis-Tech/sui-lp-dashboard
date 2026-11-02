@@ -75,19 +75,16 @@ function createVercelRes(res: ConnectRes): VercelRes {
 	return vercelRes
 }
 
-async function invokeLocalHandler(server: ViteDevServer, req: ConnectReq, res: ConnectRes): Promise<boolean> {
-	const raw = req.originalUrl ?? req.url ?? ''
-	if (!isLocalApiPath(raw)) return false
-
-	const pathname = pathnameOf(raw)
-	const modulePath = localApiHandlerModule(pathname)
-	if (!modulePath) {
-		// pool-candles / pool-quote / dev snapshot — other plugins
-		return false
-	}
-
+/** Load one `api/*.ts` handler. Advisor and analytics plugins call this; do not also mount `localApiPlugin()`. */
+export async function runApiHandler(
+	server: ViteDevServer,
+	req: ConnectReq,
+	res: ConnectRes,
+	modulePath: string,
+): Promise<void> {
 	hydrateViteServerEnv(server.config.mode)
 
+	const raw = req.originalUrl ?? req.url ?? ''
 	const method = (req.method ?? 'GET').toUpperCase()
 	let body: unknown
 	if (method !== 'GET' && method !== 'HEAD') {
@@ -107,16 +104,26 @@ async function invokeLocalHandler(server: ViteDevServer, req: ConnectReq, res: C
 		res.statusCode = 500
 		res.setHeader('Content-Type', 'application/json')
 		res.end(JSON.stringify({ error: 'handler missing' }))
-		return true
+		return
 	}
 
 	await handler(vercelReq, createVercelRes(res))
+}
+
+async function invokeLocalHandler(server: ViteDevServer, req: ConnectReq, res: ConnectRes): Promise<boolean> {
+	const raw = req.originalUrl ?? req.url ?? ''
+	if (!isLocalApiPath(raw)) return false
+
+	const modulePath = localApiHandlerModule(pathnameOf(raw))
+	if (!modulePath) return false
+	await runApiHandler(server, req, res, modulePath)
 	return true
 }
 
 /**
- * Dev-only: run `api/*.ts` serverless handlers locally (same as Vercel), including `/api/advisor/state`.
- * Runs before the `/api` → Vercel proxy so free-tier 402/timeouts do not hit local dev.
+ * Optional adapter. The dev server does not register this plugin: advisor and
+ * analytics plugins call `runApiHandler` for the shared modules in `api/routeContract.ts`.
+ * Registering both would answer the same path twice.
  */
 export function localApiPlugin(): Plugin {
 	return {

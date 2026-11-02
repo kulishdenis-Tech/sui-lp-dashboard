@@ -81,6 +81,16 @@ const EMPTY: DbShape = {
 }
 
 /** File-backed store with unique BUY/SELL slots (SQL schema in migrations/ for Postgres later). */
+/**
+ * Live bot store is the JSON file under packages/bot/data.
+ * packages/db/migrations/*.sql is not the runtime database while one operator
+ * stays on MONITOR_ONLY. sui-lp-autopilot/data/autopilot.db.json is an empty stub.
+ */
+export function isEmptyStubDbPath(absPath: string): boolean {
+	const norm = absPath.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+	return /\/sui-lp-autopilot\/data\/autopilot\.db\.json$/.test(norm)
+}
+
 export class AutopilotStore {
 	constructor(private readonly path: string) {}
 
