@@ -90,6 +90,8 @@ export type TokenExposure = {
 	unknownUSD: number
 	/** Holdings with positive amount but no usable USD price (not inventable). */
 	unpricedHoldingCount: number
+	/** One label per holding that incremented `unpricedHoldingCount`. */
+	unpricedHoldings: string[]
 	/** True when any unpriced or unattributed exposure exists. */
 	incomplete: boolean
 	/** Known asset sum (excludes debt & unknown). */
@@ -224,13 +226,18 @@ export function computeTokenExposure(input: {
 	const map = new Map<string, TokenExposureBucket>()
 	let unknownUSD = 0
 	let unpricedHoldingCount = 0
+	const unpricedHoldings: string[] = []
 	let debtUSD = 0
+	const noteUnpriced = (label: string) => {
+		unpricedHoldingCount += 1
+		unpricedHoldings.push(label)
+	}
 
 	for (const t of input.walletBalances) {
 		const v = finiteUsd(t.valueUSD)
 		if (v <= 0) {
 			if (t.humanBalance > 0 && !(Number.isFinite(t.priceUSD) && (t.priceUSD as number) > 0)) {
-				unpricedHoldingCount += 1
+				noteUnpriced(`${t.symbol || 'token'} · wallet`)
 			}
 			continue
 		}
@@ -249,11 +256,11 @@ export function computeTokenExposure(input: {
 			if (collUsd != null && collUsd > 0) {
 				addExposure(map, m?.collateral.symbol ?? p.tokenA, collUsd, 'lp', p.tokenAAddress)
 			} else if (positiveMultiplyQty(m?.collateral.amount, m?.collateral.amountRaw)) {
-				unpricedHoldingCount += 1
+				noteUnpriced(`Multiplier ${p.pair} · ${m?.collateral.symbol ?? p.tokenA}`)
 			}
 			if (debtUsd != null && debtUsd > 0) debtUSD += debtUsd
 			else if (positiveMultiplyQty(m?.debt.amount, m?.debt.amountRaw)) {
-				unpricedHoldingCount += 1
+				noteUnpriced(`Multiplier ${p.pair} · ${m?.debt.symbol ?? p.tokenB}`)
 			}
 			continue
 		}
@@ -263,9 +270,13 @@ export function computeTokenExposure(input: {
 		const aUsd = aOk ? Math.max(0, p.tokenAAmount) * Math.max(0, p.currentPriceA_USD) : null
 		const bUsd = bOk ? Math.max(0, p.tokenBAmount) * Math.max(0, p.currentPriceB_USD) : null
 		if (aUsd != null) addExposure(map, p.tokenA, aUsd, 'lp', p.tokenAAddress)
-		else if (Number.isFinite(p.tokenAAmount) && p.tokenAAmount > 0) unpricedHoldingCount += 1
+		else if (Number.isFinite(p.tokenAAmount) && p.tokenAAmount > 0) {
+			noteUnpriced(`${p.pair} · ${p.tokenA}`)
+		}
 		if (bUsd != null) addExposure(map, p.tokenB, bUsd, 'lp', p.tokenBAddress)
-		else if (Number.isFinite(p.tokenBAmount) && p.tokenBAmount > 0) unpricedHoldingCount += 1
+		else if (Number.isFinite(p.tokenBAmount) && p.tokenBAmount > 0) {
+			noteUnpriced(`${p.pair} · ${p.tokenB}`)
+		}
 		const liq = liquidityUsdOrNull(p)
 		const knownLegs = (aUsd ?? 0) + (bUsd ?? 0)
 		if (liq != null && liq > knownLegs + 0.5) {
@@ -284,7 +295,7 @@ export function computeTokenExposure(input: {
 		for (const s of snap.supplies) {
 			const usd = finiteUsd(s.currentValueUSD)
 			if (usd > 0) addExposure(map, s.asset, usd, 'lending')
-			else if (s.currentAmount > 0) unpricedHoldingCount += 1
+			else if (s.currentAmount > 0) noteUnpriced(`${snap.protocol} · ${s.asset}`)
 		}
 		for (const b of snap.borrows) {
 			debtUSD += finiteUsd(b.currentDebtUSD)
@@ -294,7 +305,34 @@ export function computeTokenExposure(input: {
 	const assets = [...map.values()].sort((a, b) => b.usd - a.usd)
 	const knownAssetsUSD = assets.reduce((s, a) => s + a.usd, 0)
 	const incomplete = unknownUSD > 0.5 || unpricedHoldingCount > 0
-	return { assets, debtUSD, unknownUSD, unpricedHoldingCount, incomplete, knownAssetsUSD }
+	return {
+		assets,
+		debtUSD,
+		unknownUSD,
+		unpricedHoldingCount,
+		unpricedHoldings,
+		incomplete,
+		knownAssetsUSD,
+	}
+}
+
+/** Lending borrows plus Multiplier vault debt. Both already sit inside exposure `debtUSD`. */
+export function overviewDebtParts(
+	lendingSnaps: Array<LendingSnapshot | null>,
+	positions: readonly OpenPosition[],
+): { lendingUSD: number; multiplyUSD: number } {
+	let lendingUSD = 0
+	for (const snap of lendingSnaps) {
+		if (!snap) continue
+		lendingUSD += finiteUsd(snap.totalBorrowedUSD)
+	}
+	let multiplyUSD = 0
+	for (const position of positions) {
+		if (!isCurrentMultiplyVaultPosition(position)) continue
+		const value = position.currentMultiply?.debt.valueUsd
+		if (value != null && Number.isFinite(value) && value > 0) multiplyUSD += value
+	}
+	return { lendingUSD, multiplyUSD }
 }
 
 /** Prefer SUI / USDC rows; fold the rest into Other. */
@@ -302,15 +340,16 @@ export function collapseExposureForChart(
 	exposure: TokenExposure,
 	topN = 2,
 ): {
-	rows: Array<{ label: string; usd: number }>
+	rows: Array<{ label: string; usd: number; parts?: Array<{ label: string; usd: number }> }>
 	unknownUSD: number
 	debtUSD: number
 	unpricedHoldingCount: number
+	unpricedHoldings: string[]
 	incomplete: boolean
 } {
 	const preferred = ['SUI', 'USDC']
-	const rows: Array<{ label: string; usd: number }> = []
-	let other = 0
+	const rows: Array<{ label: string; usd: number; parts?: Array<{ label: string; usd: number }> }> = []
+	const otherParts: Array<{ label: string; usd: number }> = []
 	const used = new Set<string>()
 	for (const sym of preferred) {
 		const hit = exposure.assets.find((a) => a.symbol === sym)
@@ -322,22 +361,30 @@ export function collapseExposureForChart(
 	for (const a of exposure.assets) {
 		if (used.has(a.symbol)) continue
 		if (rows.length < topN + 1 && STABLE_SYMBOLS.has(a.symbol) && a.symbol !== 'USDC') {
-			other += a.usd
+			otherParts.push({ label: a.symbol, usd: a.usd })
 			continue
 		}
 		if (rows.length < topN) {
 			rows.push({ label: a.symbol, usd: a.usd })
 			used.add(a.symbol)
 		} else {
-			other += a.usd
+			otherParts.push({ label: a.symbol, usd: a.usd })
 		}
 	}
-	if (other > 0) rows.push({ label: 'Other', usd: other })
+	if (otherParts.length > 0) {
+		otherParts.sort((a, b) => b.usd - a.usd)
+		rows.push({
+			label: 'Other',
+			usd: otherParts.reduce((sum, part) => sum + part.usd, 0),
+			parts: otherParts,
+		})
+	}
 	return {
 		rows,
 		unknownUSD: exposure.unknownUSD,
 		debtUSD: exposure.debtUSD,
 		unpricedHoldingCount: exposure.unpricedHoldingCount,
+		unpricedHoldings: exposure.unpricedHoldings,
 		incomplete: exposure.incomplete,
 	}
 }

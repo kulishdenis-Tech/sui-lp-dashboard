@@ -34,6 +34,7 @@ import {
 	computeProtocolAllocation,
 	analyzeValueChangeForRange,
 	formatSharePct,
+	overviewDebtParts,
 	type CascadeBand,
 } from '@/pages/overviewLab/overviewMetrics'
 import { buildOverviewRiskRows } from '@/pages/overviewLab/overviewRisk'
@@ -265,6 +266,11 @@ export function OverviewLabPage() {
 
 	const exposureChart = collapseExposureForChart(kpis.exposure)
 	const exposureSum = exposureChart.rows.reduce((s, r) => s + r.usd, 0)
+	const debtParts = useMemo(
+		() => overviewDebtParts([lendingSnapshot, naviSnapshot, currentSnapshot], openPositions),
+		[lendingSnapshot, naviSnapshot, currentSnapshot, openPositions],
+	)
+	const debtBreakdown = `Debt (lending ${money(debtParts.lendingUSD, hideAmounts)} + Multiplier Vault ${money(debtParts.multiplyUSD, hideAmounts)})`
 
 	const filterCounts = useMemo(() => {
 		const c = { all: 0, in: 0, above: 0, below: 0, near: 0, empty: 0, unknown: 0 }
@@ -951,27 +957,66 @@ export function OverviewLabPage() {
 						</Tooltip>
 					</div>
 					<p className="text-[10px] text-slate-500">Gross assets · % of priced</p>
-					{exposureChart.incomplete || exposureChart.unpricedHoldingCount > 0 ? (
-						<p className="text-[10px] text-amber-300/80">Unpriced holdings present</p>
+					{exposureChart.unpricedHoldings.length > 0 ? (
+						<details className="text-[10px] text-amber-300/80">
+							<summary className="cursor-pointer">
+								Unpriced holdings ({exposureChart.unpricedHoldings.length})
+							</summary>
+							<ul className="mt-1 space-y-0.5 pl-3">
+								{exposureChart.unpricedHoldings.map((label, index) => (
+									<li key={`${label}-${index}`}>{label}</li>
+								))}
+							</ul>
+						</details>
 					) : null}
 					{exposureChart.rows.length === 0 ? (
 						<p className="text-xs text-slate-500">No priced underlyings.</p>
 					) : (
 						<ul className="space-y-2">
-							{exposureChart.rows.map((r) => (
-								<li key={r.label} className="flex justify-between gap-2 text-xs text-slate-300">
-									<span>{r.label}</span>
+							{exposureChart.rows.map((r) => {
+								const amount = (
 									<span className="overview-lab__money tabular-nums text-slate-400">
 										{hideAmounts ? '••••' : formatUSD(r.usd)}
 										{exposureSum > 0 ? ` · ${formatSharePct(r.usd, exposureSum)}` : ''}
 									</span>
-								</li>
-							))}
+								)
+								if (r.parts && r.parts.length > 0) {
+									return (
+										<li key={r.label} className="text-xs text-slate-300">
+											<details>
+												<summary className="flex cursor-pointer justify-between gap-2">
+													<span>{r.label}</span>
+													{amount}
+												</summary>
+												<ul className="mt-1 space-y-1 pl-3">
+													{r.parts.map((part) => (
+														<li
+															key={part.label}
+															className="flex justify-between gap-2 text-[11px] text-slate-400"
+														>
+															<span>{part.label}</span>
+															<span className="overview-lab__money tabular-nums">
+																{hideAmounts ? '••••' : formatUSD(part.usd)}
+															</span>
+														</li>
+													))}
+												</ul>
+											</details>
+										</li>
+									)
+								}
+								return (
+									<li key={r.label} className="flex justify-between gap-2 text-xs text-slate-300">
+										<span>{r.label}</span>
+										{amount}
+									</li>
+								)
+							})}
 						</ul>
 					)}
 					{exposureChart.debtUSD > 0 ? (
 						<p className="text-[11px] text-slate-500">
-							Debt{' '}
+							{debtBreakdown}{' '}
 							<span className="overview-lab__money tabular-nums text-rose-300/90">
 								{money(exposureChart.debtUSD, hideAmounts)}
 							</span>
@@ -1237,6 +1282,12 @@ export function OverviewLabPage() {
 							<dt className="text-[11px] text-slate-500">Borrowed</dt>
 							<dd className="overview-lab__money tabular-nums text-rose-300/90">
 								{money(lendingDebt, hideAmounts)}
+							</dd>
+						</div>
+						<div>
+							<dt className="text-[11px] text-slate-500">{debtBreakdown}</dt>
+							<dd className="overview-lab__money tabular-nums text-rose-300/90">
+								{money(debtParts.lendingUSD + debtParts.multiplyUSD, hideAmounts)}
 							</dd>
 						</div>
 						<div>

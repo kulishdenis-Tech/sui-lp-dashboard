@@ -16,6 +16,7 @@ import {
 	computeValueChange,
 	computeValueChangeForRange,
 	formatSharePct,
+	overviewDebtParts,
 } from './overviewMetrics'
 
 function pos(partial: Partial<OpenPosition> & { id: string }): OpenPosition {
@@ -361,10 +362,67 @@ describe('overviewMetrics', () => {
 			lendingSnaps: [],
 		})
 		expect(exposure.unpricedHoldingCount).toBe(1)
+		expect(exposure.unpricedHoldings).toEqual(['XYZ · wallet'])
 		expect(exposure.incomplete).toBe(true)
 		expect(exposure.knownAssetsUSD).toBe(0)
 		const chart = collapseExposureForChart(exposure)
 		expect(chart.incomplete).toBe(true)
+		expect(chart.unpricedHoldings).toEqual(['XYZ · wallet'])
+	})
+
+	it('Other lists the folded symbols and debt parts sum to exposure debt', () => {
+		const exposure = computeTokenExposure({
+			walletBalances: [token('SUI', 100), token('USDC', 40), token('WAL', 25), token('NS', 5)],
+			openPositions: [
+				{
+					...pos({ id: 'm', pair: 'SUI/USDC', tokenA: 'SUI', tokenB: 'USDC' }),
+					currentMultiply: {
+						kind: 'current_multiply',
+						collateral: { symbol: 'SUI', valueUsd: 50 },
+						debt: { symbol: 'USDC', valueUsd: 30 },
+					},
+				} as OpenPosition,
+			],
+			lendingSnaps: [
+				{
+					totalSuppliedUSD: 0,
+					totalBorrowedUSD: 80,
+					netValueUSD: -80,
+					supplies: [],
+					borrows: [{ asset: 'USDC', currentDebtUSD: 80 }],
+					healthFactor: 1.4,
+					rewardsToClaim: [],
+					protocol: 'Current',
+				} as unknown as LendingSnapshot,
+			],
+		})
+		const chart = collapseExposureForChart(exposure)
+		const other = chart.rows.find((row) => row.label === 'Other')
+		expect(other?.parts?.map((part) => part.label)).toEqual(['WAL', 'NS'])
+		expect(other?.usd).toBe(30)
+		const parts = overviewDebtParts(
+			[
+				{
+					totalBorrowedUSD: 80,
+					supplies: [],
+					borrows: [],
+					netValueUSD: 0,
+					healthFactor: null,
+					rewardsToClaim: [],
+					protocol: 'Current',
+				} as unknown as LendingSnapshot,
+			],
+			exposure ? [
+				{
+					...pos({ id: 'm' }),
+					currentMultiply: {
+						kind: 'current_multiply',
+						debt: { valueUsd: 30 },
+					},
+				} as OpenPosition,
+			] : [],
+		)
+		expect(parts.lendingUSD + parts.multiplyUSD).toBe(chart.debtUSD)
 	})
 
 	it('protocol allocation reports partial when a member value is null', () => {
