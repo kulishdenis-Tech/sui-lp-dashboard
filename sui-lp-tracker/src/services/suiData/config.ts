@@ -28,6 +28,15 @@ export const PUBLICNODE_PUBLIC_GRPC_URL = 'https://sui-grpc.publicnode.com:443'
 export const MYSTEN_PUBLIC_GRAPHQL_URL = 'https://graphql.mainnet.sui.io/graphql'
 export const BLOCKVISION_GRPC_WEB_URL = 'https://sui-mainnet-grpc-web.blockvision.org'
 
+/** Ordered free gRPC endpoints (primary → backup) before JSON-RPC fallback. */
+export function resolvePublicGrpcEndpoints(): string[] {
+	const key = resolveBlockvisionApiKey()
+	const fromEnv = envStr('VITE_SUI_GRPC_URL') ?? envStr('SUI_GRPC_URL')
+	if (fromEnv) return [fromEnv.replace(/\/$/, '')]
+	if (key) return [BLOCKVISION_GRPC_WEB_URL]
+	return [PUBLICNODE_PUBLIC_GRPC_URL, MYSTEN_PUBLIC_GRPC_URL]
+}
+
 export function resolveSuiDataTransport(): SuiDataTransport {
 	const raw = (envStr('VITE_SUI_DATA_TRANSPORT') ?? envStr('SUI_DATA_TRANSPORT') ?? 'grpc').toLowerCase()
 	return raw === 'jsonrpc' ? 'jsonrpc' : 'grpc'

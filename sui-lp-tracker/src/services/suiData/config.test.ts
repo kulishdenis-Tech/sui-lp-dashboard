@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+	MYSTEN_PUBLIC_GRPC_URL,
 	PUBLICNODE_PUBLIC_GRPC_URL,
+	resolvePublicGrpcEndpoints,
 	resolveSuiDataTransport,
 	resolveSuiGrpcUrl,
 } from '@/services/suiData/config'
@@ -16,6 +18,13 @@ describe('suiData config (gRPC default)', () => {
 
 	it('defaults gRPC URL to PublicNode when env unset', () => {
 		expect(resolveSuiGrpcUrl()).toBe(PUBLICNODE_PUBLIC_GRPC_URL)
+	})
+
+	it('lists PublicNode then Mysten as free grpc backups', () => {
+		expect(resolvePublicGrpcEndpoints()).toEqual([
+			PUBLICNODE_PUBLIC_GRPC_URL,
+			MYSTEN_PUBLIC_GRPC_URL,
+		])
 	})
 
 	it('honors SUI_DATA_TRANSPORT=jsonrpc opt-out', () => {

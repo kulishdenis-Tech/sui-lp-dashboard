@@ -1,10 +1,11 @@
 # Changelog
 
-## Unreleased (v1.2.0 — крок 1)
+## v1.2.0 — 2026-11-02
 
-- Читання позицій (LP, Current, balances): **gRPC** за замовчуванням на `sui-grpc.publicnode.com:443` через `portfolioSuiReadClient` (compat поверх gRPC + GraphQL).
-- **Fallback:** при збої gRPC — JSON-RPC pool (Suiet / `DASHBOARD_RPC_FALLBACK_URLS`); примусовий JSON-RPC через `SUI_DATA_TRANSPORT=jsonrpc`.
-- Browser `suiClient` більше не ходить на deprecated Mysten JSON-RPC fullnode для portfolio reads.
+- **Portfolio reads (LP, Current, balances):** gRPC за замовчуванням (`sui-grpc.publicnode.com:443`), резерв Mysten gRPC, далі JSON-RPC (Suiet). Browser `suiClient` через `portfolioSuiReadClient`.
+- **STALE при збої read:** збереження попередніх рядків, `onChainReadDegraded` + підказка STALE (не $0 / не порожні секції на refresh).
+- **Snapshots:** повтор спроби з `SUI_DATA_TRANSPORT=jsonrpc`, якщо gRPC-load incomplete; GHA retry з JSON-RPC fallback.
+- Live acceptance (opt-in `SUI_LP_LIVE_RPC=1`): допуск до v1.1.1 — суми 1%, HF ±0.01.
 
 ## v1.1.1 — 2026-11-02
 

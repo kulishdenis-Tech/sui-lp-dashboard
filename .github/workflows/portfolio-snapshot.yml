@@ -57,6 +57,8 @@ jobs:
       - name: Retry snapshot
         if: steps.snap.outcome == 'failure'
         env:
+          SUI_DATA_TRANSPORT: jsonrpc
+          VITE_SUI_DATA_TRANSPORT: jsonrpc
           WATCH_WALLETS: ${{ secrets.WATCH_WALLETS }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

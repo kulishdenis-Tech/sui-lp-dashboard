@@ -9,6 +9,7 @@ export function useOverviewFreshness(nowMs = Date.now()) {
 	const pricesUpdatedAtMs = useAppStore((s) => s.balancesLastUpdated)
 	const lendingDataUpdatedAtMs = useAppStore((s) => s.lendingDataUpdatedAtMs)
 	const positionsDataUpdatedAtMs = useAppStore((s) => s.positionsDataUpdatedAtMs)
+	const onChainReadDegraded = useAppStore((s) => s.onChainReadDegraded)
 
 	return useMemo(() => {
 		const onChainCandidates = [lendingDataUpdatedAtMs, positionsDataUpdatedAtMs].filter(
@@ -17,7 +18,7 @@ export function useOverviewFreshness(nowMs = Date.now()) {
 		const onChainUpdatedAtMs =
 			onChainCandidates.length > 0 ? Math.max(...onChainCandidates) : null
 		const priceStale = isPriceDataStale(pricesUpdatedAtMs, nowMs)
-		const onChainStale = isOnChainDataStale(onChainUpdatedAtMs, nowMs)
+		const onChainStale = isOnChainDataStale(onChainUpdatedAtMs, nowMs) || onChainReadDegraded
 		return {
 			pricesUpdatedAtMs,
 			onChainUpdatedAtMs,
@@ -26,5 +27,5 @@ export function useOverviewFreshness(nowMs = Date.now()) {
 			anyStale: priceStale || onChainStale,
 			displayUpdatedAtMs: onChainUpdatedAtMs ?? pricesUpdatedAtMs,
 		}
-	}, [pricesUpdatedAtMs, lendingDataUpdatedAtMs, positionsDataUpdatedAtMs, nowMs])
+	}, [pricesUpdatedAtMs, lendingDataUpdatedAtMs, positionsDataUpdatedAtMs, onChainReadDegraded, nowMs])
 }

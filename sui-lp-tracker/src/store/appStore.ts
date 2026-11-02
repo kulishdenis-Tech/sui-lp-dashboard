@@ -90,6 +90,8 @@ interface AppState {
 	lendingDataUpdatedAtMs: number | null
 	/** Last successful open-positions load (all LP protocols). */
 	positionsDataUpdatedAtMs: number | null
+	/** Last refresh kept prior rows after RPC/gRPC failure — show STALE immediately. */
+	onChainReadDegraded: boolean
 	openPositions: OpenPosition[]
 	closedPositions: ClosedPosition[]
 	/** Фонове завантаження закритих LP (не блокує Open tab). */
@@ -184,6 +186,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 	balancesLastUpdated: null,
 	lendingDataUpdatedAtMs: null,
 	positionsDataUpdatedAtMs: null,
+	onChainReadDegraded: false,
 	openPositions: [],
 	closedPositions: [],
 	isLoadingClosed: false,
@@ -307,6 +310,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 				positionsError: null,
 				lendingError: null,
 				lastLoadError: null,
+				onChainReadDegraded: false,
 			})
 			if (!keepExisting) _closedPositionsAddress = null
 
@@ -406,11 +410,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 			// ── Protocol loading counter ──────────────────────────────────────
 			// isLoadingPositions stays true until all 5 protocols have settled.
 			let pendingProtocols = 5
+			let protocolLoadDegraded = false
+			let lendingLoadDegraded = false
+			const markProtocolDegraded = () => {
+				if (keepExisting) protocolLoadDegraded = true
+			}
 
 			const onProtocolDone = () => {
 				pendingProtocols--
 				if (pendingProtocols === 0 && !isStale()) {
-					set({ isLoadingPositions: false, isRefreshing: false, positionsDataUpdatedAtMs: Date.now() })
+					set((st) => ({
+						isLoadingPositions: false,
+						isRefreshing: false,
+						...(protocolLoadDegraded
+							? {}
+							: { positionsDataUpdatedAtMs: Date.now() }),
+						onChainReadDegraded: st.onChainReadDegraded || protocolLoadDegraded || lendingLoadDegraded,
+					}))
 					recomputeNetWorth()
 				}
 			}
@@ -540,7 +556,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 			let currentDone = false
 			const onLendingAllDone = () => {
 				if (lendingDone && naviDone && currentDone && !isStale()) {
-					set({ isLoadingLending: false, lendingDataUpdatedAtMs: Date.now() })
+					set((st) => ({
+						isLoadingLending: false,
+						...(lendingLoadDegraded ? {} : { lendingDataUpdatedAtMs: Date.now() }),
+						onChainReadDegraded: st.onChainReadDegraded || lendingLoadDegraded || protocolLoadDegraded,
+					}))
 				}
 			}
 			void afterBalanceRpc(() =>
@@ -554,7 +574,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 			}).catch((e) => {
 				if (!isStale()) {
 					lendingDone = true
-					set({ lendingSnapshot: EMPTY_LEND, lendingError: softRpcUserMessage(toMsg(e)) })
+					const prev = get().lendingSnapshot
+					const keep =
+						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
+					if (keep) lendingLoadDegraded = true
+					set({
+						lendingSnapshot: keep ? prev : EMPTY_LEND,
+						lendingError: softRpcUserMessage(toMsg(e)),
+					})
 					onLendingAllDone()
 				}
 			})
@@ -573,6 +600,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 					const prev = get().naviSnapshot
 					const keep =
 						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
+					if (keep) lendingLoadDegraded = true
 					set({ naviSnapshot: keep ? prev : EMPTY_NAVI_SNAP })
 					onLendingAllDone()
 				}
@@ -590,6 +618,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 					const prev = get().currentSnapshot
 					const keep =
 						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
+					if (keep) lendingLoadDegraded = true
 					set({ currentSnapshot: keep ? prev : EMPTY_CURRENT_SNAP })
 					onLendingAllDone()
 				}
@@ -603,7 +632,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 				runBfMmtEnrichment(positions)
 				onProtocolDone()
 			}).catch((e) => {
-				if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				if (!isStale()) {
+					markProtocolDegraded()
+					set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				}
 				onProtocolDone()
 			})
 
@@ -629,7 +661,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 				runBfMmtEnrichment(toEnrich)
 				onProtocolDone()
 			}).catch((e) => {
-				if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				if (!isStale()) {
+					markProtocolDegraded()
+					set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				}
 				onProtocolDone()
 			})
 
@@ -648,7 +683,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 					])
 					clmm = [...clmmRows, ...dlmmRows]
 				} catch (e) {
-					if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+					if (!isStale()) {
+						markProtocolDegraded()
+						set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+					}
 				}
 				let vaults: OpenPosition[] = []
 				let cetusVaultOk = false
@@ -754,7 +792,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 				}
 				onProtocolDone()
 			}).catch((e) => {
-				if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				if (!isStale()) {
+					markProtocolDegraded()
+					set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				}
 				onProtocolDone()
 			})
 
@@ -806,7 +847,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 				onProtocolDone()
 			},
 			).catch((e) => {
-				if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				if (!isStale()) {
+					markProtocolDegraded()
+					set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				}
 				onProtocolDone()
 			})
 
@@ -815,7 +859,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 				upsertProtocolPositions('aftermath', positions)
 				onProtocolDone()
 			}).catch((e) => {
-				if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				if (!isStale()) {
+					markProtocolDegraded()
+					set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				}
 				onProtocolDone()
 			})
 

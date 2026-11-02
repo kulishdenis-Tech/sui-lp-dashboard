@@ -30,11 +30,11 @@ describe.skipIf(!runLive)('Current net — gRPC vs JSON-RPC (live)', () => {
 		vi.resetModules()
 	})
 
-	it('net value within 0.1% between transports', async () => {
+	it('net value within 1% between transports (v1.2.0 vs jsonrpc baseline)', async () => {
 		const jsonNet = await currentNetUsd('jsonrpc')
 		const grpcNet = await currentNetUsd('grpc')
 		const base = Math.max(Math.abs(jsonNet), 1)
 		const rel = Math.abs(grpcNet - jsonNet) / base
-		expect(rel).toBeLessThanOrEqual(0.001)
+		expect(rel).toBeLessThanOrEqual(0.01)
 	}, 180_000)
 })

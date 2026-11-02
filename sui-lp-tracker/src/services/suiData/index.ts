@@ -9,6 +9,7 @@ export {
 	PUBLICNODE_PUBLIC_GRPC_URL,
 	MYSTEN_PUBLIC_GRAPHQL_URL,
 	BLOCKVISION_GRPC_WEB_URL,
+	resolvePublicGrpcEndpoints,
 	resolveSuiDataTransport,
 	resolveSuiGrpcUrl,
 	resolveSuiGraphqlUrl,
