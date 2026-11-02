@@ -15,6 +15,7 @@ import {
 	getPortfolioReadRpcSource,
 	resetPortfolioReadRpcSource,
 } from '@/services/portfolioReadRpcSource'
+import { getLastPublicNodeGrpcFailureReason } from '@/services/grpcEndpointHealth'
 
 /** Hardcoded advisor wallet (read-only). */
 const ADVISOR_WALLET =
@@ -288,7 +289,10 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 		prices: { SUI: suiPx, DEEP: deepPx },
 	}
 	if (errors.length > 0) state.errors = errors
-	console.log(`[advisor-state] rpcSource: ${state.rpcSource}`)
+	const pnFail = getLastPublicNodeGrpcFailureReason()
+	console.log(
+		`[advisor-state] rpcSource: ${state.rpcSource}${pnFail ? `; publicnode: ${pnFail}` : ''}`,
+	)
 	return state
 	})
 }

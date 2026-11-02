@@ -14,6 +14,14 @@ import {
 import { createDashboardGrpcClient, _resetDashboardGrpcClientForTests } from '@/services/suiData/createGrpcClient'
 import { resolvePublicGrpcEndpoints, resolveSuiDataTransport } from '@/services/suiData/config'
 import {
+	markGrpcEndpointFailed,
+	markGrpcEndpointSuccess,
+	planGrpcEndpointTryOrder,
+	withGrpcAttemptTimeout,
+	_resetGrpcEndpointHealthForTests,
+	getLastPublicNodeGrpcFailureReason,
+} from '@/services/grpcEndpointHealth'
+import {
 	grpcUrlToRpcSource,
 	recordPortfolioReadRpcSource,
 	resetPortfolioReadRpcSource,
@@ -26,6 +34,12 @@ export {
 	resetPortfolioReadRpcSource,
 	recordPortfolioReadRpcSource,
 } from '@/services/portfolioReadRpcSource'
+export {
+	getLastPublicNodeGrpcFailureReason,
+	PORTFOLIO_GRPC_ATTEMPT_TIMEOUT_MS,
+	PORTFOLIO_GRPC_ENDPOINT_COOLDOWN_MS,
+	_resetGrpcEndpointHealthForTests,
+} from '@/services/grpcEndpointHealth'
 
 export function isGrpcTransportFailure(err: unknown): boolean {
 	const msg = err instanceof Error ? err.message : String(err)
@@ -39,33 +53,30 @@ type GrpcEndpointClient = { url: string; client: JsonRpcCompatClient }
 /** Try each gRPC compat client in order before giving up (PublicNode → Mysten). */
 export function wrapGrpcEndpointFailover(endpoints: GrpcEndpointClient[]): JsonRpcCompatClient {
 	if (endpoints.length === 0) return getJsonRpcCompatClient()
-	let activeIndex = 0
-
-	const pick = (): GrpcEndpointClient =>
-		endpoints[Math.min(activeIndex, endpoints.length - 1)]!
+	const urls = endpoints.map((e) => e.url)
 
 	return new Proxy(endpoints[0]!.client, {
 		get(_target, prop, receiver) {
-			const ep = pick()
-			if (prop === 'grpc') {
-				return ep.client.grpc
-			}
-			const first = Reflect.get(ep.client as object, prop, receiver)
+			const first = Reflect.get(endpoints[0]!.client as object, prop, receiver)
 			if (typeof first !== 'function') return first
 			return async (...args: unknown[]) => {
 				let lastErr: unknown
-				for (let i = activeIndex; i < endpoints.length; i++) {
+				const order = planGrpcEndpointTryOrder(endpoints.length, urls)
+				for (const i of order) {
 					const { url, client } = endpoints[i]!
 					const fn = Reflect.get(client as object, prop, receiver)
 					if (typeof fn !== 'function') continue
 					try {
-						const out = await (fn as (...a: unknown[]) => unknown).apply(client, args)
-						activeIndex = i
+						const out = await withGrpcAttemptTimeout(() =>
+							(fn as (...a: unknown[]) => unknown).apply(client, args),
+						)
+						markGrpcEndpointSuccess(i)
 						recordPortfolioReadRpcSource(grpcUrlToRpcSource(url))
 						return out
 					} catch (e) {
 						lastErr = e
 						if (!isGrpcTransportFailure(e)) throw e
+						markGrpcEndpointFailed(url, e)
 					}
 				}
 				throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
@@ -148,6 +159,7 @@ export function getPortfolioReadSuiClient(): SuiJsonRpcClient {
 export function _resetPortfolioReadSuiClientForTests(): void {
 	shared = null
 	resetPortfolioReadRpcSource()
+	_resetGrpcEndpointHealthForTests()
 	_resetJsonRpcCompatClientForTests()
 	_resetDashboardGrpcClientForTests()
 }
@@ -161,4 +173,40 @@ export function createPortfolioReadSuiClientForcedTransport(
 		return getDashboardSuiClient()
 	}
 	return wrapPortfolioReadWithJsonRpcFallback(createGrpcCompatStack())
+}
+
+/**
+ * Simulate PublicNode unavailable: measure many reads stay under budget (cooldown + timeout).
+ * Used by unit tests — not a live network call.
+ */
+export async function simulatePortfolioReadWithDeadPrimaryEndpoint(
+	callCount: number,
+): Promise<{ elapsedMs: number; primaryAttempts: number; backupAttempts: number }> {
+	_resetGrpcEndpointHealthForTests()
+	let primaryAttempts = 0
+	let backupAttempts = 0
+	const deadUrl = 'https://sui-grpc.publicnode.com:443'
+	const liveUrl = 'https://fullnode.mainnet.sui.io'
+	const dead = {
+		getObject: async () => {
+			primaryAttempts++
+			await new Promise((r) => setTimeout(r, 60_000))
+			throw new Error('fetch failed')
+		},
+	}
+	const live = {
+		getObject: async () => {
+			backupAttempts++
+			return { data: { objectId: '0x1' } }
+		},
+	}
+	const wrapped = wrapGrpcEndpointFailover([
+		{ url: deadUrl, client: dead as never },
+		{ url: liveUrl, client: live as never },
+	])
+	const t0 = performance.now()
+	for (let i = 0; i < callCount; i++) {
+		await wrapped.getObject({ id: '0x1' })
+	}
+	return { elapsedMs: performance.now() - t0, primaryAttempts, backupAttempts }
 }
