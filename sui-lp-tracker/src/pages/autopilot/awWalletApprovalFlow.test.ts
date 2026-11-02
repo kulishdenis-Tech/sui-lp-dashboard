@@ -5,6 +5,7 @@ import {
 	type AutoWithdrawRule,
 } from '@autopilot/engine'
 import {
+	acceptPrepareFailureMessage,
 	assertPostWalletSubmitAllowed,
 	createFrozenAwSignContext,
 	createSubmitOnceGate,
@@ -203,5 +204,12 @@ describe('submit once gate + completion', () => {
 
 	it('wallet reject copy does not claim submit', () => {
 		expect(walletRejectMessage()).toMatch(/No transaction was sent/)
+	})
+
+	it('expired wallet session is named instead of a generic prepare failure', () => {
+		expect(acceptPrepareFailureMessage({ code: 'AUTH_REQUIRED', message: 'wallet auth required' })).toMatch(
+			/session expired/i,
+		)
+		expect(acceptPrepareFailureMessage({ message: 'Rule revision or cycle changed.' })).toMatch(/revision/)
 	})
 })

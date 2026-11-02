@@ -579,6 +579,7 @@ export async function acceptWithdrawOnServer(rule: AutoWithdrawRule, acceptNonce
 	const body = (await r.json().catch(() => ({}))) as {
 		ok?: boolean
 		message?: string
+		error?: string
 		code?: string
 		progress?: string[]
 		rule?: AutoWithdrawRule
@@ -598,10 +599,16 @@ export async function acceptWithdrawOnServer(rule: AutoWithdrawRule, acceptNonce
 		write(all)
 		markRuleSynced(saved.positionId, true)
 	}
+	const serverText =
+		typeof body.message === 'string' && body.message.trim()
+			? body.message
+			: typeof body.error === 'string' && body.error.trim()
+				? body.error
+				: undefined
 	return {
 		ok: body.ok === true,
-		message: body.message,
-		code: body.code,
+		message: serverText,
+		code: body.code ?? (r.status === 401 ? 'AUTH_REQUIRED' : undefined),
 		progress: body.progress,
 		rule: body.rule,
 		preview: body.preview,

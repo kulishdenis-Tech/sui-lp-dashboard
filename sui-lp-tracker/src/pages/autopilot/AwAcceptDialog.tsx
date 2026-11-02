@@ -15,6 +15,7 @@ import { getDashboardGrpcClient } from '@/services/suiData'
 import {
 	acceptWithdrawOnServer,
 	cancelWithdrawOnServer,
+	clearAwAuth,
 	ensureAwAuth,
 	fetchServerRules,
 	getAutoWithdrawRule,
@@ -27,8 +28,8 @@ import { evaluateSignGate } from './walletGate'
 import { signWithTimeout } from './signWithTimeout'
 import { classifyTxResult, previewActionAllowed } from './previewTxOutcome'
 import {
+	acceptPrepareFailureMessage,
 	assertPostWalletSubmitAllowed,
-	conditionGoneMessage,
 	createFrozenAwSignContext,
 	createSubmitOnceGate,
 	unknownOutcomeMessage,
@@ -200,23 +201,21 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 		}
 		setBusy(true)
 		setPhase('progress')
-		setProgress(['Preparing the withdrawal…'])
+		setProgress(['Preparing…'])
 		setMessage(null)
 
-		const prepared = await withAuth(() => acceptWithdrawOnServer(current))
+		let prepared = await withAuth(() => acceptWithdrawOnServer(current))
+		if (prepared && !prepared.ok && prepared.code === 'AUTH_REQUIRED') {
+			clearAwAuth()
+			prepared = await withAuth(() => acceptWithdrawOnServer(current))
+		}
 		if (!prepared) {
 			setBusy(false)
 			return
 		}
-		pushProgress('Waiting for Wallet…')
 
 		if (!prepared.ok || !prepared.walletApprovalRequired) {
-			setMessage(
-				prepared.message ??
-					(prepared.code === 'condition_not_met' || prepared.code === 'recheck_failed'
-						? conditionGoneMessage()
-						: 'Accept could not prepare the withdrawal.'),
-			)
+			setMessage(acceptPrepareFailureMessage(prepared))
 			setPhase('result')
 			setBusy(false)
 			if (prepared.rule) {
@@ -230,6 +229,8 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 			}
 			return
 		}
+
+		pushProgress('Waiting for Wallet…')
 
 		const tx = (prepared.unsignedTx ?? prepared.preview ?? {}) as Record<string, unknown>
 		const txBytesBase64 = String(tx.txBytesBase64 ?? '')
@@ -585,7 +586,11 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 				) : phase === 'progress' || phase === 'result' ? (
 					<>
 						<h2 id="aw-accept-title" className="font-[Syne] text-lg text-slate-100">
-							{phase === 'progress' ? 'Accept & Withdraw' : 'Completed'}
+							{progress.includes('Completed')
+								? 'Completed'
+								: phase === 'result'
+									? 'Could not withdraw'
+									: 'Accept & Withdraw'}
 						</h2>
 						<WithdrawAmounts lines={receiveLines} usd={hint?.expectedUsd} />
 						<ol className="mt-3 space-y-1 text-sm text-slate-300">
@@ -602,11 +607,17 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 									type="button"
 									className="min-h-10 rounded-md border border-slate-600 px-3 text-sm text-slate-300"
 									onClick={() => {
-										setDismissedIds((s) => new Set(s).add(current.positionId.toLowerCase()))
-										advanceOrClose()
+										if (progress.includes('Completed')) {
+											setDismissedIds((s) => new Set(s).add(current.positionId.toLowerCase()))
+											advanceOrClose()
+											return
+										}
+										setPhase('proposal')
+										setProgress([])
+										setMessage(null)
 									}}
 								>
-									Close Panel
+									{progress.includes('Completed') ? 'Close Panel' : 'Back'}
 								</button>
 							</div>
 						) : null}

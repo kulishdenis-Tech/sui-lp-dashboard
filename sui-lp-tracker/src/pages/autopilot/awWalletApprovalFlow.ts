@@ -206,6 +206,22 @@ export function conditionGoneMessage(): string {
 	return 'The withdrawal condition is no longer met. No transaction was sent.'
 }
 
+/** Shown when Accept returns before a wallet signature. Prefers a real server message. */
+export function acceptPrepareFailureMessage(input: {
+	message?: string | null
+	code?: string | null
+}): string {
+	if (input.code === 'AUTH_REQUIRED') {
+		return 'Wallet session expired. Approve the login message, then confirm the withdrawal.'
+	}
+	const text = input.message?.trim()
+	if (text) return text
+	if (input.code === 'condition_not_met' || input.code === 'recheck_failed') {
+		return conditionGoneMessage()
+	}
+	return 'Accept could not prepare the withdrawal.'
+}
+
 export function unknownOutcomeMessage(): string {
 	return 'The withdrawal was not confirmed. Watching stays on until liquidity is actually zero.'
 }
