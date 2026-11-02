@@ -16,6 +16,9 @@ describe('lpLifecycle', () => {
 		expect(
 			isEmptyLpPosition({ liquidity: '100', lifecycleStatus: 'active' }),
 		).toBe(false)
+		expect(
+			isEmptyLpPosition({ liquidity: '0', lifecycleStatus: 'active' }),
+		).toBe(true)
 	})
 
 	it('does not invent claimable USD from missing fields', () => {

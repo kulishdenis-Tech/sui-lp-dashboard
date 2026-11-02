@@ -109,6 +109,17 @@ describe('overviewMetrics', () => {
 		expect(range.active).toBe(2)
 	})
 
+	it('confirmed zero liquidity stays out of the active denominator', () => {
+		const range = computeLpRangeCounts([
+			pos({ id: 'drained', liquidity: '0', lifecycleStatus: 'active', status: 'in_range' }),
+			pos({ id: 'live', status: 'in_range' }),
+		])
+		expect(range.empty).toBe(1)
+		expect(range.active).toBe(1)
+		expect(range.inRange).toBe(1)
+		expect(range.inRangeLabel).toBe('1 of 1 active LPs in range · 1 empty')
+	})
+
 	it('separates empty from active and does not count unknown as out-of-range', () => {
 		const positions = [
 			pos({ id: 'a', status: 'in_range' }),
@@ -120,7 +131,7 @@ describe('overviewMetrics', () => {
 		expect(range.empty).toBe(1)
 		expect(range.inRange).toBe(1)
 		expect(range.outOfRange).toBe(1)
-		expect(range.inRangeLabel).toBe('1 of 2 active LPs in range')
+		expect(range.inRangeLabel).toBe('1 of 2 active LPs in range · 1 empty')
 		expect(range.above + range.below).toBe(range.outOfRange)
 	})
 
@@ -286,7 +297,7 @@ describe('overviewMetrics', () => {
 		expect(range.inRange + range.nearEdge + range.above + range.below + range.unknownRange).toBe(
 			range.active,
 		)
-		expect(range.inRangeLabel).toBe('2 of 2 active LPs in range')
+		expect(range.inRangeLabel).toBe('1 of 2 active LPs in range · 1 near')
 	})
 
 	it('cascade Mixed when members disagree Above vs Below', () => {

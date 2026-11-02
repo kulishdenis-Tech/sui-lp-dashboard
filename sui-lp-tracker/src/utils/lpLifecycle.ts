@@ -31,13 +31,14 @@ export function isUnknownLiquidity(liquidity: string | null | undefined): boolea
  * Empty = position NFT still owned, principal liquidity is confirmed zero.
  * Not the same as Closed (object burned / confirmed close event).
  * Unknown / malformed liquidity is not Empty.
+ * A confirmed zero beats a stale `active` lifecycle stamp so the row
+ * stays out of the active-LP denominator.
  */
 export function isEmptyLpPosition(
 	p: Pick<OpenPosition, 'liquidity' | 'lifecycleStatus'>,
 ): boolean {
-	if (p.lifecycleStatus === 'empty') return true
-	if (p.lifecycleStatus === 'active') return false
-	return liquidityRawState(p.liquidity) === 'zero'
+	if (liquidityRawState(p.liquidity) === 'zero') return true
+	return p.lifecycleStatus === 'empty'
 }
 
 export function resolveLifecycleStatus(liquidity: string): 'active' | 'empty' | 'unknown' {

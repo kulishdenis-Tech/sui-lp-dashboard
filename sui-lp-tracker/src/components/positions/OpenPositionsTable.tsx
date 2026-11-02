@@ -50,6 +50,7 @@ import { CascadeManageMenu } from '@/pages/autopilot/CascadeManageMenu'
 import { AwAcceptDialog } from '@/pages/autopilot/AwAcceptDialog'
 import { groupRememberedCascades } from '@/pages/autopilot/groupRememberedCascades'
 import { isEmptyLpPosition } from '@/utils/lpLifecycle'
+import { classifyLpBand } from '@/pages/overviewLab/overviewMetrics'
 import { rangeBarToneForCascade } from '@/utils/rangeBarTone'
 import { getAutoWithdrawRule } from '@/pages/autopilot/autoWithdrawStore'
 import { directionTooltip, rowStatusLabel } from '@autopilot/engine'
@@ -611,7 +612,8 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 						const aprAvg = agg.aprPct
 						const activeMembers = g.members.filter((m) => !isEmptyLpPosition(m))
 						const emptyMemberCount = g.members.length - activeMembers.length
-						const inRangeCount = activeMembers.filter((m) => m.status === 'in_range').length
+						const inRangeCount = activeMembers.filter((m) => classifyLpBand(m) === 'in').length
+						const nearCount = activeMembers.filter((m) => classifyLpBand(m) === 'near').length
 						const activeCount = activeMembers.length
 						const watchingCount = g.members.filter((m) => {
 							const r = getAutoWithdrawRule(m.id)
@@ -771,6 +773,7 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 										{activeCount > 0
 											? `${inRangeCount}/${activeCount} active LP in range`
 											: 'No active LP'}
+										{nearCount > 0 ? ` · ${nearCount} near` : ''}
 										{emptyMemberCount > 0
 											? ` · ${emptyMemberCount} empty`
 											: ''}

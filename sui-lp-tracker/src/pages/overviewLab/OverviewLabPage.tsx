@@ -36,6 +36,8 @@ import {
 	formatSharePct,
 	type CascadeBand,
 } from '@/pages/overviewLab/overviewMetrics'
+import { buildOverviewRiskRows } from '@/pages/overviewLab/overviewRisk'
+import { OverviewRiskStrip } from '@/pages/overviewLab/OverviewRiskStrip'
 import {
 	buildLendingAttentionItems,
 	buildLpAttentionItems,
@@ -278,7 +280,7 @@ export function OverviewLabPage() {
 				c.unknown += 1
 				continue
 			}
-			if (b === 'near' || b === 'in') c.in += 1
+			if (b === 'in') c.in += 1
 			if (b === 'near') c.near += 1
 			if (b === 'above') c.above += 1
 			if (b === 'below') c.below += 1
@@ -319,7 +321,7 @@ export function OverviewLabPage() {
 				if (lpFilter === 'all') return b !== 'empty' // Unknown stays; Empty has its own filter
 				if (lpFilter === 'empty') return b === 'empty'
 				if (lpFilter === 'unknown') return b === 'unknown'
-				if (lpFilter === 'in') return b === 'in' || b === 'near'
+				if (lpFilter === 'in') return b === 'in'
 				if (lpFilter === 'near') return b === 'near'
 				if (lpFilter === 'above') return b === 'above'
 				if (lpFilter === 'below') return b === 'below'
@@ -405,6 +407,10 @@ export function OverviewLabPage() {
 		(lendingDebt ?? 0) > 0 && healthByProtocol.length > 0
 			? healthByProtocol.reduce((a, b) => (a.hf <= b.hf ? a : b))
 			: null
+	const riskRows = useMemo(
+		() => buildOverviewRiskRows(currentSnapshot, openPositions),
+		[currentSnapshot, openPositions],
+	)
 
 	const goLending = () => {
 		setActiveTab('lending')
@@ -460,6 +466,8 @@ export function OverviewLabPage() {
 					Partial load — {lastLoadError ?? walletBalancesError}
 				</div>
 			) : null}
+
+			<OverviewRiskStrip rows={riskRows} hideAmounts={hideAmounts} />
 
 			{/* Hero: Net Worth + history chart | KPIs → Value Change → Range */}
 			<div className="overview-lab__hero-row grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">

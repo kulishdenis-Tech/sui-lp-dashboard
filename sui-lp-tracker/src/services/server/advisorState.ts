@@ -8,6 +8,7 @@ import { loadAllPortfolioLpSources } from '@/services/portfolioLpSources'
 import { getUsdPerTokenAtTimestamp } from '@/services/priceService'
 import { coingeckoIdForSymbol, coingeckoSimpleBatch } from '@/services/spotPrice/coingecko24hBatch'
 import { clmmRangeFromOpenPosition } from '@/utils/tickPriceRange'
+import { classifyLpBand } from '@/pages/overviewLab/overviewMetrics'
 import { NATIVE_SUI_COIN_TYPE, normalizeCoinTypeForMatch } from '@/utils/suiCoinType'
 import { mapPool } from '@/utils/concurrency'
 import type { BorrowPosition, LendingSnapshot, OpenPosition, SupplyPosition } from '@/types'
@@ -258,7 +259,7 @@ function mapLpPosition(
 		pair: p.pair,
 		rangeLower: range ? range.priceMin : p.tickLower,
 		rangeUpper: range ? range.priceMax : p.tickUpper,
-		inRange: p.status === 'in_range',
+		inRange: classifyLpBand(p) === 'in',
 		tokenAAmount: p.tokenAAmount,
 		tokenBAmount: p.tokenBAmount,
 		tokenA: p.tokenA,

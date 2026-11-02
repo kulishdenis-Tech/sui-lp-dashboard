@@ -10,7 +10,7 @@
  * | Unclaimed | aggregateOpenMetrics | Σ complete unclaimed fee+reward | live positions | Partial; NOT added again to NW |
  * | Net Lending | merged Alpha+Navi+Current | Σ netValueUSD | loadAll lending | per-protocol errors → stale |
  * | Active LPs | isEmptyLpPosition | count !empty | openPositions | empty counted separately |
- * | In Range | status === in_range among active | "N of M active" | openPositions | unknown status excluded from both |
+ * | In Range | classifyLpBand === in | "N of M active"; Near and Empty are separate | openPositions | empty excluded from the active denominator |
  * | Capital Allocation | netWorth parts | Wallet / LP / Lending (place of capital) | same as NW | % of known sum |
  * | Token Exposure | wallet + LP underlyings + lending supplies | Σ by symbol; debt separate | prices | Unknown bucket; no fake 100% |
  * | Fees Earned | lifetime earnings when history enriched | only if coverage complete enough | positionEvents | else unavailable |
@@ -481,8 +481,8 @@ export function computeLpRangeCounts(positions: OpenPosition[]): LpRangeCounts {
 		else unknownRange += 1
 	}
 	const outOfRange = above + below
-	/** Near Edge ⊂ In Range for the headline count. */
-	const inRangeInclusive = inRange + nearEdge
+	const nearPart = nearEdge > 0 ? ` · ${nearEdge} near` : ''
+	const emptyPart = empty > 0 ? ` · ${empty} empty` : ''
 	return {
 		active,
 		empty,
@@ -494,8 +494,10 @@ export function computeLpRangeCounts(positions: OpenPosition[]): LpRangeCounts {
 		unknownRange,
 		inRangeLabel:
 			active > 0
-				? `${inRangeInclusive} of ${active} active LPs in range`
-				: 'No active LPs',
+				? `${inRange} of ${active} active LPs in range${nearPart}${emptyPart}`
+				: empty > 0
+					? `No active LPs${emptyPart}`
+					: 'No active LPs',
 	}
 }
 
