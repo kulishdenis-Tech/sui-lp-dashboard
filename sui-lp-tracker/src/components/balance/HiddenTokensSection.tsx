@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ClassifiedTokenBalance } from '@/types'
-import { formatUSD } from '@/utils/formatting'
+import { formatHoldingUsd } from '@/utils/formatting'
 import { SUISCAN_COIN } from '@/utils/constants'
 import Decimal from 'decimal.js'
 import { HIDE_BALANCE_VALUE_BELOW_USD, MIN_UNVERIFIED_VALUE_USD } from '@/utils/constants'
@@ -83,7 +83,7 @@ export function HiddenTokensSection({
 										{fmtBal(t)} {t.symbol}
 									</td>
 									<td className="py-1 pl-2 text-right font-mono text-slate-500">
-										{formatUSD(t.valueUSD)}
+										{formatHoldingUsd(t)}
 									</td>
 									<td
 										className="max-w-[140px] truncate py-1 pl-1 text-slate-600"

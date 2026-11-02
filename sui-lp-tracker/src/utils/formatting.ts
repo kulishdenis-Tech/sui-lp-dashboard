@@ -66,6 +66,18 @@ export function formatUSDAdaptive(n: number | null | undefined): string {
 	return formatUSD(v, Math.abs(v) >= 1_000 ? 0 : 2)
 }
 
+/** A balance with no spot price is unpriced, not a silent $0. A real zero balance stays $0. */
+export function formatHoldingUsd(holding: {
+	humanBalance: number
+	priceUSD: number | null
+	valueUSD: number
+}): string {
+	const priced =
+		holding.priceUSD != null && Number.isFinite(holding.priceUSD) && holding.priceUSD > 0
+	if (holding.humanBalance > 0 && !priced) return 'unpriced'
+	return formatUSD(holding.valueUSD)
+}
+
 /** Format a decimal APR/APY fraction (e.g. 0.0512 → "5.12%"). */
 export function formatPct(n: number | null | undefined, digits = 2): string {
 	const v = asFiniteNumber(n)

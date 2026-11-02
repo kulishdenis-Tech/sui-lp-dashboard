@@ -1,5 +1,5 @@
 import type { ClassifiedTokenBalance } from '@/types'
-import { formatUSD, shortCoinTypePackage } from '@/utils/formatting'
+import { formatHoldingUsd, formatUSD, shortCoinTypePackage } from '@/utils/formatting'
 import { TooltipIconButton } from '@/components/ui/Tooltip'
 import { TokenStatusBadge } from '@/components/balance/TokenStatusBadge'
 import { TokenIconOkx } from '@/components/positions/TokenIconOkx'
@@ -262,7 +262,7 @@ export function TokenRow({
 				</td>
 				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-300`}>{fmtBalance(t)}</td>
 				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-200`}>
-					{formatUSD(t.valueUSD)}
+					{formatHoldingUsd(t)}
 				</td>
 			</tr>
 			{chartRow}
