@@ -50,3 +50,38 @@ export function protocolTickInRange(
 export function protocolExcludesUpperTick(protocol: string): boolean {
 	return protocol === 'cetus' || protocol === 'bluefin'
 }
+
+export type ClmmTickSide = 'in' | 'above' | 'below'
+
+/**
+ * One band for Overview, the range bar, and advisor.
+ * Cetus and Bluefin keep both coins while `lower <= current < upper`.
+ * A Cetus stablecoin swap stores negated ticks for the price display only:
+ * that same contract band is `lower < current <= upper` on the stored ticks,
+ * and Above/Below stay the raw-tick sides.
+ * A missing protocol keeps the half-open band the range strip already used.
+ */
+export function clmmTickBand(input: {
+	protocol?: string
+	currentTick: number
+	tickLower: number
+	tickUpper: number
+	cetusSwapped?: boolean
+}): ClmmTickSide | null {
+	const { currentTick, tickLower, tickUpper } = input
+	if (![currentTick, tickLower, tickUpper].every((tick) => Number.isFinite(tick))) return null
+	const lower = Math.min(tickLower, tickUpper)
+	const upper = Math.max(tickLower, tickUpper)
+	if (input.cetusSwapped) {
+		if (currentTick > lower && currentTick <= upper) return 'in'
+		return currentTick <= lower ? 'above' : 'below'
+	}
+	const halfOpen =
+		input.protocol == null || input.protocol === 'cetus' || input.protocol === 'bluefin'
+	if (halfOpen) {
+		if (currentTick >= lower && currentTick < upper) return 'in'
+		return currentTick >= upper ? 'above' : 'below'
+	}
+	if (currentTick >= lower && currentTick <= upper) return 'in'
+	return currentTick > upper ? 'above' : 'below'
+}

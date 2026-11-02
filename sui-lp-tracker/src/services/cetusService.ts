@@ -883,14 +883,15 @@ export async function getCetusPositions(
 		p.currentPriceB_USD = a.currentPriceA_USD
 		p.unclaimedFeeA = a.unclaimedFeeB
 		p.unclaimedFeeB = a.unclaimedFeeA
-		// Tick axis inverts when token order swaps: lower → −upper, upper → −lower
+		// Price display uses the inverted tick axis. The contract band stays on the
+		// raw ticks: tickLower <= current < tickUpper. Negating first would turn
+		// that into lower < tick <= upper and swap the two bounds.
+		const rawInRange = cetusTickInRange(a.currentTick, a.tickLower, a.tickUpper)
 		p.tickLower = -a.tickUpper
 		p.tickUpper = -a.tickLower
 		p.currentTick = -a.currentTick
 		p.currentSqrtPrice = invertedSq
-		p.status = cetusTickInRange(p.currentTick, -a.tickUpper, -a.tickLower)
-			? 'in_range'
-			: 'out_of_range'
+		p.status = rawInRange ? 'in_range' : 'out_of_range'
 		// Mark as swapped so appStore uses original decimals for event parsing
 		p.cetusSwapped = true
 		// Recompute pair label with normalised order

@@ -234,6 +234,33 @@ describe('overviewMetrics', () => {
 		expect(counts.inRangeLabel).toBe('1 of 1 active LPs in range')
 	})
 
+	it('an inverted Cetus pool is in at the raw lower tick and out at the raw upper tick', () => {
+		const swapped = {
+			cetusSwapped: true,
+			tickLower: -70500,
+			tickUpper: -70200,
+			currentSqrtPrice: '0',
+			priceRangeOverride: undefined,
+		}
+		const atLower = pos({
+			...swapped,
+			id: 'inverted-lower',
+			currentTick: -70200,
+			status: 'out_of_range',
+		})
+		const atUpper = pos({
+			...swapped,
+			id: 'inverted-upper',
+			currentTick: -70500,
+			status: 'in_range',
+		})
+		expect(classifyLpBand(atLower)).toBe('in')
+		expect(classifyPositionRangeEdge(atLower).kind).toBe('in_range')
+		expect(classifyLpBand(atUpper)).toBe('above')
+		expect(classifyPositionRangeEdge(atUpper)).toMatchObject({ kind: 'out_of_range', side: 'Above' })
+		expect(computeLpRangeCounts([atLower, atUpper]).inRangeLabel).toBe('1 of 2 active LPs in range')
+	})
+
 	it('tick equal to tickUpper is outside for Cetus and Bluefin', () => {
 		const cetus = pos({
 			id: 'cetus-upper',

@@ -32,7 +32,7 @@ import {
 	type MetricCoverage,
 } from '@/utils/aggregateOpenMetrics'
 import { isEmptyLpPosition } from '@/utils/lpLifecycle'
-import { protocolExcludesUpperTick, protocolTickInRange } from '@/utils/clmmTickBounds'
+import { clmmTickBand } from '@/utils/clmmTickBounds'
 import { isCurrentMultiplyVaultPosition } from '@/utils/currentMultiplyVault'
 import { isCetusVaultPosition } from '@/utils/cetusVault'
 import {
@@ -582,18 +582,24 @@ export function classifyPositionRangeEdge(p: OpenPosition): NearEdgeResult {
 	if (!range) return { kind: 'unknown' }
 	const { pctMinVsCurrent, pctMaxVsCurrent } = rangeEdgePctVsCurrent(range)
 	const ticksKnown = [p.tickLower, p.tickUpper, p.currentTick].every((n) => Number.isFinite(n))
-	const tickInside =
-		ticksKnown &&
-		p.priceRangeOverride == null &&
-		protocolTickInRange(p.protocol, p.currentTick, p.tickLower, p.tickUpper)
-	if (ticksKnown && p.priceRangeOverride == null && !tickInside) {
-		const upper = Math.max(p.tickLower, p.tickUpper)
-		const above = protocolExcludesUpperTick(p.protocol)
-			? p.currentTick >= upper
-			: p.currentTick > upper
+	const tickBand =
+		ticksKnown && p.priceRangeOverride == null
+			? clmmTickBand({
+					protocol: p.protocol,
+					currentTick: p.currentTick,
+					tickLower: p.tickLower,
+					tickUpper: p.tickUpper,
+					cetusSwapped: p.cetusSwapped,
+				})
+			: null
+	const tickInside = tickBand === 'in'
+	if (tickBand != null && tickBand !== 'in') {
+		const above = tickBand === 'above'
 		const side: 'Above' | 'Below' = above ? 'Above' : 'Below'
-		const boundPrice = above ? range.priceMax : range.priceMin
-		const distancePct = above ? Math.abs(pctMaxVsCurrent) : Math.abs(pctMinVsCurrent)
+		// Swapped ticks flip the price axis, so the raw upper side sits on the displayed min.
+		const priceOnMax = p.cetusSwapped ? !above : above
+		const boundPrice = priceOnMax ? range.priceMax : range.priceMin
+		const distancePct = priceOnMax ? Math.abs(pctMaxVsCurrent) : Math.abs(pctMinVsCurrent)
 		return {
 			kind: 'out_of_range',
 			side,
