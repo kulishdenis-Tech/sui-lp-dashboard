@@ -1,12 +1,15 @@
 /**
  * SuiData facade — hybrid gRPC (live reads) + GraphQL (events / affectedObject).
- * Default transport is Mysten public (no API key). Optional BlockVision via env.
+ * Default transport is PublicNode gRPC (no API key) + Mysten GraphQL for events.
+ * Optional BlockVision via env.
  */
 
 export {
 	MYSTEN_PUBLIC_GRPC_URL,
+	PUBLICNODE_PUBLIC_GRPC_URL,
 	MYSTEN_PUBLIC_GRAPHQL_URL,
 	BLOCKVISION_GRPC_WEB_URL,
+	resolvePublicGrpcEndpoints,
 	resolveSuiDataTransport,
 	resolveSuiGrpcUrl,
 	resolveSuiGraphqlUrl,

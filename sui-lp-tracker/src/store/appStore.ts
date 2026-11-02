@@ -46,6 +46,7 @@ import { classifyAllBalances, sumVisibleWalletUSD } from '@/services/tokenClassi
 import { TURBOS_ENRICH_CONCURRENCY } from '@/utils/constants'
 import { mapPool } from '@/utils/concurrency'
 import { computeNetWorth } from '@/utils/netWorth'
+import { markLendingSnapshotLive, markLendingSnapshotStale } from '@/utils/advisorStalePolicy'
 import type { NetWorthSnapshot } from '@/types'
 
 /** Збільшується кожен `loadAll` — старі відповіді не перезаписують UI. */
@@ -90,6 +91,8 @@ interface AppState {
 	lendingDataUpdatedAtMs: number | null
 	/** Last successful open-positions load (all LP protocols). */
 	positionsDataUpdatedAtMs: number | null
+	/** Last refresh kept prior rows after RPC/gRPC failure — show STALE immediately. */
+	onChainReadDegraded: boolean
 	openPositions: OpenPosition[]
 	closedPositions: ClosedPosition[]
 	/** Фонове завантаження закритих LP (не блокує Open tab). */
@@ -184,6 +187,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 	balancesLastUpdated: null,
 	lendingDataUpdatedAtMs: null,
 	positionsDataUpdatedAtMs: null,
+	onChainReadDegraded: false,
 	openPositions: [],
 	closedPositions: [],
 	isLoadingClosed: false,
@@ -307,6 +311,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 				positionsError: null,
 				lendingError: null,
 				lastLoadError: null,
+				onChainReadDegraded: false,
 			})
 			if (!keepExisting) _closedPositionsAddress = null
 
@@ -393,12 +398,30 @@ export const useAppStore = create<AppState>((set, get) => ({
 					],
 					protocol: 'AlphaLend+Navi+Current',
 				}
+				const lendingNetSegments = [
+					{
+						usd: alphaLend.netValueUSD,
+						readStale: alphaLend.readStale,
+						lastSuccessAtMs: alphaLend.lastSuccessAtMs,
+					},
+					{
+						usd: navi.netValueUSD,
+						readStale: navi.readStale,
+						lastSuccessAtMs: navi.lastSuccessAtMs,
+					},
+					{
+						usd: current.netValueUSD,
+						readStale: current.readStale,
+						lastSuccessAtMs: current.lastSuccessAtMs,
+					},
+				]
 				set({
 					netWorth: computeNetWorth(
 						st.tokenBalances,
 						st.openPositions,
 						mergedLending,
 						walletVisibleUSD,
+						lendingNetSegments,
 					),
 				})
 			}
@@ -406,11 +429,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 			// ── Protocol loading counter ──────────────────────────────────────
 			// isLoadingPositions stays true until all 5 protocols have settled.
 			let pendingProtocols = 5
+			let protocolLoadDegraded = false
+			let lendingLoadDegraded = false
+			const markProtocolDegraded = () => {
+				if (keepExisting) protocolLoadDegraded = true
+			}
 
 			const onProtocolDone = () => {
 				pendingProtocols--
 				if (pendingProtocols === 0 && !isStale()) {
-					set({ isLoadingPositions: false, isRefreshing: false, positionsDataUpdatedAtMs: Date.now() })
+					set((st) => ({
+						isLoadingPositions: false,
+						isRefreshing: false,
+						...(protocolLoadDegraded
+							? {}
+							: { positionsDataUpdatedAtMs: Date.now() }),
+						onChainReadDegraded: st.onChainReadDegraded || protocolLoadDegraded || lendingLoadDegraded,
+					}))
 					recomputeNetWorth()
 				}
 			}
@@ -540,7 +575,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 			let currentDone = false
 			const onLendingAllDone = () => {
 				if (lendingDone && naviDone && currentDone && !isStale()) {
-					set({ isLoadingLending: false, lendingDataUpdatedAtMs: Date.now() })
+					set((st) => ({
+						isLoadingLending: false,
+						...(lendingLoadDegraded ? {} : { lendingDataUpdatedAtMs: Date.now() }),
+						onChainReadDegraded: st.onChainReadDegraded || lendingLoadDegraded || protocolLoadDegraded,
+					}))
 				}
 			}
 			void afterBalanceRpc(() =>
@@ -548,13 +587,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 			).then((lend) => {
 				if (isStale()) return
 				lendingDone = true
-				set({ lendingSnapshot: lend })
+				set({ lendingSnapshot: markLendingSnapshotLive(lend) })
 				recomputeNetWorth()
 				onLendingAllDone()
 			}).catch((e) => {
 				if (!isStale()) {
 					lendingDone = true
-					set({ lendingSnapshot: EMPTY_LEND, lendingError: softRpcUserMessage(toMsg(e)) })
+					const prev = get().lendingSnapshot
+					const keep =
+						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
+					if (keep) lendingLoadDegraded = true
+					const lastAt = get().lendingDataUpdatedAtMs ?? undefined
+					set({
+						lendingSnapshot: keep
+							? markLendingSnapshotStale(prev, lastAt)
+							: EMPTY_LEND,
+						lendingError: softRpcUserMessage(toMsg(e)),
+					})
 					onLendingAllDone()
 				}
 			})
@@ -563,7 +612,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 			).then((snap) => {
 				if (isStale()) return
 				naviDone = true
-				set({ naviSnapshot: snap })
+				set({ naviSnapshot: markLendingSnapshotLive(snap) })
 				recomputeNetWorth()
 				onLendingAllDone()
 			}).catch((e) => {
@@ -573,14 +622,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 					const prev = get().naviSnapshot
 					const keep =
 						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
-					set({ naviSnapshot: keep ? prev : EMPTY_NAVI_SNAP })
+					if (keep) lendingLoadDegraded = true
+					const lastAt = get().lendingDataUpdatedAtMs ?? undefined
+					set({ naviSnapshot: keep ? markLendingSnapshotStale(prev, lastAt) : EMPTY_NAVI_SNAP })
 					onLendingAllDone()
 				}
 			})
 			void afterBalanceRpc(() => getCurrentPositions(address)).then((snap) => {
 				if (isStale()) return
 				currentDone = true
-				set({ currentSnapshot: snap })
+				set({ currentSnapshot: markLendingSnapshotLive(snap) })
 				recomputeNetWorth()
 				onLendingAllDone()
 			}).catch((e) => {
@@ -590,7 +641,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 					const prev = get().currentSnapshot
 					const keep =
 						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
-					set({ currentSnapshot: keep ? prev : EMPTY_CURRENT_SNAP })
+					if (keep) lendingLoadDegraded = true
+					const lastAt = get().lendingDataUpdatedAtMs ?? undefined
+					set({
+						currentSnapshot: keep
+							? markLendingSnapshotStale(prev, lastAt)
+							: EMPTY_CURRENT_SNAP,
+					})
 					onLendingAllDone()
 				}
 			})
@@ -603,7 +660,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 				runBfMmtEnrichment(positions)
 				onProtocolDone()
 			}).catch((e) => {
-				if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				if (!isStale()) {
+					markProtocolDegraded()
+					set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				}
 				onProtocolDone()
 			})
 
@@ -629,7 +689,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 				runBfMmtEnrichment(toEnrich)
 				onProtocolDone()
 			}).catch((e) => {
-				if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				if (!isStale()) {
+					markProtocolDegraded()
+					set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				}
 				onProtocolDone()
 			})
 
@@ -648,7 +711,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 					])
 					clmm = [...clmmRows, ...dlmmRows]
 				} catch (e) {
-					if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+					if (!isStale()) {
+						markProtocolDegraded()
+						set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+					}
 				}
 				let vaults: OpenPosition[] = []
 				let cetusVaultOk = false
@@ -754,7 +820,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 				}
 				onProtocolDone()
 			}).catch((e) => {
-				if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				if (!isStale()) {
+					markProtocolDegraded()
+					set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				}
 				onProtocolDone()
 			})
 
@@ -806,7 +875,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 				onProtocolDone()
 			},
 			).catch((e) => {
-				if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				if (!isStale()) {
+					markProtocolDegraded()
+					set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				}
 				onProtocolDone()
 			})
 
@@ -815,7 +887,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 				upsertProtocolPositions('aftermath', positions)
 				onProtocolDone()
 			}).catch((e) => {
-				if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				if (!isStale()) {
+					markProtocolDegraded()
+					set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				}
 				onProtocolDone()
 			})
 

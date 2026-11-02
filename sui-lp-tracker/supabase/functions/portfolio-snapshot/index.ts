@@ -1,7 +1,7 @@
 ﻿import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-/** Skip dispatch when a snapshot landed recently (local writer or prior GHA). */
+/** Skip dispatch when a snapshot landed recently (local writer or prior GHA). GHA skips incomplete upserts. */
 const MIN_INTERVAL_MS = 90 * 60 * 1000;
 
 type Json = Record<string, unknown>;

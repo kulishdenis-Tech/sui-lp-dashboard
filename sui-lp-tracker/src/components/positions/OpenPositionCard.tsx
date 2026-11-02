@@ -32,7 +32,12 @@ export function OpenPositionCard({ p, filter }: { p: OpenPosition; filter: strin
 				<div className="text-right text-sm text-slate-200">
 					<div className="text-lg font-mono text-slate-100">{formatUSD(positionValueUsd(p))}</div>
 					<div className="text-[10px] uppercase text-slate-500">Value (Liquidity + unclaimed)</div>
-					<DataFreshnessHint updatedAtMs={positionsUpdatedAtMs} className="justify-end" />
+					<DataFreshnessHint
+						updatedAtMs={positionsUpdatedAtMs}
+						stale={p.readStale === true}
+						lastSuccessAtMs={p.lastSuccessAtMs}
+						className="justify-end"
+					/>
 				</div>
 			</div>
 			<div className="mb-2 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">

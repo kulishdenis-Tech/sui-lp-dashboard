@@ -6,6 +6,7 @@
 import { extFetchUrl } from '@/utils/externalFetchUrl'
 import { resolveBlockvisionApiKey, resolveSuiGraphqlUrl } from '@/services/suiData/config'
 import { withSuiDataThrottle } from '@/services/suiData/throttle'
+import { recordSuiRead } from '@/services/suiReadProfiler'
 
 export type GraphqlResponse<T> = {
 	data?: T
@@ -28,6 +29,7 @@ export async function suiGraphqlRequest<T>(
 	variables?: Record<string, unknown>,
 ): Promise<T> {
 	return withSuiDataThrottle(async () => {
+		recordSuiRead('graphql')
 		const apiKey = resolveBlockvisionApiKey()
 		const headers: Record<string, string> = { 'content-type': 'application/json' }
 		if (apiKey) headers['x-api-key'] = apiKey

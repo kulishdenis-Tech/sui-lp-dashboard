@@ -37,6 +37,7 @@ import {
 	multiplyRiskFromSpot,
 	parseRawIntegerAmount,
 } from '@/utils/currentMultiplyVault'
+import { advisorWalletCacheKey } from '@/services/server/advisorWalletCacheKey'
 import { Transaction } from '@mysten/sui/transactions'
 import { bcs } from '@mysten/sui/bcs'
 
@@ -143,7 +144,35 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 let multiplyListCache: { ts: number; rows: MultiplyVaultRow[] } | null = null
-let multiplyReadGen = 0
+
+const multiplyInFlight = new Map<string, Promise<OpenPosition[]>>()
+const multiplyCacheByWallet = new Map<string, { rows: OpenPosition[]; savedAtMs: number }>()
+
+export function _resetMultiplyReadStateForTests(): void {
+	multiplyInFlight.clear()
+	multiplyCacheByWallet.clear()
+	multiplyListCache = null
+}
+
+/** @internal Seed STALE fallback cache for a single wallet (tests). */
+export function _seedMultiplyCacheForTests(
+	walletAddress: string,
+	rows: OpenPosition[],
+	savedAtMs: number,
+): void {
+	multiplyCacheByWallet.set(advisorWalletCacheKey(walletAddress), { rows, savedAtMs })
+}
+
+function stampMultiplyStale(positions: OpenPosition[], savedAtMs: number): OpenPosition[] {
+	return positions.map((p) => ({
+		...p,
+		readStale: true,
+		lastSuccessAtMs: savedAtMs,
+		currentMultiply: p.currentMultiply
+			? { ...p.currentMultiply, readStale: true, completeness: 'partial' as const }
+			: p.currentMultiply,
+	}))
+}
 
 async function fetchMultiplyList(): Promise<{ rows: MultiplyVaultRow[]; receivedAtMs: number; cacheAgeMs: number }> {
 	const now = Date.now()
@@ -262,14 +291,38 @@ export async function getCurrentMultiplyVaultPositions(
 	walletAddress: string,
 	_opts?: { forceRefreshPrices?: boolean },
 ): Promise<OpenPosition[]> {
-	const gen = ++multiplyReadGen
-	const owner = walletAddress.toLowerCase()
+	const key = advisorWalletCacheKey(walletAddress)
+	const prev = multiplyInFlight.get(key)
+	if (prev) return prev
+
+	const work = loadCurrentMultiplyVaultPositionsOnce(walletAddress, _opts)
+		.then((rows) => {
+			multiplyCacheByWallet.set(key, { rows, savedAtMs: Date.now() })
+			return rows
+		})
+		.catch((e) => {
+			const cached = multiplyCacheByWallet.get(key)
+			if (cached?.rows.length) {
+				console.warn('[current-multiply] refresh failed, serving cached STALE', e)
+				return stampMultiplyStale(cached.rows, cached.savedAtMs)
+			}
+			throw e
+		})
+		.finally(() => {
+			if (multiplyInFlight.get(key) === work) multiplyInFlight.delete(key)
+		})
+
+	multiplyInFlight.set(key, work)
+	return work
+}
+
+async function loadCurrentMultiplyVaultPositionsOnce(
+	walletAddress: string,
+	_opts?: { forceRefreshPrices?: boolean },
+): Promise<OpenPosition[]> {
 	const rows = await getJson<LeverageObligationRow[]>(
 		`/multiply/getLeverageObligationByAddress/${walletAddress}`,
 	)
-	if (gen !== multiplyReadGen || owner !== walletAddress.toLowerCase()) {
-		throw new Error('Stale Current Multiply read')
-	}
 	const apiReceivedAtMs = Date.now()
 	const active = (rows ?? []).filter(
 		(r) => r.lendingObligationId && r.collateralToken && r.debtToken && r.positionState !== false,
@@ -575,6 +628,5 @@ export async function getCurrentMultiplyVaultPositions(
 		})
 	}
 
-	if (gen !== multiplyReadGen) throw new Error('Stale Current Multiply read')
 	return out
 }

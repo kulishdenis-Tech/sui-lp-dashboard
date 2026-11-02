@@ -125,6 +125,16 @@ export function localApiPlugin(): Plugin {
 		configureServer(server) {
 			hydrateViteServerEnv(server.config.mode)
 			process.env.SUI_LP_ADVISOR_DEV_TIMING = '1'
+			void (async () => {
+				try {
+					const warm = await server.ssrLoadModule('/src/services/server/advisorWarmup.ts')
+					const grpc = await server.ssrLoadModule('/src/services/portfolioSuiReadClient.ts')
+					void warm.warmAdvisorReadCaches()
+					void grpc.probePortfolioReadGrpcEndpoints()
+				} catch {
+					/* non-blocking warm-up */
+				}
+			})()
 
 			const handle = async (req: ConnectReq, res: ConnectRes, next: () => void) => {
 				try {

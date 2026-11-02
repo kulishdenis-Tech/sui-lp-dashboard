@@ -13,6 +13,8 @@ import {
 	type PortfolioSnapshot,
 } from '@/services/portfolioSnapshotIdb'
 import { createServerSuiClient } from '@/services/serverSuiClient'
+import { resolveSuiDataTransport } from '@/services/suiData/config'
+import { _resetPortfolioReadSuiClientForTests } from '@/services/portfolioSuiReadClient'
 import { loadAllPortfolioLpSources, type PortfolioLpSourceLoad, type PortfolioLpSourceStatus } from '@/services/portfolioLpSources'
 import type { LendingSnapshot } from '@/types'
 
@@ -66,6 +68,30 @@ export async function loadPortfolioSnapshotForAddress(
 }
 
 export async function loadPortfolioSnapshotDetailed(
+	rawAddress: string,
+): Promise<PortfolioSnapshotResult> {
+	let result = await loadPortfolioSnapshotDetailedOnce(rawAddress)
+	if (result.incomplete && resolveSuiDataTransport() !== 'jsonrpc') {
+		const prev = process.env.SUI_DATA_TRANSPORT
+		const prevVite = process.env.VITE_SUI_DATA_TRANSPORT
+		try {
+			process.env.SUI_DATA_TRANSPORT = 'jsonrpc'
+			process.env.VITE_SUI_DATA_TRANSPORT = 'jsonrpc'
+			_resetPortfolioReadSuiClientForTests()
+			const retry = await loadPortfolioSnapshotDetailedOnce(rawAddress)
+			if (!retry.incomplete) result = retry
+		} finally {
+			if (prev === undefined) delete process.env.SUI_DATA_TRANSPORT
+			else process.env.SUI_DATA_TRANSPORT = prev
+			if (prevVite === undefined) delete process.env.VITE_SUI_DATA_TRANSPORT
+			else process.env.VITE_SUI_DATA_TRANSPORT = prevVite
+			_resetPortfolioReadSuiClientForTests()
+		}
+	}
+	return result
+}
+
+async function loadPortfolioSnapshotDetailedOnce(
 	rawAddress: string,
 ): Promise<PortfolioSnapshotResult> {
 	const walletAddr = normalizeSuiAddress(rawAddress).toLowerCase()

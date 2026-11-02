@@ -24,6 +24,7 @@ import {
 } from '@/config/lendingHealthFactorThresholds'
 import type {
 	BorrowPosition,
+	LendingCashflowUsd,
 	LendingRewardToClaim,
 	LendingSnapshot,
 	SupplyPosition,
@@ -282,10 +283,12 @@ function SupplyRow({
 	s,
 	showLiqPrice,
 	updatedAtMs,
+	metricsLiveStale,
 }: {
 	s: SupplyPosition
 	showLiqPrice: boolean
 	updatedAtMs?: number | null
+	metricsLiveStale?: boolean
 }) {
 	const hasBreakdown = !!s.aprBreakdown
 	const currentPrice =
@@ -344,7 +347,9 @@ function SupplyRow({
 							className="inline-flex cursor-help"
 						>
 							<span
-								className={`underline decoration-dashed decoration-slate-600 underline-offset-2 ${supplyLiqPriceClass(currentPrice, liqPrice)}`}
+								className={`underline decoration-dashed decoration-slate-600 underline-offset-2 ${
+									metricsLiveStale ? 'text-slate-500' : supplyLiqPriceClass(currentPrice, liqPrice)
+								}`}
 							>
 								{formatLiqPrice(liqPrice)}
 							</span>
@@ -532,6 +537,27 @@ function DebtExceedsHint({ segment }: { segment?: ConcentrationSegment }) {
 	)
 }
 
+function CurrentCashflowSummary({ cashflow }: { cashflow: LendingCashflowUsd }) {
+	return (
+		<div className="mb-4 grid gap-2 rounded-lg border border-slate-800/80 bg-slate-900/40 p-3 text-xs sm:grid-cols-3">
+			<div>
+				<span className="text-slate-500">Realized P&amp;L</span>
+				<div className="font-semibold tabular-nums text-slate-200">{formatUSD(cashflow.realizedUSD)}</div>
+			</div>
+			<div>
+				<span className="text-slate-500">Unclaimed rewards</span>
+				<div className="font-semibold tabular-nums text-emerald-400/90">
+					{formatUSD(cashflow.unclaimedRewardsUSD)}
+				</div>
+			</div>
+			<div>
+				<span className="text-slate-500">Total cashflow (v1.1.1)</span>
+				<div className="font-semibold tabular-nums text-slate-200">{formatUSD(cashflow.resultUSD)}</div>
+			</div>
+		</div>
+	)
+}
+
 // ── Single protocol section ────────────────────────────────────────────────
 function ProtocolSection({
 	snapshot,
@@ -567,7 +593,11 @@ function ProtocolSection({
 					<ConcentrationWarning segment={concentrationSegment} />
 					<DebtExceedsHint segment={concentrationSegment} />
 				</div>
-				<DataFreshnessHint updatedAtMs={updatedAtMs ?? null} />
+				<DataFreshnessHint
+					updatedAtMs={updatedAtMs ?? null}
+					stale={snapshot.readStale === true}
+					lastSuccessAtMs={snapshot.lastSuccessAtMs}
+				/>
 			</div>
 			{/* ── Header stats ─────────────────────────────────────────── */}
 			<div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
@@ -597,8 +627,13 @@ function ProtocolSection({
 						valueClass={healthFactorColorClass(
 							snapshot.healthFactor,
 							lendingHealthFactorThresholds(snapshot.protocol),
+							{ metricsLive: snapshot.metricsLive !== false },
 						)}
-						tip={healthFactorStatTip(snapshot.protocol)}
+						tip={
+							snapshot.metricsLive === false
+								? `${healthFactorStatTip(snapshot.protocol)} (STALE — P0 лише з живих даних)`
+								: healthFactorStatTip(snapshot.protocol)
+						}
 					/>
 				)}
 				{hasRewards && (
@@ -688,6 +723,7 @@ function ProtocolSection({
 										s={s}
 										showLiqPrice={hasBorrows}
 										updatedAtMs={updatedAtMs}
+										metricsLiveStale={snapshot.metricsLive === false}
 									/>
 								))}
 							</tbody>
@@ -829,6 +865,9 @@ export function LendingModule() {
 						<p className="mb-3 text-xs text-slate-500">
 							Частка Current у DeFi: {currentRef.sharePct?.toFixed(1)}% (довідка, без ліміту)
 						</p>
+					) : null}
+					{currentSnapshot?.cashflowUsd ? (
+						<CurrentCashflowSummary cashflow={currentSnapshot.cashflowUsd} />
 					) : null}
 					{currentVenues.map((venue) => (
 						<ProtocolSection

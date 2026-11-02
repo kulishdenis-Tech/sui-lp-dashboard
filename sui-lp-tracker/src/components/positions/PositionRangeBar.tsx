@@ -10,8 +10,12 @@ import { rangeBarToneForPosition, type RangeBarTone } from '@/utils/rangeBarTone
 
 function fmtNum(n: number) {
 	if (!Number.isFinite(n) || n <= 0) return '—'
-	if (n >= 1) return n.toLocaleString('en-US', { maximumFractionDigits: 4 })
-	if (n >= 0.0001) return n.toLocaleString('en-US', { maximumFractionDigits: 6 })
+	if (n >= 1) {
+		return n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })
+	}
+	if (n >= 0.0001) {
+		return n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 6 })
+	}
 	return n.toExponential(2)
 }
 

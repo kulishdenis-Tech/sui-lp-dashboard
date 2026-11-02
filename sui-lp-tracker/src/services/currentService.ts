@@ -20,6 +20,7 @@ import {
 	normalizeLiquidationThresholdFactor,
 } from '@/utils/supplyLiquidationPrice'
 import { mapPool } from '@/utils/concurrency'
+import { buildLendingCashflowUsd } from '@/utils/lendingCashflowUsd'
 import { classifySuiObjectRead } from '@/utils/suiObjectRead'
 import { Transaction } from '@mysten/sui/transactions'
 import { bcs } from '@mysten/sui/bcs'
@@ -284,7 +285,44 @@ async function inspectOverview(marketType: string, marketId: string, obligationI
 	if (res.error) throw new Error(`Current overview: ${res.error}`)
 	const raw = res.results?.[0]?.returnValues?.[0]?.[0]
 	if (!raw) throw new Error('Current overview: empty return')
-	return overviewSchema.parse(Uint8Array.from(raw))
+	return parseCurrentObligationOverviewReturn(raw)
+}
+
+/** DevInspect / gRPC simulate: first return value is BCS `ObligationDetail`. */
+export function parseCurrentObligationOverviewReturn(raw: number[] | Uint8Array) {
+	const bytes = raw instanceof Uint8Array ? raw : Uint8Array.from(raw)
+	const parsed = overviewSchema.parse(bytes)
+	return {
+		emode_group_id: parsed.emode_group_id,
+		deposits: Array.isArray(parsed.deposits) ? parsed.deposits : [],
+		borrows: Array.isArray(parsed.borrows) ? parsed.borrows : [],
+	}
+}
+
+/** Test helper: same BCS schema as live devInspect (gRPC `number[]`). */
+export function encodeCurrentObligationOverviewForTest(
+	input: Parameters<typeof overviewSchema.serialize>[0],
+): number[] {
+	return Array.from(overviewSchema.serialize(input).toBytes())
+}
+
+function parseRatesVectorReturn(raw: number[] | Uint8Array): ReturnType<typeof decimalSchema.parse>[] {
+	const bytes = raw instanceof Uint8Array ? raw : Uint8Array.from(raw)
+	const vec = bcs.vector(decimalSchema)
+	return vec.parse(bytes)
+}
+
+/** Test helper for rates devInspect return (vector of two decimals). */
+export function encodeCurrentRatesVectorForTest(
+	decimals: Array<{ value: string | number | bigint }>,
+): number[] {
+	const vec = bcs.vector(decimalSchema)
+	return Array.from(vec.serialize(decimals as never).toBytes())
+}
+
+/** Exported for tests (gRPC devInspect returns `number[]` bytes). */
+export function parseCurrentRatesVectorReturn(raw: number[] | Uint8Array) {
+	return parseRatesVectorReturn(raw)
 }
 
 async function inspectRates(
@@ -306,11 +344,10 @@ async function inspectRates(
 	}
 	const res = await client.devInspectTransactionBlock({ sender, transactionBlock: tx })
 	if (res.error) throw new Error(`Current rates: ${res.error}`)
-	const vec = bcs.vector(decimalSchema)
 	for (let i = 0; i < assets.length; i++) {
 		const raw = res.results?.[i]?.returnValues?.[0]?.[0]
 		if (!raw) continue
-		const parsed = vec.parse(Uint8Array.from(raw))
+		const parsed = parseRatesVectorReturn(raw)
 		out.set(typeKey(assets[i]!), {
 			exchange: BigInt(parsed[0]?.value ?? 0),
 			borrowIndex: BigInt(parsed[1]?.value ?? 0),
@@ -506,6 +543,71 @@ export type ClaimableMiningRead = {
 	rows: ClaimableMiningRow[]
 	reason?: string
 	readAtMs: number
+}
+
+/**
+ * Parallel mining APR reads + claimable rewards (one obligation).
+ * Fixed in 0f9b209: Promise.all returns 2 values, not 3 (216139c bug).
+ */
+export async function parallelCurrentMiningAndClaimable<
+	TDep extends MiningAprRead,
+	TBor extends MiningAprRead,
+	TMined extends ClaimableMiningRead,
+>(
+	depositMiningReads: Promise<TDep>[],
+	borrowMiningReads: Promise<TBor>[],
+	claimableRead: Promise<TMined>,
+): Promise<{
+	depositMiningResults: TDep[]
+	borrowMiningResults: TBor[]
+	mined: TMined
+}> {
+	return parallelCurrentMiningAndClaimableFromBundle(
+		Promise.all([Promise.all(depositMiningReads), Promise.all(borrowMiningReads)]),
+		claimableRead,
+	)
+}
+
+/** Matches production: mining bundle promise ∥ claimable (gRPC-safe unpack). */
+export async function parallelCurrentMiningAndClaimableFromBundle<
+	TDep extends MiningAprRead,
+	TBor extends MiningAprRead,
+	TMined extends ClaimableMiningRead,
+>(
+	miningBundlePromise: Promise<[TDep[], TBor[]]>,
+	claimableRead: Promise<TMined>,
+): Promise<{
+	depositMiningResults: TDep[]
+	borrowMiningResults: TBor[]
+	mined: TMined
+}> {
+	const [miningBundle, mined] = await Promise.all([miningBundlePromise, claimableRead])
+	const [depositMiningResults, borrowMiningResults] = miningBundle
+	return { depositMiningResults, borrowMiningResults, mined }
+}
+
+/** Pre-0f9b209 bug — used only in regression tests (216139c). */
+export async function parallelCurrentMiningAndClaimableWrong216139c<
+	TDep extends MiningAprRead,
+	TBor extends MiningAprRead,
+	TMined extends ClaimableMiningRead,
+>(
+	miningBundlePromise: Promise<[TDep[], TBor[]]>,
+	claimableRead: Promise<TMined>,
+): Promise<{
+	depositMiningResults: [TDep[], TBor[]]
+	borrowMiningResults: TMined
+	mined: undefined
+}> {
+	const [depositMiningResults, borrowMiningResults, mined] = await Promise.all([
+		miningBundlePromise,
+		claimableRead,
+	])
+	return {
+		depositMiningResults: depositMiningResults as [TDep[], TBor[]],
+		borrowMiningResults: borrowMiningResults as TMined,
+		mined,
+	}
 }
 
 type RewardPart = { symbol: string; coinType: string; apr: number }
@@ -1109,7 +1211,10 @@ async function currentAdvisorTimed<T>(step: string, fn: () => Promise<T>): Promi
 	}
 }
 
-export async function getCurrentPositions(walletAddress: string): Promise<LendingSnapshot> {
+export async function getCurrentPositions(
+	walletAddress: string,
+	options?: { skipCashflow?: boolean },
+): Promise<LendingSnapshot> {
 	const obligations = await currentAdvisorTimed('obligations-rest', () =>
 		getJson<ObligationRow[]>(`/user/getObligationList/${walletAddress}`),
 	)
@@ -1228,9 +1333,25 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 			}))
 		})
 
-		const [depositMiningResults, borrowMiningResults] = await currentAdvisorAccum('mining', () =>
+		const claimableP = currentAdvisorAccum('claimable', () =>
+			readClaimableMining(
+				marketObjectId,
+				ob.obligationObject!,
+				overview.deposits.map((d) => d.asset),
+				overview.borrows.map((b) => b.asset),
+				priceRows,
+			).catch((err) => ({
+				status: 'unavailable' as const,
+				rows: [] as ClaimableMiningRow[],
+				reason: err instanceof Error ? err.message : String(err),
+				readAtMs: Date.now(),
+			})),
+		)
+		const miningP = currentAdvisorAccum('mining', () =>
 			Promise.all([Promise.all(depositMiningReads), Promise.all(borrowMiningReads)]),
 		)
+		const { depositMiningResults, borrowMiningResults, mined } =
+			await parallelCurrentMiningAndClaimableFromBundle(miningP, claimableP)
 
 		for (let i = 0; i < overview.deposits.length; i++) {
 			const dep = overview.deposits[i]!
@@ -1364,20 +1485,6 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 			borrows.push(borrow)
 		}
 
-		const mined = await currentAdvisorAccum('claimable', () =>
-			readClaimableMining(
-				marketObjectId,
-				ob.obligationObject!,
-				overview.deposits.map((d) => d.asset),
-				overview.borrows.map((b) => b.asset),
-				priceRows,
-			).catch((err) => ({
-				status: 'unavailable' as const,
-				rows: [] as ClaimableMiningRow[],
-				reason: err instanceof Error ? err.message : String(err),
-				readAtMs: Date.now(),
-			})),
-		)
 		if (mined.status === 'unavailable') {
 			console.warn('[Current] claimable rewards unavailable', ob.obligationObject, mined.reason)
 		} else {
@@ -1479,10 +1586,11 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 	const netAPR = totalSuppliedUSD > 0 ? (supplyYield - borrowCost) / totalSuppliedUSD : null
 	const rewardsToClaim = mergeClaimed(claimed)
 	const unclaimedUSD = rewardsToClaim.reduce((s, r) => s + r.valueUSD, 0)
+	let cashflowUsd: LendingCashflowUsd | null = null
+	if (!options?.skipCashflow) {
 	const loaded = await currentAdvisorTimed('cashflow', () =>
 		loadCashflowTokens(walletAddress, marketTypes, allListed).catch(() => null),
 	)
-	let cashflowUsd: LendingCashflowUsd | null = null
 	if (loaded) {
 		const listPrice = (coin: string) => {
 			const p = Number(marketByToken(allListed, coin)?.tokenInfo?.price ?? 0)
@@ -1524,13 +1632,14 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 			const coin = key.split('|')[1] ?? ''
 			borrowInterestUSD += -net * listPrice(coin)
 		}
-		cashflowUsd = {
+		cashflowUsd = buildLendingCashflowUsd({
 			supplyInterestUSD,
 			borrowInterestUSD,
 			claimedRewardsUSD: loaded.claimedRewardsUSD,
-			resultUSD: supplyInterestUSD - borrowInterestUSD + loaded.claimedRewardsUSD + unclaimedUSD,
+			unclaimedRewardsUSD: unclaimedUSD,
 			usedSpotPrice: loaded.usedSpotPrice,
-		}
+		})
+	}
 	}
 
 	return {

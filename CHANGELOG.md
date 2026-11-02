@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.2.0 — 2026-11-02
+
+- **Portfolio reads (LP, Current, balances):** gRPC за замовчуванням (`sui-grpc.publicnode.com:443`), резерв Mysten gRPC, далі JSON-RPC (Suiet). Browser `suiClient` через `portfolioSuiReadClient`.
+- **Bluefin ticks:** `readMoveI32` — gRPC `{ bits }` і JSON-RPC `{ fields: { bits } }`; live bounds SUI/USDC + DEEP/SUI.
+- **STALE при збої read:** збереження попередніх рядків, `onChainReadDegraded` + підказка STALE (не $0 / не порожні секції на refresh).
+- **STALE / UNVERIFIED:** кожен STALE-рядок має `lastSuccessAtMs` (якщо є кеш); UI «N хв тому» або **«нема даних»** без фальшивого timestamp. Старіші **30 хв** — `verifiedTotalNetUSD` + окремий рядок **UNVERIFIED**; P0 HF &lt; 1.15 лише з `metricsLive`.
+- **`/api/advisor/state`:** дедлайн **`SUI_LP_ADVISOR_STATE_DEADLINE_MS`** (за замовч. **28 с**); кеш snapshot при timeout.
+- **`GET /api/advisor/current-cashflow`:** Current cashflow/history окремо від state; **кеш 15 хв** з `lastSuccessAtMs`, при збої — **200 + STALE** (не 500). Поля **`realizedUSD`**, **`unclaimedRewardsUSD`**, **`resultUSD`** (v1.1.1); UI показує realized / unclaimed окремо. Кеш **Map по гаманцю** (нормалізована lowercase адреса); STALE-фолбек **ніколи** не підмішує дані іншого гаманця.
+- **Advisor snapshot STALE / Multiply:** той самий ключ гаманця для in-memory кешу (`advisorWalletCacheKey`); TTL і STALE окремо на кожен гаманець.
+- **`/api/advisor/state`:** поле `rpcSource` + лог `[advisor-state] rpcSource: …`; PublicNode skip з причиною (timeout/dns/tls/http).
+- **gRPC failover:** 4 s attempt timeout, **hedged first call** (PublicNode ∥ Mysten), sticky endpoint + 5 хв cooldown; `SUI_GRPC_ENDPOINTS=mysten,publicnode` у `.env.example`.
+- **Advisor `/api/advisor/state`:** без cashflow history (~15 s saved), LP sources concurrency 6, `SUI_LP_ADVISOR_PROFILE=1` → `readProfile` + RPC counts.
+- **Snapshots:** повтор спроби з `SUI_DATA_TRANSPORT=jsonrpc`, якщо gRPC-load incomplete; GHA retry з JSON-RPC fallback.
+- Live acceptance (opt-in `SUI_LP_LIVE_RPC=1`): допуск до v1.1.1 — суми 1%, HF ±0.01.
+
 ## v1.1.1 — 2026-11-02
 
 - **Current / AltCoin:** назва ринку з API або `market_type` (не з першого токена в списку); DEEP залишається на **AltCoin**, не «WAL Market».

@@ -13,6 +13,7 @@ export const PROXY_HOST_TO_ORIGIN: Record<string, string> = {
 	// SUI JSON-RPC fullnode — proxied in prod so browser calls stay same-origin
 	// (avoids Chrome extension fetch interception that breaks getAllBalances)
 	'fullnode.mainnet.sui.io': 'https://fullnode.mainnet.sui.io',
+	'sui-grpc.publicnode.com': 'https://sui-grpc.publicnode.com:443',
 }
 
 export function isAllowedProxyHost(host: string): boolean {

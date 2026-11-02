@@ -8,7 +8,7 @@ import type {
 import { suiClient } from '@/services/suiClient'
 import { type ResolveSpotsOptions, type Row, resolveSpots } from '@/services/spotPrice/resolveSpots'
 import { fetchBluefinAccruedRaws } from '@/services/bluefinAccruedInspect'
-import { readMoveUIntString } from '@/services/bluefinMoveRead'
+import { readMoveUIntString, readMoveI32 } from '@/services/bluefinMoveRead'
 import { logBluefinUnclaimedDebug } from '@/services/bluefinUnclaimedDebug'
 import { getBluefinAccruedFeesAndRewards } from '@/services/bluefinAccruedSdk'
 import { isBluefinLazyUnclaimedEnabled } from '@/services/lpFeatureFlags'
@@ -31,24 +31,9 @@ const POS_STRUCT = `${PKG}::position::Position`
 const BLUEFIN_UNCLAIMED_VALIDATION_POS =
 	'0x3197153a08f2429bbb9f3343efc5a495539c7b1065343fd0fe5e011df02e423c'
 
-function i32ToSigned(n: number): number {
-	if (n > 0x7fffffff) return n - 0x1_0000_0000
-	return n
-}
-
 function httpsIconUrlFromCoinMetadata(m: { iconUrl?: string | null } | null | undefined): string | null {
 	const u = m?.iconUrl?.trim()
 	return typeof u === 'string' && u.startsWith('https://') ? u : null
-}
-
-function readI32(field: unknown): number {
-	if (field == null) return 0
-	if (typeof field === 'object' && 'fields' in (field as object)) {
-		const b = (field as { fields?: { bits?: string | number } }).fields?.bits
-		if (b !== undefined) return i32ToSigned(typeof b === 'string' ? parseInt(b, 10) : b)
-	}
-	if (typeof field === 'number') return i32ToSigned(field)
-	return 0
 }
 
 function asMoveFields(data: unknown): Record<string, unknown> | null {
@@ -318,15 +303,15 @@ export async function getBluefinSpotPositions(
 		const symA = meta.get(tA)?.symbol ?? 'A'
 		const symB = meta.get(tB)?.symbol ?? 'B'
 		const liqStr = readMoveUIntString(f.liquidity)
-		const lowerT = readI32(f.lower_tick)
-		const upperT = readI32(f.upper_tick)
+		const lowerT = readMoveI32(f.lower_tick)
+		const upperT = readMoveI32(f.upper_tick)
 		const feeBps = typeof f.fee_rate === 'string' ? parseInt(f.fee_rate, 10) : Number(f.fee_rate ?? 0)
 
 		const poolF = poolKey ? (poolMap.get(poolKey) ?? null) : null
 		const sqrtField =
 			(poolF && (poolF as Record<string, unknown>)['current_sqrt_price']) ?? null
 		const curSqrtStr = readMoveUIntString(sqrtField)
-		const currentTickI32 = readI32(poolF?.current_tick_index)
+		const currentTickI32 = readMoveI32(poolF?.current_tick_index)
 		const lowerSqrt = TickMath.tickIndexToSqrtPriceX64(lowerT)
 		const upperSqrt = TickMath.tickIndexToSqrtPriceX64(upperT)
 

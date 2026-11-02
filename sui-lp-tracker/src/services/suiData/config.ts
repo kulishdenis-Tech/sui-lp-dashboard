@@ -23,8 +23,44 @@ export type SuiDataTransport = 'grpc' | 'jsonrpc'
 
 /** Default Mysten public-good endpoints (no key; rate-limited). */
 export const MYSTEN_PUBLIC_GRPC_URL = 'https://fullnode.mainnet.sui.io'
+/** Free PublicNode URL — not in default chain (expects native gRPC; our stack uses gRPC-Web fetch). */
+export const PUBLICNODE_PUBLIC_GRPC_URL = 'https://sui-grpc.publicnode.com:443'
 export const MYSTEN_PUBLIC_GRAPHQL_URL = 'https://graphql.mainnet.sui.io/graphql'
 export const BLOCKVISION_GRPC_WEB_URL = 'https://sui-mainnet-grpc-web.blockvision.org'
+
+/** Ordered gRPC endpoints (primary → backup) before JSON-RPC fallback. */
+export function resolvePublicGrpcEndpoints(): string[] {
+	const key = resolveBlockvisionApiKey()
+	const fromEnv = envStr('VITE_SUI_GRPC_URL') ?? envStr('SUI_GRPC_URL')
+	if (fromEnv) return [fromEnv.replace(/\/$/, '')]
+
+	const listRaw = envStr('SUI_GRPC_ENDPOINTS') ?? envStr('VITE_SUI_GRPC_ENDPOINTS')
+	if (listRaw) {
+		const resolved = listRaw
+			.split(',')
+			.map((part) => resolveGrpcEndpointAlias(part.trim()))
+			.filter((u): u is string => Boolean(u))
+		if (resolved.length > 0) return resolved
+	}
+
+	if (key) return [BLOCKVISION_GRPC_WEB_URL]
+	return [MYSTEN_PUBLIC_GRPC_URL]
+}
+
+const GRPC_ENDPOINT_ALIASES: Record<string, string> = {
+	publicnode: PUBLICNODE_PUBLIC_GRPC_URL,
+	mysten: MYSTEN_PUBLIC_GRPC_URL,
+	blockvision: BLOCKVISION_GRPC_WEB_URL,
+}
+
+/** Map alias or absolute URL from SUI_GRPC_ENDPOINTS. */
+export function resolveGrpcEndpointAlias(token: string): string | null {
+	if (!token) return null
+	const alias = GRPC_ENDPOINT_ALIASES[token.toLowerCase()]
+	if (alias) return alias.replace(/\/$/, '')
+	if (/^https?:\/\//i.test(token)) return token.replace(/\/$/, '')
+	return null
+}
 
 export function resolveSuiDataTransport(): SuiDataTransport {
 	const raw = (envStr('VITE_SUI_DATA_TRANSPORT') ?? envStr('SUI_DATA_TRANSPORT') ?? 'grpc').toLowerCase()

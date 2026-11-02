@@ -3,6 +3,7 @@ import {
 	CURRENT_LENDING_HF_THRESHOLDS,
 	DEFAULT_LENDING_HF_THRESHOLDS,
 	healthFactorColorClass,
+	isHealthFactorP0Alert,
 	lendingHealthFactorThresholds,
 } from '@/config/lendingHealthFactorThresholds'
 
@@ -52,8 +53,13 @@ describe('Health Factor color thresholds (Current Finance)', () => {
 		expect(healthFactorColorClass(1.18, t)).toBe('text-yellow-400')
 	})
 
-	it('HF 1.10 is P0 (red)', () => {
+	it('HF 1.10 is P0 (red) when live', () => {
 		expect(healthFactorColorClass(1.1, t)).toBe('text-red-400')
+		expect(isHealthFactorP0Alert(1.1, t, { metricsLive: true })).toBe(true)
+	})
+
+	it('HF 1.10 is not P0 when STALE', () => {
+		expect(isHealthFactorP0Alert(1.1, t, { metricsLive: false })).toBe(false)
 	})
 
 	it('selects Current profile by protocol name', () => {

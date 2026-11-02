@@ -1,6 +1,13 @@
 import type { LendingSnapshot, NetWorthSnapshot, OpenPosition, TokenBalance } from '@/types'
 import { positionValueUsdOrNull, liquidityUsdOrNull } from '@/utils/positionDerivedMetrics'
 import { finiteUsd } from '@/utils/finiteUsd'
+import { splitVerifiedUnverifiedUsd } from '@/utils/advisorStalePolicy'
+
+export type NetWorthLendingSegment = {
+	usd: number
+	readStale?: boolean
+	lastSuccessAtMs?: number
+}
 
 /**
  * Net worth: wallet (on-chain) + open LP − borrows.
@@ -12,6 +19,7 @@ export function computeNetWorth(
 	openPositions: OpenPosition[],
 	lending: LendingSnapshot | null,
 	walletAssetsUSDOverride?: number,
+	lendingNetSegments?: NetWorthLendingSegment[],
 ): NetWorthSnapshot {
 	const walletAssetsUSD = finiteUsd(
 		walletAssetsUSDOverride !== undefined
@@ -38,12 +46,42 @@ export function computeNetWorth(
 		lending?.netValueUSD ?? finiteUsd(lending?.totalSuppliedUSD) - outstandingBorrowUSD,
 	)
 	const totalNetUSD = finiteUsd(walletAssetsUSD + openLpUSD + netLendingUSD)
+	const nowMs = Date.now()
+	const lpSplit = splitVerifiedUnverifiedUsd(
+		openPositions.map((p) => {
+			const value = positionValueUsdOrNull(p)
+			const liquidity = liquidityUsdOrNull(p)
+			const usd = value ?? liquidity ?? 0
+			return {
+				usd,
+				readStale: p.readStale,
+				lastSuccessAtMs: p.lastSuccessAtMs,
+			}
+		}),
+		nowMs,
+	)
+	const lendRows: NetWorthLendingSegment[] =
+		lendingNetSegments ??
+		[
+			{
+				usd: netLendingUSD,
+				readStale: lending?.readStale,
+				lastSuccessAtMs: lending?.lastSuccessAtMs,
+			},
+		]
+	const lendSplit = splitVerifiedUnverifiedUsd(lendRows, nowMs)
+	const verifiedTotalNetUSD = finiteUsd(
+		walletAssetsUSD + lpSplit.verifiedUSD + lendSplit.verifiedUSD,
+	)
+	const unverifiedUSD = finiteUsd(lpSplit.unverifiedUSD + lendSplit.unverifiedUSD)
 	return {
 		walletAssetsUSD,
 		openLpUSD,
-		...(hasUnknownPosition && { openLpPartial: true }),
+		...(hasUnknownPosition ? { openLpPartial: true as const } : {}),
 		outstandingBorrowUSD,
 		netLendingUSD,
 		totalNetUSD,
+		verifiedTotalNetUSD,
+		unverifiedUSD,
 	}
 }

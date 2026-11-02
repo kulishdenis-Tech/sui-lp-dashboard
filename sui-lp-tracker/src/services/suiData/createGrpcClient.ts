@@ -1,6 +1,6 @@
 /**
  * Dashboard SuiGrpcClient factory (gRPC-Web transport).
- * Works in browser and Node via Fetch. Vite proxies `/ext/sui-grpc-web` in DEV.
+ * Works in browser and Node via Fetch. Vite proxies `/ext/sui-grpc-publicnode` in DEV.
  * Optional BlockVision: set VITE_BLOCKVISION_API_KEY (+ optional VITE_SUI_GRPC_URL).
  */
 

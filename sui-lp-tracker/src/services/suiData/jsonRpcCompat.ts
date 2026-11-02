@@ -10,6 +10,7 @@ import { suiGraphqlRequest } from '@/services/suiData/graphqlClient'
 import { encodeLegacyDfName } from '@/services/suiData/encodeDfName'
 import { legacyObjectResponse, optionsToInclude } from '@/services/suiData/mapObject'
 import { withSuiDataThrottle } from '@/services/suiData/throttle'
+import { recordSuiRead } from '@/services/suiReadProfiler'
 
 type AnyRecord = Record<string, unknown>
 
@@ -349,6 +350,7 @@ export function createJsonRpcCompatClient(grpc: SuiGrpcClient = getDashboardGrpc
 		},
 
 		async getObject(input: { id: string; options?: AnyRecord }) {
+			recordSuiRead('getObject')
 			const include = optionsToInclude(input.options as never)
 			try {
 				const { object } = await withSuiDataThrottle(() =>
@@ -364,6 +366,7 @@ export function createJsonRpcCompatClient(grpc: SuiGrpcClient = getDashboardGrpc
 		},
 
 		async multiGetObjects(input: { ids: string[]; options?: AnyRecord }) {
+			recordSuiRead('multiGetObjects', input.ids?.length ?? 1)
 			const include = optionsToInclude(input.options as never)
 			const { objects } = await withSuiDataThrottle(() =>
 				grpc.getObjects({ objectIds: input.ids, include }),
@@ -378,6 +381,7 @@ export function createJsonRpcCompatClient(grpc: SuiGrpcClient = getDashboardGrpc
 			cursor?: string | null
 			limit?: number | null
 		}) {
+			recordSuiRead('getOwnedObjects')
 			const include = optionsToInclude(input.options as never)
 			const structType =
 				input.filter && typeof input.filter === 'object' && 'StructType' in input.filter
@@ -464,6 +468,7 @@ export function createJsonRpcCompatClient(grpc: SuiGrpcClient = getDashboardGrpc
 			limit?: number | null
 			order?: 'ascending' | 'descending' | null
 		}) {
+			recordSuiRead('queryEvents')
 			return queryEventsGraphql(input)
 		},
 
@@ -541,6 +546,7 @@ export function createJsonRpcCompatClient(grpc: SuiGrpcClient = getDashboardGrpc
 			sender: string
 			transactionBlock: unknown
 		}) {
+			recordSuiRead('devInspectTransactionBlock')
 			const tx = input.transactionBlock as {
 				setSender?: (s: string) => void
 				setSenderIfNotSet?: (s: string) => void
