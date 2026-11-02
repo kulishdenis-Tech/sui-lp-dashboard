@@ -180,10 +180,6 @@ async function fetchAftermathWhitelisted(
 	return out
 }
 
-async function fetchSuietList(): Promise<SuietCoin[]> {
-	return []
-}
-
 /**
  * Агрегований allowlist: hardcoded → Aftermath (ціна) → Gecko пули.
  * Кеш 6h у `sui_verified_tokens_v2`.
@@ -198,7 +194,7 @@ export async function getVerifiedCoinList(): Promise<Map<string, SuietCoin>> {
 	const merged = mergeMap([...HARDCODED_VERIFIED])
 	const hardTypes = HARDCODED_VERIFIED.map((c) => c.type)
 
-	const [gecko, suiet] = await Promise.all([fetchGeckoPoolTokensForWhitelist(), fetchSuietList()])
+	const gecko = await fetchGeckoPoolTokensForWhitelist()
 
 	for (const c of gecko) {
 		const k = normalizeCoinType(c.type)
@@ -210,22 +206,6 @@ export async function getVerifiedCoinList(): Promise<Map<string, SuietCoin>> {
 	for (const c of afCoins) {
 		const k = normalizeCoinType(c.type)
 		if (!merged.has(k)) merged.set(k, c)
-	}
-
-	for (const c of suiet) {
-		const k = normalizeCoinType(c.type)
-		const ex = merged.get(k)
-		if (ex) {
-			merged.set(k, {
-				...ex,
-				iconUrl: c.iconUrl || ex.iconUrl,
-				name: c.name || ex.name,
-				symbol: c.symbol || ex.symbol,
-				tags: [...new Set([...ex.tags, ...c.tags])],
-			})
-		} else {
-			merged.set(k, c)
-		}
 	}
 
 	const result = [...merged.values()]

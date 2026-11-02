@@ -5573,7 +5573,6 @@ function dynamicFieldChildId(item) {
 
 // src/services/verifiedTokenList.ts
 import { normalizeSuiAddress as normalizeSuiAddress2 } from "@mysten/sui/utils";
-var DEFAULT_LIST_URLS = [];
 var LS_VERIFIED = "suiet_verified_coins";
 var LS_BLOCK = "suiet_blocklist_coins";
 var LS_TS = (k) => `${k}_at`;
@@ -5628,14 +5627,6 @@ function writeV2Cache(coins) {
     );
   } catch {
   }
-}
-function parseCoinArray(j) {
-  if (Array.isArray(j)) return j;
-  if (j && typeof j === "object" && "coins" in j) {
-    const c = j.coins;
-    if (Array.isArray(c)) return c;
-  }
-  return [];
 }
 function stripGeckoTokenId(id) {
   if (!id.startsWith("sui-network_")) return null;
@@ -5710,29 +5701,6 @@ async function fetchAftermathWhitelisted(candidates) {
   }
   return out;
 }
-async function fetchSuietList() {
-  const envUrl = import.meta.env.VITE_SUIET_COIN_LIST_URL;
-  const URLS = envUrl ? [envUrl, ...DEFAULT_LIST_URLS] : [...DEFAULT_LIST_URLS];
-  for (const url of URLS) {
-    try {
-      const ctrl = typeof AbortSignal !== "undefined" && "timeout" in AbortSignal ? AbortSignal.timeout(8e3) : void 0;
-      const res = await fetch(url, { signal: ctrl });
-      if (!res.ok) continue;
-      const json = await res.json();
-      const arr = Array.isArray(json) ? json : json.coins ?? parseCoinArray(json);
-      if (Array.isArray(arr) && arr.length) {
-        return arr.map((c) => ({
-          ...c,
-          iconUrl: c.iconUrl ?? "",
-          tags: c.tags ?? ["native"],
-          decimals: c.decimals ?? 9
-        }));
-      }
-    } catch {
-    }
-  }
-  return [];
-}
 async function getVerifiedCoinList() {
   migrateOldCaches();
   const v2 = readV2Cache();
@@ -5741,7 +5709,7 @@ async function getVerifiedCoinList() {
   }
   const merged = mergeMap([...HARDCODED_VERIFIED]);
   const hardTypes = HARDCODED_VERIFIED.map((c) => c.type);
-  const [gecko, suiet] = await Promise.all([fetchGeckoPoolTokensForWhitelist(), fetchSuietList()]);
+  const gecko = await fetchGeckoPoolTokensForWhitelist();
   for (const c of gecko) {
     const k = normalizeCoinType(c.type);
     if (!merged.has(k)) merged.set(k, c);
@@ -5751,21 +5719,6 @@ async function getVerifiedCoinList() {
   for (const c of afCoins) {
     const k = normalizeCoinType(c.type);
     if (!merged.has(k)) merged.set(k, c);
-  }
-  for (const c of suiet) {
-    const k = normalizeCoinType(c.type);
-    const ex = merged.get(k);
-    if (ex) {
-      merged.set(k, {
-        ...ex,
-        iconUrl: c.iconUrl || ex.iconUrl,
-        name: c.name || ex.name,
-        symbol: c.symbol || ex.symbol,
-        tags: [.../* @__PURE__ */ new Set([...ex.tags, ...c.tags])]
-      });
-    } else {
-      merged.set(k, c);
-    }
   }
   const result = [...merged.values()];
   writeV2Cache(result);
@@ -7269,6 +7222,24 @@ function isLocalUnclaimedEnabled() {
 import { normalizeSuiAddress as normalizeSuiAddress7, normalizeStructTag as normalizeStructTag4 } from "@mysten/sui/utils";
 import Decimal6 from "decimal.js";
 import BN3 from "bn.js";
+
+// src/utils/clmmTickBounds.ts
+function ordered(tickLower, tickUpper) {
+  return {
+    lower: Math.min(tickLower, tickUpper),
+    upper: Math.max(tickLower, tickUpper)
+  };
+}
+function cetusTickInRange(currentTick, tickLower, tickUpper) {
+  const { lower, upper } = ordered(tickLower, tickUpper);
+  return currentTick >= lower && currentTick < upper;
+}
+function bluefinTickInRange(currentTick, tickLower, tickUpper) {
+  const { lower, upper } = ordered(tickLower, tickUpper);
+  return currentTick >= lower && currentTick < upper;
+}
+
+// src/services/bluefinService.ts
 var _hardcodedSymbol = new Map(
   HARDCODED_VERIFIED.map((c) => [c.type.toLowerCase(), c.symbol])
 );
@@ -7530,7 +7501,7 @@ async function getBluefinSpotPositions(walletAddress, options) {
     if (!Number.isFinite(valueUsd) || valueUsd < 0 || valueUsd > MAX_SANE_POSITION_USD2) {
       valueUsd = 0;
     }
-    const inRange = currentTickI32 >= lowerT && currentTickI32 < upperT;
+    const inRange = bluefinTickInRange(currentTickI32, lowerT, upperT);
     const rewSpec = poolRewardSpecList(poolF);
     const rewardCoinTypes = rewSpec.map((r) => r.coinType).filter((c) => c.length > 0);
     let unclaimedSource = "bluefin_sdk";
@@ -8162,6 +8133,17 @@ function readI322(val) {
   if (!Number.isFinite(bits)) return 0;
   return bits > 2147483647 ? bits - 4294967296 : bits;
 }
+function livePoolTick(sqrtPriceStr, parsedTick) {
+  if (!/^\d+$/.test(sqrtPriceStr) || sqrtPriceStr === "0") return parsedTick;
+  try {
+    const fromSqrt = TickMath4.sqrtPriceX64ToTickIndex(new BN4(sqrtPriceStr, 10));
+    if (!Number.isFinite(fromSqrt)) return parsedTick;
+    if (!Number.isFinite(parsedTick) || Math.abs(fromSqrt - parsedTick) > 1) return fromSqrt;
+    return parsedTick;
+  } catch {
+    return parsedTick;
+  }
+}
 function clampUsd2(v) {
   if (!Number.isFinite(v) || v < 0) return 0;
   return v <= MAX_SANE_POSITION_USD3 ? v : 0;
@@ -8326,7 +8308,7 @@ async function fetchPools2(poolIds, incremental = false) {
     const rec = f;
     map.set(key, {
       sqrtPriceStr: String(f.current_sqrt_price),
-      currentTick: readI322(f.current_tick_index),
+      currentTick: livePoolTick(String(f.current_sqrt_price), readI322(f.current_tick_index)),
       feeRate: Number.isFinite(feeRateRaw) ? feeRateRaw / 1e6 : 0,
       positionsHandle: normId3(posHandle),
       rewarderCoinTypes,
@@ -8436,7 +8418,7 @@ async function getCetusPositions(walletAddress, options) {
     const valueUsd = clampUsd2(
       (pxaF != null ? humA * pxaF : 0) + (pxbF != null ? humB * pxbF : 0)
     );
-    const inRange = pool.currentTick >= pos.lowerTick && pool.currentTick <= pos.upperTick;
+    const inRange = cetusTickInRange(pool.currentTick, pos.lowerTick, pos.upperTick);
     const feeLabelPct = `${(pool.feeRate * 100).toFixed(3)}%`;
     const pair = `${symA}/${symB} \xB7 ${feeLabelPct}${inRange ? "" : " \xB7 OUT"}`;
     const lifecycleStatus = resolveLifecycleStatus(pos.liquidity);
@@ -8598,10 +8580,12 @@ async function getCetusPositions(walletAddress, options) {
     p.currentPriceB_USD = a.currentPriceA_USD;
     p.unclaimedFeeA = a.unclaimedFeeB;
     p.unclaimedFeeB = a.unclaimedFeeA;
+    const rawInRange = cetusTickInRange(a.currentTick, a.tickLower, a.tickUpper);
     p.tickLower = -a.tickUpper;
     p.tickUpper = -a.tickLower;
     p.currentTick = -a.currentTick;
     p.currentSqrtPrice = invertedSq;
+    p.status = rawInRange ? "in_range" : "out_of_range";
     p.cetusSwapped = true;
     const feeLabelPct = `${(p.fee * 100).toFixed(3)}%`;
     p.pair = `${p.tokenA}/${p.tokenB} \xB7 ${feeLabelPct}${p.status === "in_range" ? "" : " \xB7 OUT"}`;
