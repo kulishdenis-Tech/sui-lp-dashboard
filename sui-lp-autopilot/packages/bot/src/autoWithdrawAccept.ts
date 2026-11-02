@@ -15,6 +15,7 @@ import {
 	dismissAwaitingUntilReentry,
 	principalOnlySupportForProtocol,
 	stopWatchingFromCancel,
+	withdrawAttemptBlocksRetry,
 	type AwAcceptIntent,
 	type AwAcceptProgressStep,
 	type AutoWithdrawRule,
@@ -97,13 +98,7 @@ export async function acceptAutoWithdrawProposal(input: {
 		)
 	}
 
-	if (
-		rule0.activeAttempt &&
-		(rule0.activeAttempt.phase === 'signed' ||
-			rule0.activeAttempt.phase === 'submitted' ||
-			rule0.activeAttempt.phase === 'unknown' ||
-			rule0.activeAttempt.phase === 'confirmed')
-	) {
+	if (withdrawAttemptBlocksRetry(rule0)) {
 		return fail(
 			'ATTEMPT_IN_FLIGHT',
 			'An earlier attempt is still reconciling. No new withdraw was created.',

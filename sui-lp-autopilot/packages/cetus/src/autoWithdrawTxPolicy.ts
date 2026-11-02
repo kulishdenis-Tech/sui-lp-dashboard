@@ -50,11 +50,17 @@ const FRAMEWORK_FUNCTIONS = new Set([
 
 const STRUCTURAL_COMMANDS = new Set(['SplitCoins', 'MergeCoins', 'MakeMoveVec'])
 
-/** CLMM remove-only (+ fee bookkeeping that does not close). */
+/**
+ * CLMM remove-only (+ fee bookkeeping that does not close).
+ * `router::check_coin_threshold` is the min-out check inside official
+ * sui-clmm-sdk 1.4.9 `removeLiquidityPayload` (one call per coin, then
+ * transferObjects to the sender). It does not swap, collect, or close.
+ */
 const CLMM_REMOVE = new Set([
 	'pool::remove_liquidity',
 	'position::decrease_liquidity',
 	'pool::update_fee_and_reward',
+	'router::check_coin_threshold',
 ])
 const CLMM_COLLECT = new Set([
 	'pool::collect_fee',

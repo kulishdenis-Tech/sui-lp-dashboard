@@ -5,6 +5,7 @@
 import {
 	AUTO_WITHDRAW_MAX_OBS_AGE_MS,
 	evaluateAutoWithdrawTrigger,
+	withdrawAttemptBlocksRetry,
 	type AutoWithdrawRule,
 } from '@autopilot/engine'
 import type { AutopilotStore } from '@autopilot/db'
@@ -146,16 +147,7 @@ export async function reviewAutoWithdrawAll(input: {
 			rule,
 		}
 	}
-	if (
-		rule.status === 'outcome_unknown' ||
-		rule.status === 'confirming' ||
-		rule.status === 'needs_attention' ||
-		(rule.activeAttempt &&
-			(rule.activeAttempt.phase === 'signed' ||
-				rule.activeAttempt.phase === 'submitted' ||
-				rule.activeAttempt.phase === 'unknown' ||
-				rule.activeAttempt.phase === 'confirmed'))
-	) {
+	if (withdrawAttemptBlocksRetry(rule)) {
 		return {
 			ok: false,
 			code: 'attempt_in_flight',

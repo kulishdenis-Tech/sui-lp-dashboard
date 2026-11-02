@@ -137,6 +137,7 @@ const KIND_ALLOW: Record<
 		'pool::remove_liquidity',
 		'position::decrease_liquidity',
 		'pool::update_fee_and_reward',
+		'router::check_coin_threshold',
 		'utils::transfer_coin_to_sender',
 	]),
 	collect_fee: new Set([

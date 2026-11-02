@@ -743,6 +743,21 @@ export function resumeWatchingAfterUnsuccessfulWithdraw(
 	}
 }
 
+/**
+ * A new withdraw is blocked only after bytes were signed or a digest exists.
+ * A local reject before the wallet (no digest) must not stick the position on Withdrawing.
+ */
+export function withdrawAttemptBlocksRetry(
+	rule: Pick<AutoWithdrawRule, 'activeAttempt'>,
+): boolean {
+	const attempt = rule.activeAttempt
+	if (!attempt) return false
+	if (attempt.phase === 'submitted' || attempt.phase === 'confirmed' || attempt.phase === 'signed') {
+		return true
+	}
+	return attempt.phase === 'unknown' && !!attempt.digest?.trim()
+}
+
 /** Stop before submit cancels planned approval; never invents a digest cancel. */
 export function disableBeforeSubmit(rule: AutoWithdrawRule): AutoWithdrawRule {
 	const attempt = rule.activeAttempt

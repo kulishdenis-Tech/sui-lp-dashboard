@@ -5,6 +5,7 @@ import {
 	conditionAlreadyMetAtEnable,
 	directionFromSlot,
 	disableBeforeSubmit,
+	withdrawAttemptBlocksRetry,
 	evaluateAutoWithdrawTrigger,
 	inferDirectionFromDeposits,
 	isLiquidityZero,
@@ -239,6 +240,23 @@ describe('lifecycle', () => {
 		expect(next.cycleId).not.toBe('cycle-1')
 		expect(next.enabled).toBe(false)
 		expect(next.status).toBe('disabled')
+	})
+
+	it('a local failure without a digest does not block the next withdraw', () => {
+		expect(
+			withdrawAttemptBlocksRetry(
+				rule({
+					activeAttempt: { id: 'a1', startedAtMs: 1, digest: null, phase: 'unknown' },
+				}),
+			),
+		).toBe(false)
+		expect(
+			withdrawAttemptBlocksRetry(
+				rule({
+					activeAttempt: { id: 'a1', startedAtMs: 1, digest: '0xdig', phase: 'unknown' },
+				}),
+			),
+		).toBe(true)
 	})
 
 	it('disable before submit clears attempt; after digest keeps attention', () => {

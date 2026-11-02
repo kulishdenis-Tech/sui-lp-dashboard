@@ -204,9 +204,11 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 		setProgress(['Preparing…'])
 		setMessage(null)
 
+		let renewedSession = false
 		let prepared = await withAuth(() => acceptWithdrawOnServer(current))
 		if (prepared && !prepared.ok && prepared.code === 'AUTH_REQUIRED') {
 			clearAwAuth()
+			renewedSession = true
 			prepared = await withAuth(() => acceptWithdrawOnServer(current))
 		}
 		if (!prepared) {
@@ -230,6 +232,9 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 			return
 		}
 
+		if (renewedSession) {
+			setMessage('Session restored. The next wallet request withdraws the liquidity shown above.')
+		}
 		pushProgress('Waiting for Wallet…')
 
 		const tx = (prepared.unsignedTx ?? prepared.preview ?? {}) as Record<string, unknown>
@@ -260,6 +265,7 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 			return
 		}
 
+		let preSubmitDigest: string | null = null
 		const builtAtMs = Date.now()
 		const frozen = createFrozenAwSignContext({
 			attemptId,
@@ -347,7 +353,6 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 			}
 
 			pushProgress('Submitting…')
-			let preSubmitDigest: string
 			try {
 				preSubmitDigest = suiTxDigestFromBytesBase64(signed.bytes)
 			} catch {
@@ -484,15 +489,18 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 			}
 			setPhase('result')
 		} catch (e) {
-			await reportAwAttemptOnServer({
-				positionId: frozen.positionId,
-				attemptId,
-				cycleId: frozen.cycleId,
-				revision: frozen.revision,
-				payloadSha256,
-				clientOutcome: 'unknown',
-				errorMessage: e instanceof Error ? e.message : unknownOutcomeMessage(),
-			}).catch(() => undefined)
+			if (preSubmitDigest) {
+				await reportAwAttemptOnServer({
+					positionId: frozen.positionId,
+					attemptId,
+					cycleId: frozen.cycleId,
+					revision: frozen.revision,
+					payloadSha256,
+					digest: preSubmitDigest,
+					clientOutcome: 'unknown',
+					errorMessage: e instanceof Error ? e.message : unknownOutcomeMessage(),
+				}).catch(() => undefined)
+			}
 			setMessage(e instanceof Error ? e.message : unknownOutcomeMessage())
 			setPhase('result')
 		} finally {

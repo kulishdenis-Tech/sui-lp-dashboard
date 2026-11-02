@@ -65,6 +65,21 @@ function removeOnly(tx: Transaction, positionId = POS, poolId = POOL): void {
 }
 
 describe('Auto Withdraw action-specific policy', () => {
+	it('accepts the SDK min-out check that follows remove_liquidity', async () => {
+		const raw = await bytesOf((tx) => {
+			removeOnly(tx)
+			const coin = tx.moveCall({ target: '0x2::coin::zero', typeArguments: [SUI] })
+			tx.moveCall({
+				target: `${INTEGRATE}::router::check_coin_threshold`,
+				typeArguments: [SUI],
+				arguments: [coin, tx.pure.u64(1)],
+			})
+		})
+		const report = await verifyAutoWithdrawUnsignedTx(raw, baseExpect)
+		expect(report.policyOk).toBe(true)
+		expect(report.moveCalls.some((c) => c.function === 'check_coin_threshold')).toBe(true)
+	})
+
 	it('accepts remove_liquidity to OWNER with expected pool+position', async () => {
 		const raw = await bytesOf((tx) => removeOnly(tx))
 		const report = await verifyAutoWithdrawUnsignedTx(raw, baseExpect)
