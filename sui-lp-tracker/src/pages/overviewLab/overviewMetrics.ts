@@ -32,6 +32,7 @@ import {
 	type MetricCoverage,
 } from '@/utils/aggregateOpenMetrics'
 import { isEmptyLpPosition } from '@/utils/lpLifecycle'
+import { protocolExcludesUpperTick, protocolTickInRange } from '@/utils/clmmTickBounds'
 import { isCurrentMultiplyVaultPosition } from '@/utils/currentMultiplyVault'
 import { isCetusVaultPosition } from '@/utils/cetusVault'
 import {
@@ -584,10 +585,12 @@ export function classifyPositionRangeEdge(p: OpenPosition): NearEdgeResult {
 	const tickInside =
 		ticksKnown &&
 		p.priceRangeOverride == null &&
-		p.currentTick >= Math.min(p.tickLower, p.tickUpper) &&
-		p.currentTick <= Math.max(p.tickLower, p.tickUpper)
+		protocolTickInRange(p.protocol, p.currentTick, p.tickLower, p.tickUpper)
 	if (ticksKnown && p.priceRangeOverride == null && !tickInside) {
-		const above = p.currentTick > Math.max(p.tickLower, p.tickUpper)
+		const upper = Math.max(p.tickLower, p.tickUpper)
+		const above = protocolExcludesUpperTick(p.protocol)
+			? p.currentTick >= upper
+			: p.currentTick > upper
 		const side: 'Above' | 'Below' = above ? 'Above' : 'Below'
 		const boundPrice = above ? range.priceMax : range.priceMin
 		const distancePct = above ? Math.abs(pctMaxVsCurrent) : Math.abs(pctMinVsCurrent)

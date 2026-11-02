@@ -35,6 +35,7 @@ import { isLocalUnclaimedEnabled } from '@/services/lpFeatureFlags'
 import { resolveLifecycleStatus } from '@/utils/lpLifecycle'
 import Decimal from 'decimal.js'
 import BN from 'bn.js'
+import { cetusTickInRange } from '@/utils/clmmTickBounds'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -236,13 +237,6 @@ function livePoolTick(sqrtPriceStr: string, parsedTick: number): number {
 	} catch {
 		return parsedTick
 	}
-}
-
-/** Cetus marks the position active while current tick is inside both bounds. */
-function cetusTickInRange(currentTick: number, tickLower: number, tickUpper: number): boolean {
-	const lower = Math.min(tickLower, tickUpper)
-	const upper = Math.max(tickLower, tickUpper)
-	return currentTick >= lower && currentTick <= upper
 }
 
 function clampUsd(v: number): number {

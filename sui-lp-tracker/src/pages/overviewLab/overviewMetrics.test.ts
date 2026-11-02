@@ -234,6 +234,31 @@ describe('overviewMetrics', () => {
 		expect(counts.inRangeLabel).toBe('1 of 1 active LPs in range')
 	})
 
+	it('tick equal to tickUpper is outside for Cetus and Bluefin', () => {
+		const cetus = pos({
+			id: 'cetus-upper',
+			protocol: 'cetus',
+			tickLower: 70200,
+			tickUpper: 70500,
+			currentTick: 70500,
+			currentSqrtPrice: '0',
+			priceRangeOverride: undefined,
+			status: 'in_range',
+		})
+		const bluefin = pos({
+			id: 'bluefin-upper',
+			protocol: 'bluefin',
+			tickLower: 70200,
+			tickUpper: 70500,
+			currentTick: 70500,
+			currentSqrtPrice: '0',
+			priceRangeOverride: undefined,
+			status: 'in_range',
+		})
+		expect(classifyLpBand(cetus)).toBe('above')
+		expect(classifyLpBand(bluefin)).toBe('above')
+	})
+
 	it('near-edge uses explicit threshold and names the bound', () => {
 		const nearUpper = pos({
 			id: 'n',

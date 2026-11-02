@@ -200,7 +200,7 @@ if (-not $ourVite) {
 
 Start-Process $Url
 Write-Host ""
-Write-Host "SUI Dashboard 2.0.10 відкрито: $Url"
+Write-Host "SUI Dashboard 2.0.11 відкрито: $Url"
 Write-Host "Бот: http://127.0.0.1:$ApiPort/  режим MONITOR_ONLY"
 Write-Host "База: $DbFile"
 exit 0

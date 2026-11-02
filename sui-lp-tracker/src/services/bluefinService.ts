@@ -22,6 +22,7 @@ import { normalizeSuiAddress, normalizeStructTag } from '@mysten/sui/utils'
 import Decimal from 'decimal.js'
 import BN from 'bn.js'
 import { HARDCODED_VERIFIED } from '@/config/hardcodedVerifiedCoins'
+import { bluefinTickInRange } from '@/utils/clmmTickBounds'
 
 /** Overrides RPC/on-chain symbol with curated display name (e.g. X_SUI → xSUI). */
 const _hardcodedSymbol = new Map<string, string>(
@@ -371,7 +372,7 @@ export async function getBluefinSpotPositions(
 			valueUsd = 0
 		}
 
-		const inRange = currentTickI32 >= lowerT && currentTickI32 < upperT
+		const inRange = bluefinTickInRange(currentTickI32, lowerT, upperT)
 
 		const rewSpec = poolRewardSpecList(poolF as Record<string, unknown> | null)
 		const rewardCoinTypes = rewSpec.map((r) => r.coinType).filter((c) => c.length > 0)
