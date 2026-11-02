@@ -1053,7 +1053,7 @@ export function OverviewLabPage() {
 							</button>
 						</Tooltip>
 					</div>
-					<p className="text-[10px] text-slate-500">Gross assets · % of priced</p>
+					<p className="text-right text-[10px] text-slate-500">Gross assets · % of priced</p>
 					{exposureChart.rows.length === 0 ? (
 						<p className="text-xs text-slate-500">No priced underlyings.</p>
 					) : (
@@ -1103,18 +1103,6 @@ export function OverviewLabPage() {
 						<p className="text-[11px] text-amber-300/80">
 							Unknown {money(exposureChart.unknownUSD, hideAmounts)}
 						</p>
-					) : null}
-					{exposureChart.unpricedHoldings.length > 0 ? (
-						<details className="text-[10px] text-slate-500">
-							<summary className="cursor-pointer">
-								Unpriced holdings ({exposureChart.unpricedHoldings.length}) · UNVERIFIED
-							</summary>
-							<ul className="mt-1 space-y-0.5 pl-3">
-								{exposureChart.unpricedHoldings.map((label, index) => (
-									<li key={`${label}-${index}`}>{label}</li>
-								))}
-							</ul>
-						</details>
 					) : null}
 				</section>
 
