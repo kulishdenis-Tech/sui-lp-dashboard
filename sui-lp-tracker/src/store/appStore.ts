@@ -86,6 +86,10 @@ interface AppState {
 	tokenBalances: TokenBalance[]
 	isLoadingBalances: boolean
 	balancesLastUpdated: number | null
+	/** Last successful lending load (Alpha/Navi/Current). */
+	lendingDataUpdatedAtMs: number | null
+	/** Last successful open-positions load (all LP protocols). */
+	positionsDataUpdatedAtMs: number | null
 	openPositions: OpenPosition[]
 	closedPositions: ClosedPosition[]
 	/** Фонове завантаження закритих LP (не блокує Open tab). */
@@ -178,6 +182,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 	tokenBalances: [],
 	isLoadingBalances: false,
 	balancesLastUpdated: null,
+	lendingDataUpdatedAtMs: null,
+	positionsDataUpdatedAtMs: null,
 	openPositions: [],
 	closedPositions: [],
 	isLoadingClosed: false,
@@ -218,6 +224,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 			manualViewAddress: normalized,
 			tokenBalances: [],
 			balancesLastUpdated: null,
+	lendingDataUpdatedAtMs: null,
+	positionsDataUpdatedAtMs: null,
 			openPositions: [],
 			closedPositions: [],
 			isLoadingClosed: false,
@@ -251,6 +259,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 		set((s) => ({
 			tokenBalances: [],
 			balancesLastUpdated: null,
+	lendingDataUpdatedAtMs: null,
+	positionsDataUpdatedAtMs: null,
 			openPositions: [],
 			closedPositions: [],
 			isLoadingClosed: false,
@@ -400,7 +410,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 			const onProtocolDone = () => {
 				pendingProtocols--
 				if (pendingProtocols === 0 && !isStale()) {
-					set({ isLoadingPositions: false, isRefreshing: false })
+					set({ isLoadingPositions: false, isRefreshing: false, positionsDataUpdatedAtMs: Date.now() })
 					recomputeNetWorth()
 				}
 			}
@@ -530,7 +540,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 			let currentDone = false
 			const onLendingAllDone = () => {
 				if (lendingDone && naviDone && currentDone && !isStale()) {
-					set({ isLoadingLending: false })
+					set({ isLoadingLending: false, lendingDataUpdatedAtMs: Date.now() })
 				}
 			}
 			void afterBalanceRpc(() =>

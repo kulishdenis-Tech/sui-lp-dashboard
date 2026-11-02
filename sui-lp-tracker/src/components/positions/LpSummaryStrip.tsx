@@ -11,6 +11,8 @@ import {
 } from '@/utils/positionDerivedMetrics'
 import { isLpPositionHistoryEnriched, lpProtocolUsesOnChainHistory } from '@/utils/lpPositionHistoryUi'
 import { useAppStore } from '@/store/appStore'
+import { DataFreshnessHint } from '@/pages/overviewLab/DataFreshnessHint'
+import { computeDefiConcentration } from '@/utils/defiConcentration'
 import { TooltipIconButton } from '@/components/ui/Tooltip'
 import { isBluefinUnclaimedUnavailable } from '@/utils/bluefinUnclaimedUi'
 
@@ -43,8 +45,9 @@ function pnlTone(n: number, active: boolean): string {
 
 export function LpSummaryStrip({ positions, protocolFilter }: Props) {
 	const positionEvents = useAppStore((s) => s.positionEvents)
+	const positionsUpdatedAtMs = useAppStore((s) => s.positionsDataUpdatedAtMs)
 
-	const { list, totalValue, totalUnclaimed, sumDailyEarningsUsd, dailyEarningsPositions, sumPnl, sumHodl, aggRoiPct, aggEarnAprPct } =
+	const { list, totalValue, totalUnclaimed, sumDailyEarningsUsd, dailyEarningsPositions, sumPnl, sumHodl, aggRoiPct, aggEarnAprPct, lpConc } =
 		useMemo(() => {
 		const l = positions.filter((p) => protocolFilter === 'all' || p.protocol === protocolFilter)
 		let v = 0
@@ -57,8 +60,11 @@ export function LpSummaryStrip({ positions, protocolFilter }: Props) {
 		let sRoi = 0
 		let wEarn = 0
 		let sEarn = 0
+		const byProtocol = new Map<string, number>()
 		for (const p of l) {
-			v += positionValueUsd(p)
+			const pv = positionValueUsd(p)
+			v += pv
+			if (pv > 0) byProtocol.set(p.protocol, (byProtocol.get(p.protocol) ?? 0) + pv)
 			if (isBluefinUnclaimedUnavailable(p)) {
 				/* skip unknown unclaimed — do not treat as zero */
 			} else {
@@ -103,6 +109,10 @@ export function LpSummaryStrip({ positions, protocolFilter }: Props) {
 			sumHodl: hodl,
 			aggRoiPct: wRoi > 0 ? sRoi / wRoi : NaN,
 			aggEarnAprPct: wEarn > 0 ? sEarn / wEarn : NaN,
+			lpConc: computeDefiConcentration({
+				lpByProtocol: [...byProtocol.entries()].map(([protocol, valueUsd]) => ({ protocol, valueUsd })),
+				currentVenues: [],
+			}),
 		}
 	}, [positions, protocolFilter, positionEvents])
 
@@ -129,8 +139,19 @@ export function LpSummaryStrip({ positions, protocolFilter }: Props) {
 	const earnTone = earnShow ? pnlTone(aggEarnAprPct, true) : 'text-app-fg-muted'
 	const dailyEarnShow = dailyEarningsPositions > 0
 	const dailyEarnTone = dailyEarnShow ? 'text-slate-100' : 'text-app-fg-muted'
+
+	const filterSeg =
+		protocolFilter === 'all' ? null : lpConc.segments.find((s) => s.key === `lp:${protocolFilter}`)
+
 	return (
-		<div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
+		<div className="mb-4 space-y-2">
+			{filterSeg?.overLimit ? (
+				<p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200/95">
+					Частка {filterSeg.label} {filterSeg.sharePct?.toFixed(1)}% перевищує ліміт 15%.
+				</p>
+			) : null}
+			<DataFreshnessHint updatedAtMs={positionsUpdatedAtMs} />
+			<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
 			<Stat label="Total Value" tip={TOTAL_VALUE_TOOLTIP} value={formatUSD(totalValue)} />
 			<Stat label="Total Unclaimed" tip={TOTAL_UNCLAIMED_TOOLTIP} value={formatUSD(totalUnclaimed)} />
 			<Stat
@@ -163,6 +184,7 @@ export function LpSummaryStrip({ positions, protocolFilter }: Props) {
 				valueClassName={earnTone}
 				tip={hasEnrichedLpHistoryMetrics ? APR_STRIP_TOOLTIP : historyTitle}
 			/>
+			</div>
 		</div>
 	)
 }

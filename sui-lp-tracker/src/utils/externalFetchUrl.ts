@@ -21,15 +21,24 @@ const HOST_PREFIX: Record<string, string> = {
 }
 
 export function extFetchUrl(absoluteUrl: string): string {
+	return extFetchUrlWithContext(absoluteUrl, {
+		inBrowser: typeof window !== 'undefined',
+		dev: !!import.meta.env?.DEV,
+	})
+}
+
+/** Testable routing without browser / import.meta. */
+export function extFetchUrlWithContext(
+	absoluteUrl: string,
+	ctx: { inBrowser: boolean; dev: boolean },
+): string {
 	try {
 		const u = new URL(absoluteUrl)
 		if (!HOST_PREFIX[u.host]) return absoluteUrl
 
-		// Browser only: Vite `/ext/*` or same-origin `/api/ext`.
-		// Node (vite-node always has DEV=true) must hit upstream directly.
-		if (typeof window === 'undefined') return absoluteUrl
+		if (!ctx.inBrowser) return absoluteUrl
 
-		if (import.meta.env?.DEV) {
+		if (ctx.dev) {
 			const prefix = HOST_PREFIX[u.host]
 			return `${prefix}${u.pathname}${u.search}`
 		}

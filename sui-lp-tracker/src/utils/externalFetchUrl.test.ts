@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { extFetchUrl } from './externalFetchUrl'
+import { extFetchUrlWithContext } from './externalFetchUrl'
 
 describe('extFetchUrl prod routing', () => {
 	afterEach(() => {
@@ -7,16 +7,28 @@ describe('extFetchUrl prod routing', () => {
 	})
 
 	it('uses /api/ext whitelist proxy when not in dev', () => {
-		vi.stubEnv('DEV', false)
-		const url = extFetchUrl('https://open-api.naviprotocol.io/api/navi/user/state?wallet=0x1')
+		const url = extFetchUrlWithContext(
+			'https://open-api.naviprotocol.io/api/navi/user/state?wallet=0x1',
+			{ inBrowser: true, dev: false },
+		)
 		expect(url).toMatch(/^\/api\/ext\?host=/)
 		expect(url).toContain('open-api.naviprotocol.io')
 		expect(url).not.toContain('/ext/navi')
 	})
 
 	it('uses Vite /ext prefix in dev', () => {
-		vi.stubEnv('DEV', true)
-		const url = extFetchUrl('https://open-api.naviprotocol.io/api/navi/user/state')
+		const url = extFetchUrlWithContext('https://open-api.naviprotocol.io/api/navi/user/state', {
+			inBrowser: true,
+			dev: true,
+		})
 		expect(url).toBe('/ext/navi/api/navi/user/state')
+	})
+
+	it('returns absolute URL in Node (no browser)', () => {
+		const url = extFetchUrlWithContext('https://open-api.naviprotocol.io/api/navi/user/state', {
+			inBrowser: false,
+			dev: true,
+		})
+		expect(url).toBe('https://open-api.naviprotocol.io/api/navi/user/state')
 	})
 })

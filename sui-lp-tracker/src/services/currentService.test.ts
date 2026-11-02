@@ -1,40 +1,44 @@
 import { describe, expect, it } from 'vitest'
+import { resolveCurrentVenueLabel, type CurrentMarketRow } from '@/services/currentService'
 
-/**
- * QA-2026-11-01-03: Market01 venue name test
- * 
- * Verifies that Market01 is displayed as 'Market 01 (sUSN)' (unconfirmed name)
- */
+const MARKET01_ID = '0x2d682541f1e983e48d5c628f013d11d4c8f96f410338532791d3ece882766220'
+const MARKET01_TYPE =
+	'fe1d8929d13b00aaecd7642dec1c6d41cab82882a1b139efa46bf61dfd6380bf::market_type::Market01'
 
-// Extracted venueName function from currentService.ts for testing
-function venueName(marketType: string): string {
-	const name = marketType.split('::').pop() ?? 'Market'
-	if (name === 'MainMarket') return 'Main'
-	if (name === 'EmberMarket') return 'Ember'
-	if (name === 'AltCoinMarket') return 'AltCoin'
-	if (name === 'EthenaMarket') return 'Ethena'
-	if (name === 'MatrixGoldMarket') return 'Matrix Gold'
-	if (name === 'Market01') return 'Market 01 (sUSN)'
-	return name.replace(/([a-z])([A-Z0-9])/g, '$1 $2')
-}
-
-describe('QA-2026-11-01-03: Market01 venue name mapping', () => {
-	it('maps Market01 to "Market 01 (sUSN)"', () => {
-		expect(venueName('Market01')).toBe('Market 01 (sUSN)')
-		expect(venueName('fe1d8929d13b00aaecd7642dec1c6d41cab82882a1b139efa46bf61dfd6380bf::market_type::Market01')).toBe('Market 01 (sUSN)')
+describe('resolveCurrentVenueLabel', () => {
+	it('uses API market name when it differs from Move type suffix (rename-safe)', () => {
+		const listed: CurrentMarketRow[] = [
+			{
+				marketID: MARKET01_ID,
+				marketType: MARKET01_TYPE,
+				name: 'sUSN Market',
+				token: '0x2::sui::SUI',
+				tokenInfo: { symbol: 'sUSN' },
+			},
+		]
+		expect(resolveCurrentVenueLabel(MARKET01_ID, listed, MARKET01_TYPE)).toBe('sUSN Market')
 	})
 
-	it('maps known markets correctly', () => {
-		expect(venueName('MainMarket')).toBe('Main')
-		expect(venueName('EmberMarket')).toBe('Ember')
-		expect(venueName('AltCoinMarket')).toBe('AltCoin')
-		expect(venueName('EthenaMarket')).toBe('Ethena')
-		expect(venueName('MatrixGoldMarket')).toBe('Matrix Gold')
+	it('derives sUSN Market from token symbol when API name equals type id', () => {
+		const listed: CurrentMarketRow[] = [
+			{
+				marketID: MARKET01_ID,
+				marketType: MARKET01_TYPE,
+				name: 'Market01',
+				token: '0a672389::susn::SUSN',
+				tokenInfo: { symbol: 'sUSN' },
+			},
+		]
+		expect(resolveCurrentVenueLabel(MARKET01_ID, listed, MARKET01_TYPE)).toBe('sUSN Market')
 	})
 
-	it('applies regex transformation to unknown markets', () => {
-		expect(venueName('SomeNewMarket')).toBe('Some New Market')
-		// Regex splits before uppercase or digits following lowercase, but not after digits
-		expect(venueName('Test123Market')).toBe('Test 123Market')
+	it('maps known Move markets', () => {
+		expect(
+			resolveCurrentVenueLabel(
+				'0x41f3d76aee8b20e53f7d0d395fdc09e241e683c7bc5d0f69674b545ee42549df',
+				[{ marketID: '0x41f3d76aee8b20e53f7d0d395fdc09e241e683c7bc5d0f69674b545ee42549df', name: 'MainMarket' }],
+				'fe1d8929d13b00aaecd7642dec1c6d41cab82882a1b139efa46bf61dfd6380bf::market_type::MainMarket',
+			),
+		).toBe('Main')
 	})
 })

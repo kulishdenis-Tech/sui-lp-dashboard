@@ -19,6 +19,7 @@ import {
 	enrichSupplyLiquidationPrices,
 	normalizeLiquidationThresholdFactor,
 } from '@/utils/supplyLiquidationPrice'
+import { mapPool } from '@/utils/concurrency'
 import { classifySuiObjectRead } from '@/utils/suiObjectRead'
 import { Transaction } from '@mysten/sui/transactions'
 import { bcs } from '@mysten/sui/bcs'
@@ -42,6 +43,8 @@ const MARKET_OBJECT_BY_TYPE: Record<string, string> = {
 		'0xeeef7e9abe201e16c3ca6417b91fa49bec28edcb077eb2fd4a1f126c251e6899',
 	'fe1d8929d13b00aaecd7642dec1c6d41cab82882a1b139efa46bf61dfd6380bf::market_type::MatrixGoldMarket':
 		'0xafe28c816d322a56bdab27b90d4b5e882a0a34ee2d9f02c6a07402a2b69be900',
+	'fe1d8929d13b00aaecd7642dec1c6d41cab82882a1b139efa46bf61dfd6380bf::market_type::Market01':
+		'0x2d682541f1e983e48d5c628f013d11d4c8f96f410338532791d3ece882766220',
 }
 
 /**
@@ -200,15 +203,33 @@ function rowsForMarket(all: MarketRow[], marketType: string): MarketRow[] {
 	return all.filter((r) => typeKey(r.marketType ?? '') === key)
 }
 
-function venueName(marketType: string): string {
+function venueNameFromType(marketType: string): string {
 	const name = marketType.split('::').pop() ?? 'Market'
 	if (name === 'MainMarket') return 'Main'
 	if (name === 'EmberMarket') return 'Ember'
 	if (name === 'AltCoinMarket') return 'AltCoin'
 	if (name === 'EthenaMarket') return 'Ethena'
 	if (name === 'MatrixGoldMarket') return 'Matrix Gold'
-	if (name === 'Market01') return 'Market 01 (sUSN)'
 	return name.replace(/([a-z])([A-Z0-9])/g, '$1 $2')
+}
+
+/** Display label from Current list rows for this `marketObjectId` (not hardcoded Move type names). */
+export function resolveCurrentVenueLabel(
+	marketObjectId: string,
+	listed: MarketRow[],
+	marketType: string,
+): string {
+	const idKey = typeKey(marketObjectId)
+	const rows = listed.filter((r) => typeKey(r.marketID ?? '') === idKey)
+	const apiName = rows.find((r) => r.name?.trim())?.name?.trim()
+	const typeShort = marketType.split('::').pop() ?? ''
+	if (apiName && apiName !== typeShort) return apiName
+	const branded = rows.find((r) => {
+		const sym = r.tokenInfo?.symbol?.trim()
+		return sym && sym.length > 0
+	})
+	if (branded?.tokenInfo?.symbol) return `${branded.tokenInfo.symbol} Market`
+	return venueNameFromType(marketType)
 }
 
 function resolveMarketObjectId(marketType: string, listed: MarketRow[]): string | null {
@@ -496,7 +517,9 @@ export async function readMiningRewardApr(
 	reserveDecimals: number,
 	reservePrice: number,
 	listed: MarketRow[],
+	priceCatalog?: MarketRow[],
 ): Promise<MiningAprRead> {
+	const catalog = priceCatalog ?? listed
 	const readAtMs = Date.now()
 	if (!(reservePrice > 0) || exchangeOrIndex <= 0n || !(reserveDecimals >= 0)) {
 		return { status: 'unavailable', apr: null, parts: [], reason: 'reserve price or scale missing', readAtMs }
@@ -554,9 +577,9 @@ export async function readMiningRewardApr(
 		const start = Number(f.start_time_ms ?? 0)
 		const end = Number(f.end_time_ms ?? 0)
 		if (!(start <= now && now < end) || end <= start) continue
-		const coin = typeNameString(f.coin_type)
+		const coin = typeNameString(f.coin_type ?? (f as { coinType?: unknown }).coinType)
 		if (!coin) continue
-		const meta = marketByToken(listed, coin)
+		const meta = marketByToken(catalog, coin)
 		const dec = readDecimals(meta)
 		const price = readPrice(meta)
 		const raw = String(f.total_rewards ?? '0')
@@ -985,14 +1008,18 @@ async function loadCashflowTokens(
 } | null> {
 	const items: Array<HistoryItem & { marketType: string }> = []
 	const historyFailed = new Set<string>()
-	for (const marketType of marketTypes) {
+	const pages = await mapPool(marketTypes, 4, async (marketType) => {
 		try {
 			const page = await fetchMarketHistory(address, marketType)
-			for (const item of page) items.push({ ...item, marketType })
+			return { marketType, page }
 		} catch (err) {
 			historyFailed.add(typeKey(marketType))
 			console.warn('[Current] history skipped', marketType, err)
+			return { marketType, page: [] as HistoryItem[] }
 		}
+	})
+	for (const { marketType, page } of pages) {
+		for (const item of page) items.push({ ...item, marketType })
 	}
 	items.sort((a, b) => (a.chainTimestampMS ?? 0) - (b.chainTimestampMS ?? 0))
 	const cache = new Map<string, { px: number; spot: boolean }>()
@@ -1156,6 +1183,7 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 				decimals,
 				price,
 				priceRows,
+				allListed,
 			).catch((err) => ({
 				status: 'unavailable' as const,
 				apr: null,
@@ -1178,6 +1206,7 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 				decimals,
 				price,
 				priceRows,
+				allListed,
 			).catch((err) => ({
 				status: 'unavailable' as const,
 				apr: null,
@@ -1234,7 +1263,7 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 				daysActive: 0,
 				events: [],
 				protocol: 'Current',
-				venue: venueName(marketType),
+				venue: resolveCurrentVenueLabel(marketObjectId, listed, marketType),
 				iconUrl: meta?.tokenInfo?.icon ?? null,
 			}
 			const maxLtv = normalizeLiquidationThresholdFactor(Number(own?.maxLTV ?? 0))
@@ -1293,7 +1322,7 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 				daysActive: 0,
 				events: [],
 				protocol: 'Current',
-				venue: venueName(marketType),
+				venue: resolveCurrentVenueLabel(marketObjectId, listed, marketType),
 				iconUrl: meta?.tokenInfo?.icon ?? null,
 			}
 			borrowWeightOf.set(borrow, borrowWeight)

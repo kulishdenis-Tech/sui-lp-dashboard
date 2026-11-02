@@ -6,8 +6,10 @@ export function useLendingPositions() {
 		useShallow((s) => ({
 			snapshot: s.lendingSnapshot,
 			naviSnapshot: s.naviSnapshot,
+			currentSnapshot: s.currentSnapshot,
 			isLoading: s.isLoadingLending,
 			error: s.lendingError,
+			lendingDataUpdatedAtMs: s.lendingDataUpdatedAtMs,
 		})),
 	)
 }
