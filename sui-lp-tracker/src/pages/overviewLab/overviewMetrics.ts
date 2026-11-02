@@ -580,8 +580,28 @@ export function classifyPositionRangeEdge(p: OpenPosition): NearEdgeResult {
 	const range = clmmRangeFromOpenPosition(p)
 	if (!range) return { kind: 'unknown' }
 	const { pctMinVsCurrent, pctMaxVsCurrent } = rangeEdgePctVsCurrent(range)
-
-	if (!range.inRange || p.status === 'out_of_range') {
+	const ticksKnown = [p.tickLower, p.tickUpper, p.currentTick].every((n) => Number.isFinite(n))
+	const tickInside =
+		ticksKnown &&
+		p.priceRangeOverride == null &&
+		p.currentTick >= Math.min(p.tickLower, p.tickUpper) &&
+		p.currentTick <= Math.max(p.tickLower, p.tickUpper)
+	if (ticksKnown && p.priceRangeOverride == null && !tickInside) {
+		const above = p.currentTick > Math.max(p.tickLower, p.tickUpper)
+		const side: 'Above' | 'Below' = above ? 'Above' : 'Below'
+		const boundPrice = above ? range.priceMax : range.priceMin
+		const distancePct = above ? Math.abs(pctMaxVsCurrent) : Math.abs(pctMinVsCurrent)
+		return {
+			kind: 'out_of_range',
+			side,
+			distancePct,
+			priceLabel: range.priceLabel,
+			current: range.priceCurrent,
+			boundPrice,
+		}
+	}
+	const priceOutside = !range.inRange || p.status === 'out_of_range'
+	if (!tickInside && priceOutside) {
 		const above = range.priceCurrent > range.priceMax
 		const side: 'Above' | 'Below' = above ? 'Above' : 'Below'
 		const boundPrice = above ? range.priceMax : range.priceMin
@@ -600,7 +620,13 @@ export function classifyPositionRangeEdge(p: OpenPosition): NearEdgeResult {
 
 	const distLower = Math.abs(pctMinVsCurrent)
 	const distUpper = Math.abs(pctMaxVsCurrent)
-	if (distLower <= NEAR_EDGE_PCT || distUpper <= NEAR_EDGE_PCT) {
+	const rangeWidthPct = Math.abs(pctMaxVsCurrent - pctMinVsCurrent)
+	// A band narrower than the near threshold is entirely "near" under a spot-% rule,
+	// so a tick that is inside it still counts as in range.
+	if (
+		rangeWidthPct > NEAR_EDGE_PCT * 2 &&
+		(distLower <= NEAR_EDGE_PCT || distUpper <= NEAR_EDGE_PCT)
+	) {
 		const towardUpper = distUpper <= distLower
 		return {
 			kind: 'near_edge',

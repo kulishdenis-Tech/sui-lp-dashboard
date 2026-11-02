@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 cd /d "%~dp0"
 echo.
-echo SUI Dashboard 2.0.7
+echo SUI Dashboard 2.0.8
 echo Root: "%CD%"
 echo.
 where powershell >nul 2>&1

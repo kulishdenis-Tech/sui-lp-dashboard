@@ -222,6 +222,29 @@ function readI32(val: unknown): number {
 	return bits > 0x7fff_ffff ? bits - 0x1_0000_0000 : bits
 }
 
+/**
+ * Pool `current_sqrt_price` is the live CLMM state. `current_tick_index` is an
+ * I32 that some object layouts leave at 0; when the two disagree, the sqrt price wins.
+ */
+function livePoolTick(sqrtPriceStr: string, parsedTick: number): number {
+	if (!/^\d+$/.test(sqrtPriceStr) || sqrtPriceStr === '0') return parsedTick
+	try {
+		const fromSqrt = TickMath.sqrtPriceX64ToTickIndex(new BN(sqrtPriceStr, 10))
+		if (!Number.isFinite(fromSqrt)) return parsedTick
+		if (!Number.isFinite(parsedTick) || Math.abs(fromSqrt - parsedTick) > 1) return fromSqrt
+		return parsedTick
+	} catch {
+		return parsedTick
+	}
+}
+
+/** Cetus marks the position active while current tick is inside both bounds. */
+function cetusTickInRange(currentTick: number, tickLower: number, tickUpper: number): boolean {
+	const lower = Math.min(tickLower, tickUpper)
+	const upper = Math.max(tickLower, tickUpper)
+	return currentTick >= lower && currentTick <= upper
+}
+
 function clampUsd(v: number): number {
 	if (!Number.isFinite(v) || v < 0) return 0
 	return v <= MAX_SANE_POSITION_USD ? v : 0
@@ -475,7 +498,7 @@ export async function fetchPools(
 
 		map.set(key, {
 			sqrtPriceStr: String(f.current_sqrt_price),
-			currentTick: readI32(f.current_tick_index),
+			currentTick: livePoolTick(String(f.current_sqrt_price), readI32(f.current_tick_index)),
 			feeRate: Number.isFinite(feeRateRaw) ? feeRateRaw / 1_000_000 : 0,
 			positionsHandle: normId(posHandle),
 			rewarderCoinTypes,
@@ -692,7 +715,7 @@ export async function getCetusPositions(
 		)
 
 		// --- Fee rate & range status ---
-		const inRange = pool.currentTick >= pos.lowerTick && pool.currentTick <= pos.upperTick
+		const inRange = cetusTickInRange(pool.currentTick, pos.lowerTick, pos.upperTick)
 		const feeLabelPct = `${(pool.feeRate * 100).toFixed(3)}%`
 		const pair = `${symA}/${symB} · ${feeLabelPct}${inRange ? '' : ' · OUT'}`
 
@@ -871,6 +894,9 @@ export async function getCetusPositions(
 		p.tickUpper = -a.tickLower
 		p.currentTick = -a.currentTick
 		p.currentSqrtPrice = invertedSq
+		p.status = cetusTickInRange(p.currentTick, -a.tickUpper, -a.tickLower)
+			? 'in_range'
+			: 'out_of_range'
 		// Mark as swapped so appStore uses original decimals for event parsing
 		p.cetusSwapped = true
 		// Recompute pair label with normalised order

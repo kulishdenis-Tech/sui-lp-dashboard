@@ -215,6 +215,25 @@ describe('overviewMetrics', () => {
 		expect(fees.reasonUnavailable).toBeTruthy()
 	})
 
+	it('SUI/USDC 70200–70500 at pool tick 70327 is in range', () => {
+		const inside = pos({
+			id: 'cetus-live-tick',
+			status: 'out_of_range',
+			tickLower: 70200,
+			tickUpper: 70500,
+			currentTick: 70327,
+			currentSqrtPrice: '0',
+			tokenADecimals: 9,
+			tokenBDecimals: 6,
+			priceRangeOverride: undefined,
+		})
+		expect(classifyLpBand(inside)).toBe('in')
+		expect(classifyPositionRangeEdge(inside).kind).toBe('in_range')
+		const counts = computeLpRangeCounts([inside])
+		expect(counts.inRange).toBe(1)
+		expect(counts.inRangeLabel).toBe('1 of 1 active LPs in range')
+	})
+
 	it('near-edge uses explicit threshold and names the bound', () => {
 		const nearUpper = pos({
 			id: 'n',
