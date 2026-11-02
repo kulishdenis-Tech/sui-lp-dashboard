@@ -296,6 +296,7 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 				protocolLabel: string
 				pairLabel: string
 				expectedReceive?: string
+				receiveLines?: { symbol: string; amount: number }[]
 				expectedUsd?: string
 				asOfMs?: number
 			}
@@ -308,6 +309,7 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 					p.protocol === 'bluefin' ? 'Bluefin' : p.cetusDlmm ? 'Cetus DLMM' : 'Cetus',
 				pairLabel: `${p.tokenA}/${p.tokenB}`,
 				expectedReceive: hint.expectedReceive,
+				receiveLines: hint.receiveLines,
 				expectedUsd:
 					hint.principalUsd != null && Number.isFinite(hint.principalUsd)
 						? formatUSD(hint.principalUsd)

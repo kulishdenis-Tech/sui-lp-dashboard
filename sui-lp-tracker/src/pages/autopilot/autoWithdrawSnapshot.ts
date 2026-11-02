@@ -46,6 +46,31 @@ export function principalSuiUsdc(p: PrincipalPick): { sui: number; usdc: number 
 	return { sui, usdc }
 }
 
+export type AwReceiveLine = { symbol: string; amount: number }
+
+function suiSymbol(p: PrincipalPick & Pick<OpenPosition, 'tokenA' | 'tokenB'>): string {
+	if (isNativeSuiCoinType(p.tokenAAddress)) return p.tokenA || 'SUI'
+	if (isNativeSuiCoinType(p.tokenBAddress)) return p.tokenB || 'SUI'
+	return 'SUI'
+}
+
+function usdcSymbol(p: PrincipalPick & Pick<OpenPosition, 'tokenA' | 'tokenB'>): string {
+	if (isUsdcCoinType(p.tokenAAddress)) return p.tokenA || 'USDC'
+	if (isUsdcCoinType(p.tokenBAddress)) return p.tokenB || 'USDC'
+	return 'USDC'
+}
+
+/** Both principal coins, including a zero side when the position is fully one-sided. */
+export function awProposalReceiveLines(
+	p: PrincipalPick & Pick<OpenPosition, 'tokenA' | 'tokenB'>,
+): AwReceiveLine[] {
+	const { sui, usdc } = principalSuiUsdc(p)
+	return [
+		{ symbol: suiSymbol(p), amount: sui },
+		{ symbol: usdcSymbol(p), amount: usdc },
+	]
+}
+
 /**
  * Proposal hint for AW UI: tokens by coinType (never assume SUI=A / USDC=B),
  * principal-only USD (Liquidity, not Value with fees).
@@ -58,16 +83,19 @@ export function awProposalReceiveHint(
 	opts?: { asOfMs?: number | null },
 ): {
 	expectedReceive?: string
+	/** SUI and USDC principal, both lines, before any wallet prompt. */
+	receiveLines: AwReceiveLine[]
 	/** Principal liquidity USD only; null when unknown. */
 	principalUsd: number | null
 	asOfMs?: number
 } {
+	const lines = awProposalReceiveLines(p)
 	const { sui, usdc } = principalSuiUsdc(p)
 	const receive =
 		targetAsset === 'SUI'
-			? `${sui} ${isNativeSuiCoinType(p.tokenAAddress) ? p.tokenA : isNativeSuiCoinType(p.tokenBAddress) ? p.tokenB : 'SUI'}`
+			? `${sui} ${suiSymbol(p)}`
 			: targetAsset === 'USDC'
-				? `${usdc} ${isUsdcCoinType(p.tokenAAddress) ? p.tokenA : isUsdcCoinType(p.tokenBAddress) ? p.tokenB : 'USDC'}`
+				? `${usdc} ${usdcSymbol(p)}`
 				: undefined
 	const principalUsd = Number.isFinite(p.currentValueUSD) ? p.currentValueUSD : null
 	const asOf =
@@ -76,6 +104,7 @@ export function awProposalReceiveHint(
 			: undefined
 	return {
 		expectedReceive: receive,
+		receiveLines: lines,
 		principalUsd,
 		...(asOf != null ? { asOfMs: asOf } : {}),
 	}

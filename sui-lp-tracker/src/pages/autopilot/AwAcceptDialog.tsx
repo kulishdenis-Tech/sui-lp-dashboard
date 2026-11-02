@@ -36,6 +36,7 @@ import {
 	type AwWalletProgressStep,
 } from './awWalletApprovalFlow'
 import { sameSuiTxDigest, suiTxDigestFromBytesBase64 } from './suiTxDigest'
+import { formatTokenAmount } from './manageAmounts'
 
 type Props = {
 	owner: string
@@ -47,6 +48,7 @@ type Props = {
 			protocolLabel: string
 			pairLabel: string
 			expectedReceive?: string
+			receiveLines?: { symbol: string; amount: number }[]
 			expectedUsd?: string
 			estimatedFee?: string
 			asOfMs?: number
@@ -55,6 +57,35 @@ type Props = {
 }
 
 type Phase = 'proposal' | 'progress' | 'keep_prompt' | 'result'
+
+function WithdrawAmounts({
+	lines,
+	usd,
+}: {
+	lines: { symbol: string; amount: number }[]
+	usd?: string
+}) {
+	return (
+		<div className="mt-3 rounded-lg border border-slate-700/80 bg-slate-950/50 p-3">
+			<p className="text-[11px] uppercase tracking-wide text-slate-500">You withdraw</p>
+			{lines.length ? (
+				<ul className="mt-2 space-y-1">
+					{lines.map((line) => (
+						<li key={line.symbol} className="flex items-baseline justify-between gap-3 text-sm">
+							<span className="text-slate-300">{line.symbol}</span>
+							<span className="font-mono tabular-nums text-slate-100">
+								{formatTokenAmount(line.amount)}
+							</span>
+						</li>
+					))}
+				</ul>
+			) : (
+				<p className="mt-1 text-sm text-amber-200/90">Withdrawal amounts are not ready.</p>
+			)}
+			{usd ? <p className="mt-2 font-mono text-xs text-slate-400">≈ {usd}</p> : null}
+		</div>
+	)
+}
 
 function shortId(id: string): string {
 	if (id.length < 12) return id
@@ -140,7 +171,6 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 	if (!current || !canAct) return null
 
 	const pair = hint?.pairLabel ?? 'SUI/USDC'
-	const receiveAsset = current.targetAsset
 	const conditionLine =
 		current.direction === 'down'
 			? 'Price moved below your range.'
@@ -170,7 +200,7 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 		}
 		setBusy(true)
 		setPhase('progress')
-		setProgress(['Preparing…'])
+		setProgress(['Preparing the withdrawal…'])
 		setMessage(null)
 
 		const prepared = await withAuth(() => acceptWithdrawOnServer(current))
@@ -503,6 +533,8 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 	}
 
 	const principalOk = principalOnlySupportForProtocol(current.protocol) === 'supported'
+	const receiveLines = hint?.receiveLines ?? []
+	const amountsReady = receiveLines.some((line) => line.amount > 0)
 
 	return (
 		<div
@@ -553,6 +585,7 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 						<h2 id="aw-accept-title" className="font-[Syne] text-lg text-slate-100">
 							{phase === 'progress' ? 'Accept & Withdraw' : 'Completed'}
 						</h2>
+						<WithdrawAmounts lines={receiveLines} usd={hint?.expectedUsd} />
 						<ol className="mt-3 space-y-1 text-sm text-slate-300">
 							{progress.map((step) => (
 								<li key={step} className="text-xs text-sky-200/90">
@@ -597,30 +630,19 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 						</p>
 						<p className="mt-2 text-sm text-slate-400">{conditionLine}</p>
 
-						<div className="mt-3 rounded-lg border border-slate-700/80 bg-slate-950/50 p-3">
-							<p className="text-[11px] uppercase tracking-wide text-slate-500">Expected to Receive</p>
-							{hint?.expectedReceive ? (
-								<p className="mt-1 font-mono text-sm text-slate-100">≈ {hint.expectedReceive}</p>
-							) : (
-								<p className="mt-1 text-sm text-slate-300">≈ {receiveAsset} (estimate pending)</p>
-							)}
-							{hint?.expectedUsd ? (
-								<p className="font-mono text-xs text-slate-400">≈ {hint.expectedUsd}</p>
-							) : (
-								<p className="text-xs text-slate-500">USD estimate unavailable</p>
-							)}
-						</div>
-
-						<div className="mt-2 text-xs text-slate-400">
-							<p>
-								Estimated Network Fee:{' '}
-								{hint?.estimatedFee ? `≈ ${hint.estimatedFee}` : 'pending'}
+						<WithdrawAmounts lines={receiveLines} usd={hint?.expectedUsd} />
+						{!amountsReady ? (
+							<p className="mt-2 text-xs text-amber-200/90">
+								Withdrawal amounts are not ready. Refresh the position before confirming.
 							</p>
-							<p className="mt-1 text-slate-300">Liquidity only. Position stays open.</p>
-						</div>
+						) : (
+							<p className="mt-2 text-xs text-slate-400">
+								Liquidity only. The position stays open, and fees stay until Collect.
+							</p>
+						)}
 
 						<p className="mt-2 text-[11px] leading-snug text-slate-500">
-							Approve in your wallet. Submission follows automatically.
+							Confirm in your wallet only after these amounts look right.
 						</p>
 						{!principalOk ? (
 							<p className="mt-1 text-[11px] text-amber-200/80">
@@ -631,11 +653,11 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 						<div className="mt-4 flex flex-col gap-2">
 							<button
 								type="button"
-								disabled={busy || !principalOk}
+								disabled={busy || !principalOk || !amountsReady}
 								className="min-h-10 rounded-md bg-sky-600 px-3 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
 								onClick={() => void onAccept()}
 							>
-								{busy ? 'Waiting for Wallet…' : 'Accept & Withdraw'}
+								{busy ? 'Waiting for Wallet…' : 'Confirm in Wallet'}
 							</button>
 							<button
 								type="button"

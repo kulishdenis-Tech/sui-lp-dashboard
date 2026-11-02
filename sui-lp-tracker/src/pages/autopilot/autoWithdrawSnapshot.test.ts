@@ -124,6 +124,10 @@ describe('autoWithdrawSnapshot', () => {
 		})
 		const hint = awProposalReceiveHint(swapped, 'SUI')
 		expect(hint.expectedReceive).toBe('10 SUI')
+		expect(hint.receiveLines).toEqual([
+			{ symbol: 'SUI', amount: 10 },
+			{ symbol: 'USDC', amount: 50 },
+		])
 		expect(hint.principalUsd).toBe(100)
 		expect(hint.asOfMs).toBeUndefined()
 		expect(awProposalReceiveHint(swapped, 'USDC').expectedReceive).toBe('50 USDC')
