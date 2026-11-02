@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useCurrentAccount } from '@mysten/dapp-kit'
+import { useCurrentAccount } from '@mysten/dapp-kit-react'
 import { useShallow } from 'zustand/react/shallow'
 import { PageShell } from '@/components/ui/PageShell'
 import { MetricValueWithPartial } from '@/components/ui/PartialDataMark'

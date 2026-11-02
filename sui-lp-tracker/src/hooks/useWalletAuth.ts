@@ -1,4 +1,4 @@
-import { useCurrentAccount } from '@mysten/dapp-kit'
+import { useCurrentAccount } from '@mysten/dapp-kit-react'
 import { useCallback } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { getEffectiveWalletAddress } from '@/utils/walletAddress'

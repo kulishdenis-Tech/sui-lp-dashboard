@@ -536,6 +536,811 @@ function effectivePrice(amountInHuman, amountOutHuman) {
   return amountOutHuman / amountInHuman;
 }
 
+// src/services/suiData/createGrpcClient.ts
+import { SuiGrpcClient } from "@mysten/sui/grpc";
+
+// src/utils/deploymentOrigin.ts
+function deploymentOrigin() {
+  if (typeof window !== "undefined") return null;
+  const vercel = process.env.VERCEL_URL;
+  if (vercel) return `https://${vercel}`;
+  const custom = process.env.SERVER_PUBLIC_URL;
+  if (custom) return custom.replace(/\/$/, "");
+  return null;
+}
+function apiUrl(path) {
+  const origin = deploymentOrigin();
+  const p = path.startsWith("/") ? path : `/${path}`;
+  if (origin) return `${origin}${p}`;
+  return p;
+}
+
+// src/utils/externalFetchUrl.ts
+var HOST_PREFIX = {
+  "hermes.pyth.network": "/ext/hermes",
+  "benchmarks.pyth.network": "/ext/bench",
+  "api.dexscreener.com": "/ext/ds",
+  "api.geckoterminal.com": "/ext/gt",
+  "api.dexpaprika.com": "/ext/dp",
+  "api.coingecko.com": "/ext/cg",
+  "web3.okx.com": "/ext/okx",
+  "dapi.api.sui-prod.bluefin.io": "/ext/bf-dapi",
+  "swap.api.sui-prod.bluefin.io": "/ext/bf-swap",
+  "open-api.naviprotocol.io": "/ext/navi",
+  "api.current.finance": "/ext/current",
+  // SUI JSON-RPC — distinct same-origin proxies so the dashboard pool can
+  // fail over across public nodes without CORS (Mysten fullnode JSON-RPC deprecated).
+  // Paths must NOT share a prefix (Vite proxy matches by path prefix).
+  "sui-rpc.publicnode.com": "/ext/sui-rpc",
+  "sui.publicnode.com": "/ext/sui-rpc",
+  "rpc-mainnet.suiscan.xyz": "/ext/sui-suiscan",
+  "mainnet.suiet.app": "/ext/sui-suiet",
+  "sui.api.onfinality.io": "/ext/sui-onfinality",
+  // Mysten public gRPC-Web + GraphQL (default dashboard transport; no API key).
+  "fullnode.mainnet.sui.io": "/ext/sui-grpc-web",
+  "graphql.mainnet.sui.io": "/ext/sui-graphql",
+  // Optional BlockVision gRPC-Web (Lite+ key via VITE_BLOCKVISION_API_KEY).
+  "sui-mainnet-grpc-web.blockvision.org": "/ext/sui-grpc-bv",
+  "sui-mainnet-graphql.blockvision.org": "/ext/sui-graphql-bv",
+  "api-sui.cetus.zone": "/ext/cetus-api",
+  "haedal.xyz": "/ext/haedal",
+  "www.haedal.xyz": "/ext/haedal",
+  // AlphaLend SDK fetches stSUI staking APR directly; the host has no CORS for the dashboard origin.
+  "ws.stsui.com": "/ext/stsui"
+};
+function extFetchUrl(absoluteUrl) {
+  try {
+    const u = new URL(absoluteUrl);
+    if (!HOST_PREFIX[u.host]) return absoluteUrl;
+    if (typeof window === "undefined") return absoluteUrl;
+    if (import.meta.env?.DEV) {
+      const prefix = HOST_PREFIX[u.host];
+      return `${prefix}${u.pathname}${u.search}`;
+    }
+    const path = `${u.pathname}${u.search}`;
+    return apiUrl(`/api/ext?host=${encodeURIComponent(u.host)}&path=${encodeURIComponent(path)}`);
+  } catch {
+    return absoluteUrl;
+  }
+}
+
+// src/services/suiData/config.ts
+function envStr2(name) {
+  if (typeof process !== "undefined" && process.env) {
+    const v = process.env[name];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  try {
+    const meta = import.meta.env;
+    const v = meta?.[name];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  } catch {
+  }
+  return void 0;
+}
+var MYSTEN_PUBLIC_GRPC_URL = "https://fullnode.mainnet.sui.io";
+var MYSTEN_PUBLIC_GRAPHQL_URL = "https://graphql.mainnet.sui.io/graphql";
+var BLOCKVISION_GRPC_WEB_URL = "https://sui-mainnet-grpc-web.blockvision.org";
+function resolveBlockvisionApiKey() {
+  return envStr2("VITE_BLOCKVISION_API_KEY") ?? envStr2("BLOCKVISION_API_KEY");
+}
+function resolveSuiGrpcUrl() {
+  const key = resolveBlockvisionApiKey();
+  const fromEnv = envStr2("VITE_SUI_GRPC_URL") ?? envStr2("SUI_GRPC_URL");
+  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  if (key) return BLOCKVISION_GRPC_WEB_URL;
+  return MYSTEN_PUBLIC_GRPC_URL;
+}
+function resolveSuiGraphqlUrl() {
+  return (envStr2("VITE_SUI_GRAPHQL_URL") ?? envStr2("SUI_GRAPHQL_URL") ?? MYSTEN_PUBLIC_GRAPHQL_URL).replace(/\/$/, "");
+}
+
+// src/services/suiData/createGrpcClient.ts
+function browserGrpcBaseUrl(absolute) {
+  const cleaned = absolute.replace(/\/$/, "");
+  try {
+    const proxied = extFetchUrl(cleaned);
+    if (proxied !== cleaned && proxied.startsWith("/")) {
+      if (typeof window !== "undefined") return `${window.location.origin}${proxied}`;
+      return proxied;
+    }
+  } catch {
+  }
+  return cleaned;
+}
+var shared = null;
+function createDashboardGrpcClient(opts = {}) {
+  const network = opts.network ?? "mainnet";
+  const apiKey = opts.apiKey === void 0 ? resolveBlockvisionApiKey() : opts.apiKey ?? void 0;
+  const absolute = (opts.baseUrl ?? resolveSuiGrpcUrl()).replace(/\/$/, "");
+  const meta = apiKey ? { "x-api-key": apiKey } : void 0;
+  const baseUrl = typeof window !== "undefined" ? browserGrpcBaseUrl(absolute) : absolute;
+  return new SuiGrpcClient({
+    network,
+    baseUrl,
+    meta
+  });
+}
+function getDashboardGrpcClient() {
+  if (!shared) shared = createDashboardGrpcClient();
+  return shared;
+}
+
+// src/services/suiData/throttle.ts
+var MAX_IN_FLIGHT = 3;
+var MIN_GAP_MS = 80;
+var inFlight = 0;
+var lastStart = 0;
+var waiters = [];
+function kick() {
+  while (inFlight < MAX_IN_FLIGHT && waiters.length > 0) {
+    const now = Date.now();
+    const wait = Math.max(0, MIN_GAP_MS - (now - lastStart));
+    if (wait > 0 && inFlight > 0) {
+      setTimeout(kick, wait);
+      return;
+    }
+    const next = waiters.shift();
+    if (!next) return;
+    inFlight += 1;
+    lastStart = Date.now();
+    next();
+  }
+}
+async function withSuiDataThrottle(fn) {
+  await new Promise((resolve) => {
+    waiters.push(resolve);
+    kick();
+  });
+  try {
+    return await fn();
+  } finally {
+    inFlight = Math.max(0, inFlight - 1);
+    kick();
+  }
+}
+
+// src/services/suiReadProfiler.ts
+var counts = {
+  getObject: 0,
+  multiGetObjects: 0,
+  getOwnedObjects: 0,
+  queryEvents: 0,
+  devInspect: 0,
+  graphql: 0,
+  other: 0
+};
+function isSuiReadProfilingEnabled() {
+  const v = typeof process !== "undefined" && process.env?.SUI_LP_ADVISOR_PROFILE || typeof import.meta !== "undefined" && import.meta.env?.SUI_LP_ADVISOR_PROFILE;
+  return v === "1" || v === "true";
+}
+function recordSuiRead(method, batchSize = 1) {
+  if (!isSuiReadProfilingEnabled()) return;
+  const n = Math.max(1, batchSize);
+  switch (method) {
+    case "getObject":
+      counts.getObject += n;
+      break;
+    case "multiGetObjects":
+      counts.multiGetObjects += n;
+      break;
+    case "getOwnedObjects":
+      counts.getOwnedObjects += n;
+      break;
+    case "queryEvents":
+      counts.queryEvents += n;
+      break;
+    case "devInspectTransactionBlock":
+      counts.devInspect += n;
+      break;
+    case "graphql":
+      counts.graphql += n;
+      break;
+    default:
+      counts.other += n;
+  }
+}
+
+// src/services/suiData/graphqlClient.ts
+function graphqlEndpoint() {
+  const absolute = resolveSuiGraphqlUrl();
+  if (typeof window === "undefined") return absolute;
+  try {
+    const proxied = extFetchUrl(absolute);
+    return proxied;
+  } catch {
+    return absolute;
+  }
+}
+async function suiGraphqlRequest(query, variables) {
+  return withSuiDataThrottle(async () => {
+    recordSuiRead("graphql");
+    const apiKey = resolveBlockvisionApiKey();
+    const headers = { "content-type": "application/json" };
+    if (apiKey) headers["x-api-key"] = apiKey;
+    const res = await fetch(graphqlEndpoint(), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ query, variables }),
+      signal: AbortSignal.timeout(2e4)
+    });
+    const body = await res.json();
+    if (!res.ok) {
+      throw new Error(`GraphQL HTTP ${res.status}: ${JSON.stringify(body.errors ?? body).slice(0, 240)}`);
+    }
+    if (body.errors?.length) {
+      throw new Error(body.errors.map((e) => e.message).join("; "));
+    }
+    if (body.data == null) throw new Error("GraphQL empty data");
+    return body.data;
+  });
+}
+
+// src/services/suiData/encodeDfName.ts
+import { bcs } from "@mysten/sui/bcs";
+function isHexAddress(v) {
+  return typeof v === "string" && /^0x[0-9a-fA-F]+$/.test(v);
+}
+function encodeValue(type, value) {
+  const t = type.trim();
+  if (t === "0x2::object::ID" || t.endsWith("::object::ID") || t === "address") {
+    if (!isHexAddress(value) && typeof value !== "string") {
+      throw new Error(`dynamic field ID expects address string, got ${typeof value}`);
+    }
+    return bcs.Address.serialize(String(value)).toBytes();
+  }
+  if (t.endsWith("::i32::I32") || t.endsWith("::I32") || typeof value === "object" && value != null && "bits" in value) {
+    const bits = typeof value === "object" && value != null && "bits" in value ? Number(value.bits) : Number(value);
+    return bcs.u32().serialize(bits >>> 0).toBytes();
+  }
+  if (t === "u64" || t.endsWith("::u64") || typeof value === "string" && /^\d+$/.test(value)) {
+    if (typeof value === "string" || typeof value === "number" || typeof value === "bigint") {
+      return bcs.u64().serialize(value).toBytes();
+    }
+  }
+  if (t === "u128") {
+    return bcs.u128().serialize(value).toBytes();
+  }
+  if (t === "u8") return bcs.u8().serialize(Number(value)).toBytes();
+  if (t === "u16") return bcs.u16().serialize(Number(value)).toBytes();
+  if (t === "u32") return bcs.u32().serialize(Number(value)).toBytes();
+  if (t === "bool") return bcs.bool().serialize(Boolean(value)).toBytes();
+  if (t === "0x1::string::String" || t.endsWith("::string::String") || t.includes("::dynamic_object_field::Wrapper<0x1::string::String>")) {
+    return bcs.string().serialize(String(value)).toBytes();
+  }
+  if (t.endsWith("::type_name::TypeName") || t === "0x1::type_name::TypeName") {
+    const name = typeof value === "string" ? value : typeof value === "object" && value != null && "name" in value ? String(value.name) : null;
+    if (name == null) throw new Error("TypeName dynamic field expects { name: string }");
+    return bcs.struct("TypeName", { name: bcs.string() }).serialize({ name }).toBytes();
+  }
+  if (isHexAddress(value)) {
+    return bcs.Address.serialize(value).toBytes();
+  }
+  throw new Error(`Unsupported dynamic field name type for BCS encode: ${t}`);
+}
+function encodeLegacyDfName(name) {
+  return {
+    type: name.type,
+    bcs: encodeValue(name.type, name.value)
+  };
+}
+
+// src/services/suiData/mapObject.ts
+function mapGrpcObjectToLegacy(obj) {
+  if (!obj?.objectId) return null;
+  const type = obj.type ?? "unknown";
+  const fields = obj.json && typeof obj.json === "object" ? obj.json : null;
+  return {
+    objectId: obj.objectId,
+    version: String(obj.version ?? "0"),
+    digest: obj.digest,
+    type,
+    owner: obj.owner,
+    content: fields ? {
+      dataType: "moveObject",
+      type,
+      fields,
+      hasPublicTransfer: true
+    } : null
+  };
+}
+function legacyObjectResponse(obj) {
+  if (obj instanceof Error) {
+    return { data: null, error: { code: "notExists", message: obj.message } };
+  }
+  const data = mapGrpcObjectToLegacy(obj ?? void 0);
+  if (!data) return { data: null, error: { code: "notExists" } };
+  return { data };
+}
+function optionsToInclude(options) {
+  const wantContent = options?.showContent !== false;
+  return {
+    // BCS content rarely used by dashboard; json drives legacy fields.
+    json: wantContent || options?.showContent === true,
+    content: options?.showBcs === true,
+    display: options?.showDisplay === true,
+    type: true
+  };
+}
+
+// src/services/suiData/jsonRpcCompat.ts
+function asOwner(input) {
+  return typeof input === "string" ? input : input.owner;
+}
+async function paginateBalances(client, owner) {
+  const all = [];
+  let cursor;
+  for (let i = 0; i < 40; i++) {
+    const page = await withSuiDataThrottle(
+      () => client.listBalances({ owner, cursor: cursor ?? void 0, limit: 50 })
+    );
+    for (const b of page.balances ?? []) {
+      all.push({
+        coinType: b.coinType,
+        totalBalance: b.balance,
+        coinObjectCount: 0,
+        lockedBalance: {}
+      });
+    }
+    if (!page.hasNextPage) break;
+    cursor = page.cursor;
+    if (!cursor) break;
+  }
+  return all;
+}
+function mapEventFilter(query) {
+  if (!query || typeof query !== "object") return {};
+  if ("Sender" in query && typeof query.Sender === "string") {
+    return { grpc: { sender: query.Sender }, gql: { sender: query.Sender } };
+  }
+  if ("MoveEventType" in query && typeof query.MoveEventType === "string") {
+    return {
+      grpc: { eventType: query.MoveEventType },
+      gql: { type: query.MoveEventType }
+    };
+  }
+  if ("MoveEventModule" in query) {
+    const m = query.MoveEventModule;
+    const pkg = m?.package;
+    const mod = m?.module;
+    if (pkg && mod) {
+      const emitModule = `${pkg}::${mod}`;
+      return { grpc: { emitModule }, gql: { module: emitModule } };
+    }
+  }
+  if ("MoveModule" in query) {
+    const m = query.MoveModule;
+    if (m?.package && m?.module) {
+      const emitModule = `${m.package}::${m.module}`;
+      return { grpc: { emitModule }, gql: { module: emitModule } };
+    }
+  }
+  return {};
+}
+function isoToMs(iso) {
+  if (!iso) return null;
+  const n = Date.parse(iso);
+  return Number.isFinite(n) ? String(n) : null;
+}
+async function queryEventsGraphql(args) {
+  const mapped = mapEventFilter(args.query);
+  const filter = mapped.gql ?? {};
+  const limit = args.limit && args.limit > 0 ? Math.min(args.limit, 50) : 50;
+  const descending = args.order !== "ascending";
+  const cursor = typeof args.cursor === "string" ? args.cursor : null;
+  const data = await suiGraphqlRequest(
+    `query($filter: EventFilter, $first: Int, $after: String, $last: Int, $before: String) {
+      events(filter: $filter, first: $first, after: $after, last: $last, before: $before) {
+        pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+        nodes {
+          timestamp
+          sequenceNumber
+          sender { address }
+          transactionModule { package { address } name }
+          contents { type { repr } json }
+          transaction { digest }
+        }
+      }
+    }`,
+    descending ? { filter, last: limit, before: cursor } : { filter, first: limit, after: cursor }
+  );
+  let nodes = data.events.nodes ?? [];
+  if (descending) nodes = [...nodes].reverse();
+  const pageInfo = data.events.pageInfo;
+  const nextCursor = descending ? pageInfo.hasPreviousPage ? pageInfo.startCursor ?? null : null : pageInfo.hasNextPage ? pageInfo.endCursor ?? null : null;
+  return {
+    data: nodes.map((n) => {
+      const typeStr = n.contents?.type?.repr ?? "";
+      const digest = n.transaction?.digest ?? "";
+      const seq = n.sequenceNumber != null ? String(n.sequenceNumber) : "0";
+      return {
+        id: { txDigest: digest, eventSeq: seq },
+        packageId: n.transactionModule?.package?.address ?? "",
+        transactionModule: n.transactionModule?.name ?? "",
+        sender: n.sender?.address ?? "",
+        type: typeStr,
+        parsedJson: n.contents?.json ?? null,
+        bcs: void 0,
+        timestampMs: isoToMs(n.timestamp)
+      };
+    }),
+    hasNextPage: descending ? !!pageInfo.hasPreviousPage : !!pageInfo.hasNextPage,
+    nextCursor
+  };
+}
+async function queryTxByAffectedObject(args) {
+  const limit = args.limit && args.limit > 0 ? Math.min(args.limit, 50) : 50;
+  const descending = args.order !== "ascending";
+  const cursor = typeof args.cursor === "string" ? args.cursor : null;
+  const wantEvents = !!args.options?.showEvents;
+  const data = await suiGraphqlRequest(
+    `query($oid: SuiAddress!, $first: Int, $after: String, $last: Int, $before: String) {
+      transactions(
+        filter: { affectedObject: $oid }
+        first: $first
+        after: $after
+        last: $last
+        before: $before
+      ) {
+        pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+        nodes {
+          digest
+          sender { address }
+          effects {
+            timestamp
+            events {
+              nodes {
+                sequenceNumber
+                contents { type { repr } json }
+              }
+            }
+          }
+        }
+      }
+    }`,
+    descending ? { oid: args.objectId, last: limit, before: cursor } : { oid: args.objectId, first: limit, after: cursor }
+  );
+  let nodes = data.transactions.nodes ?? [];
+  if (descending) nodes = [...nodes].reverse();
+  const pageInfo = data.transactions.pageInfo;
+  const nextCursor = descending ? pageInfo.hasPreviousPage ? pageInfo.startCursor ?? null : null : pageInfo.hasNextPage ? pageInfo.endCursor ?? null : null;
+  return {
+    data: nodes.map((n) => ({
+      digest: n.digest,
+      timestampMs: isoToMs(n.effects?.timestamp),
+      transaction: void 0,
+      effects: { status: { status: "success" } },
+      events: wantEvents ? (n.effects?.events?.nodes ?? []).map((e) => ({
+        type: e.contents?.type?.repr ?? "",
+        parsedJson: e.contents?.json ?? null,
+        id: {
+          txDigest: n.digest ?? "",
+          eventSeq: e.sequenceNumber != null ? String(e.sequenceNumber) : "0"
+        }
+      })) : void 0
+    })),
+    hasNextPage: descending ? !!pageInfo.hasPreviousPage : !!pageInfo.hasNextPage,
+    nextCursor
+  };
+}
+function mapTxFilter(filter) {
+  if (!filter) return { kind: "none" };
+  if ("FromAddress" in filter && typeof filter.FromAddress === "string") {
+    return { kind: "sender", value: filter.FromAddress };
+  }
+  if ("ChangedObject" in filter && typeof filter.ChangedObject === "string") {
+    return { kind: "affected", value: filter.ChangedObject };
+  }
+  if ("InputObject" in filter && typeof filter.InputObject === "string") {
+    return { kind: "affected", value: filter.InputObject };
+  }
+  if ("AffectedObject" in filter && typeof filter.AffectedObject === "string") {
+    return { kind: "affected", value: filter.AffectedObject };
+  }
+  return { kind: "none" };
+}
+function mapGrpcTxToLegacy(result, options) {
+  const body = result.Transaction ?? result.FailedTransaction ?? result;
+  const digest = body.digest;
+  const events = Array.isArray(body.events) ? body.events.map((e, i) => ({
+    type: e.eventType ?? e.type ?? "",
+    parsedJson: e.json ?? e.parsedJson ?? null,
+    id: {
+      txDigest: digest ?? "",
+      eventSeq: e.eventIndex != null ? String(e.eventIndex) : String(i)
+    },
+    timestampMs: body.timestampMs != null ? String(body.timestampMs) : null,
+    sender: e.sender
+  })) : void 0;
+  return {
+    digest,
+    timestampMs: body.timestampMs != null ? String(body.timestampMs) : null,
+    checkpoint: body.checkpoint != null ? String(body.checkpoint) : void 0,
+    effects: body.effects ? {
+      status: {
+        status: body.status?.success === false ? "failure" : "success"
+      },
+      ...body.effects ?? {}
+    } : void 0,
+    transaction: options?.showInput ? body.transaction : void 0,
+    events: options?.showEvents ? events : void 0,
+    balanceChanges: options?.showBalanceChanges ? body.balanceChanges : void 0,
+    objectChanges: options?.showObjectChanges ? body.effects?.changedObjects : void 0
+  };
+}
+function createJsonRpcCompatClient(grpc = getDashboardGrpcClient()) {
+  const client = {
+    async getAllBalances(input) {
+      return paginateBalances(grpc, asOwner(input));
+    },
+    async getBalance(input) {
+      const { balance } = await withSuiDataThrottle(
+        () => grpc.getBalance({ owner: input.owner, coinType: input.coinType })
+      );
+      return {
+        coinType: balance.coinType,
+        totalBalance: balance.balance,
+        coinObjectCount: 0,
+        lockedBalance: {}
+      };
+    },
+    async getCoinMetadata(input) {
+      const res = await withSuiDataThrottle(() => grpc.getCoinMetadata({ coinType: input.coinType }));
+      const m = res.coinMetadata;
+      if (!m) return null;
+      return {
+        id: m.id,
+        decimals: m.decimals,
+        name: m.name,
+        symbol: m.symbol,
+        description: m.description,
+        iconUrl: m.iconUrl || null
+      };
+    },
+    async getObject(input) {
+      recordSuiRead("getObject");
+      const include = optionsToInclude(input.options);
+      try {
+        const { object } = await withSuiDataThrottle(
+          () => grpc.getObject({ objectId: input.id, include })
+        );
+        return legacyObjectResponse(object);
+      } catch (e) {
+        return {
+          data: null,
+          error: { code: "notExists", message: e instanceof Error ? e.message : String(e) }
+        };
+      }
+    },
+    async multiGetObjects(input) {
+      recordSuiRead("multiGetObjects", input.ids?.length ?? 1);
+      const include = optionsToInclude(input.options);
+      const { objects } = await withSuiDataThrottle(
+        () => grpc.getObjects({ objectIds: input.ids, include })
+      );
+      return (objects ?? []).map((o) => legacyObjectResponse(o));
+    },
+    async getOwnedObjects(input) {
+      recordSuiRead("getOwnedObjects");
+      const include = optionsToInclude(input.options);
+      const structType = input.filter && typeof input.filter === "object" && "StructType" in input.filter ? String(input.filter.StructType) : void 0;
+      const page = await withSuiDataThrottle(
+        () => grpc.listOwnedObjects({
+          owner: input.owner,
+          type: structType,
+          cursor: input.cursor ?? void 0,
+          limit: input.limit ?? void 0,
+          include
+        })
+      );
+      return {
+        data: (page.objects ?? []).map((o) => legacyObjectResponse(o)),
+        hasNextPage: !!page.hasNextPage,
+        nextCursor: page.cursor ?? null
+      };
+    },
+    async getDynamicFields(input) {
+      const page = await withSuiDataThrottle(
+        () => grpc.listDynamicFields({
+          parentId: input.parentId,
+          cursor: input.cursor ?? void 0,
+          limit: input.limit ?? void 0
+        })
+      );
+      return {
+        data: (page.dynamicFields ?? []).map((f) => ({
+          name: f.name,
+          bcsName: void 0,
+          type: f.$kind === "DynamicObject" ? "DynamicObject" : "DynamicField",
+          objectId: f.fieldId ?? f.objectId
+        })),
+        hasNextPage: !!page.hasNextPage,
+        nextCursor: page.cursor ?? null
+      };
+    },
+    async getDynamicFieldObject(input) {
+      const name = encodeLegacyDfName(input.name);
+      const include = { json: true, type: true };
+      try {
+        const { object } = await withSuiDataThrottle(
+          () => grpc.getDynamicObjectField({ parentId: input.parentId, name, include })
+        );
+        return legacyObjectResponse(object);
+      } catch {
+        try {
+          const { dynamicField } = await withSuiDataThrottle(
+            () => grpc.getDynamicField({ parentId: input.parentId, name })
+          );
+          const fieldId = dynamicField.fieldId;
+          if (!fieldId) {
+            return { data: null, error: { code: "dynamicFieldNotFound", message: "missing fieldId" } };
+          }
+          const { object } = await withSuiDataThrottle(
+            () => grpc.getObject({ objectId: fieldId, include })
+          );
+          return legacyObjectResponse(object);
+        } catch (e) {
+          return {
+            data: null,
+            error: { code: "dynamicFieldNotFound", message: e instanceof Error ? e.message : String(e) }
+          };
+        }
+      }
+    },
+    async queryEvents(input) {
+      recordSuiRead("queryEvents");
+      return queryEventsGraphql(input);
+    },
+    async queryTransactionBlocks(input) {
+      const mapped = mapTxFilter(input.filter);
+      if (mapped.kind === "affected" && mapped.value) {
+        return queryTxByAffectedObject({
+          objectId: mapped.value,
+          cursor: input.cursor,
+          limit: input.limit,
+          order: input.order,
+          options: input.options
+        });
+      }
+      const filter = mapped.kind === "sender" && mapped.value ? { sender: mapped.value } : void 0;
+      const include = {
+        effects: true,
+        events: !!input.options?.showEvents,
+        transaction: !!input.options?.showInput,
+        balanceChanges: !!input.options?.showBalanceChanges
+      };
+      const descending = input.order !== "ascending";
+      const page = await withSuiDataThrottle(
+        () => grpc.listTransactions({
+          filter,
+          limit: input.limit ?? void 0,
+          order: descending ? "descending" : "ascending",
+          before: descending && typeof input.cursor === "string" ? input.cursor : void 0,
+          after: !descending && typeof input.cursor === "string" ? input.cursor : void 0,
+          include
+        })
+      );
+      return {
+        data: (page.transactions ?? []).map((t) => mapGrpcTxToLegacy(t, input.options)),
+        hasNextPage: !!page.hasNextPage,
+        nextCursor: page.endCursor ?? null
+      };
+    },
+    async getTransactionBlock(input) {
+      const include = {
+        effects: true,
+        events: !!input.options?.showEvents,
+        transaction: !!input.options?.showInput,
+        balanceChanges: !!input.options?.showBalanceChanges
+      };
+      const result = await withSuiDataThrottle(
+        () => grpc.getTransaction({ digest: input.digest, include })
+      );
+      return mapGrpcTxToLegacy(result, input.options);
+    },
+    async multiGetTransactionBlocks(input) {
+      const out = [];
+      for (const digest of input.digests) {
+        out.push(await client.getTransactionBlock({ digest, options: input.options }));
+      }
+      return out;
+    },
+    /**
+     * Legacy `sui_devInspectTransactionBlock` → gRPC `simulateTransaction`.
+     * Shape expected by Navi / Current / Bluefin / Cetus accrued helpers:
+     * `{ error?, results?: [{ returnValues: [[bytes, typeTag], ...] }] }`.
+     */
+    async devInspectTransactionBlock(input) {
+      recordSuiRead("devInspectTransactionBlock");
+      const tx = input.transactionBlock;
+      try {
+        tx.setSenderIfNotSet?.(input.sender);
+        tx.setSender?.(input.sender);
+      } catch {
+      }
+      const result = await withSuiDataThrottle(
+        () => grpc.simulateTransaction({
+          transaction: input.transactionBlock,
+          checksEnabled: false,
+          include: { commandResults: true, effects: true, events: true }
+        })
+      );
+      const failed = result.$kind === "FailedTransaction";
+      const body = result.Transaction ?? result.FailedTransaction;
+      const statusErr = failed || body?.status?.success === false ? body?.status?.error?.message ?? "Simulation failed" : null;
+      const commandResults = result.commandResults ?? [];
+      const results = commandResults.map((cmd) => ({
+        returnValues: (cmd.returnValues ?? []).map((out) => {
+          const bytes = out.bcs instanceof Uint8Array ? Array.from(out.bcs) : [];
+          return [bytes, ""];
+        }),
+        mutableReferenceOutputs: (cmd.mutatedReferences ?? []).map((out) => {
+          const bytes = out.bcs instanceof Uint8Array ? Array.from(out.bcs) : [];
+          return [bytes, ""];
+        })
+      }));
+      const rawEvents = Array.isArray(body?.events) ? body.events : [];
+      const events = rawEvents.map((e) => {
+        const eventType = typeof e.eventType === "string" && e.eventType || typeof e.type === "string" && e.type || "";
+        const parsedJson = e.json && typeof e.json === "object" ? e.json : e.parsedJson && typeof e.parsedJson === "object" ? e.parsedJson : null;
+        return {
+          type: eventType,
+          eventType,
+          parsedJson,
+          packageId: typeof e.packageId === "string" ? e.packageId : void 0,
+          transactionModule: typeof e.module === "string" ? e.module : void 0,
+          sender: typeof e.sender === "string" ? e.sender : void 0,
+          bcs: e.bcs
+        };
+      });
+      return {
+        error: statusErr,
+        effects: {
+          status: { status: statusErr ? "failure" : "success", error: statusErr }
+        },
+        results,
+        events
+      };
+    },
+    async getNormalizedMoveFunction(input) {
+      const res = await withSuiDataThrottle(
+        () => grpc.getMoveFunction({
+          packageId: input.package,
+          moduleName: input.module,
+          name: input.function
+        })
+      );
+      const fn = res.function ?? res;
+      return {
+        visibility: fn.visibility ?? "Public",
+        isEntry: Boolean(fn.isEntry),
+        params: fn.parameters ?? [],
+        return: fn.returns ?? fn.return ?? [],
+        typeParameters: fn.typeParameters ?? []
+      };
+    },
+    /** Latest checkpoint via GraphQL `Query.checkpoint`. JSON-RPC method of the same name is gone. */
+    async getLatestCheckpointSequenceNumber() {
+      const data = await suiGraphqlRequest(
+        "query LatestCheckpoint { checkpoint { sequenceNumber } }"
+      );
+      const n = data.checkpoint?.sequenceNumber;
+      if (n == null) throw new Error("GraphQL checkpoint has no sequenceNumber");
+      return String(n);
+    },
+    /** Escape hatch for native gRPC methods (listBalances, listOwnedObjects, …). */
+    get grpc() {
+      return grpc;
+    }
+  };
+  return client;
+}
+var sharedCompat = null;
+function getJsonRpcCompatClient() {
+  if (!sharedCompat) sharedCompat = createJsonRpcCompatClient();
+  return sharedCompat;
+}
+
 // src/utils/suiRpcUrl.ts
 var DEFAULT_MAINNET_JSON_RPC_URL = "https://mainnet.suiet.app";
 var DEPRECATED_JSON_RPC_HOSTS = /* @__PURE__ */ new Set([
@@ -645,8 +1450,8 @@ var DEFAULT_TIMEOUT_MS = 8e3;
 var DEFAULT_FAILURES_BEFORE_QUARANTINE = 2;
 var DEFAULT_QUARANTINE_MS = 12e3;
 var HARD_DOWN_MS = 5 * 6e4;
-var MAX_IN_FLIGHT = 1;
-var MIN_GAP_MS = 300;
+var MAX_IN_FLIGHT2 = 1;
+var MIN_GAP_MS2 = 300;
 var RATE_LIMIT_COOLDOWN_MS = 2e3;
 var RATE_LIMIT_PASSES = 4;
 var STAGGER_RACE_MS = 180;
@@ -899,11 +1704,11 @@ var RpcProviderPool = class {
         this.inFlight++;
         const now = Date.now();
         const wait = Math.max(0, this.nextStartAt - now);
-        this.nextStartAt = Math.max(this.nextStartAt, now) + MIN_GAP_MS;
+        this.nextStartAt = Math.max(this.nextStartAt, now) + MIN_GAP_MS2;
         if (wait === 0) resolve();
         else setTimeout(resolve, wait);
       };
-      if (this.inFlight < MAX_IN_FLIGHT) start();
+      if (this.inFlight < MAX_IN_FLIGHT2) start();
       else this.slotQueue.push(start);
     });
   }
@@ -1130,13 +1935,25 @@ function getRpcProviderPool() {
 
 // src/poolQuote/rpc.ts
 function getArbJsonRpcClient() {
-  return getRpcProviderPool().activeClient();
+  return getJsonRpcCompatClient();
 }
 function getArbRpcUrl() {
-  return getRpcProviderPool().activeUrl();
+  return resolveSuiGrpcUrl();
 }
 async function executeWithFailover(fn, opts) {
-  return getRpcProviderPool().execute(fn, opts);
+  const started = Date.now();
+  const providerUrl = resolveSuiGrpcUrl();
+  const result = await fn(getArbJsonRpcClient(), providerUrl);
+  return {
+    result,
+    meta: {
+      providerUrl,
+      providerLabel: opts?.label ?? "grpc",
+      latencyMs: Date.now() - started,
+      failoverUsed: false,
+      providersTried: 1
+    }
+  };
 }
 async function fetchLatestCheckpoint() {
   try {

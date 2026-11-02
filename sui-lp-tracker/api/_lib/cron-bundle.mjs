@@ -25,6 +25,65 @@ if (!globalThis.Buffer) {
 // src/services/server/loadPortfolioSnapshot.ts
 import { normalizeSuiAddress as normalizeSuiAddress17 } from "@mysten/sui/utils";
 
+// src/services/suiData/config.ts
+function envStr(name) {
+  if (typeof process !== "undefined" && process.env) {
+    const v = process.env[name];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  try {
+    const meta = import.meta.env;
+    const v = meta?.[name];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  } catch {
+  }
+  return void 0;
+}
+var MYSTEN_PUBLIC_GRPC_URL = "https://fullnode.mainnet.sui.io";
+var PUBLICNODE_PUBLIC_GRPC_URL = "https://sui-grpc.publicnode.com:443";
+var MYSTEN_PUBLIC_GRAPHQL_URL = "https://graphql.mainnet.sui.io/graphql";
+var BLOCKVISION_GRPC_WEB_URL = "https://sui-mainnet-grpc-web.blockvision.org";
+function resolvePublicGrpcEndpoints() {
+  const key = resolveBlockvisionApiKey();
+  const fromEnv = envStr("VITE_SUI_GRPC_URL") ?? envStr("SUI_GRPC_URL");
+  if (fromEnv) return [fromEnv.replace(/\/$/, "")];
+  const listRaw = envStr("SUI_GRPC_ENDPOINTS") ?? envStr("VITE_SUI_GRPC_ENDPOINTS");
+  if (listRaw) {
+    const resolved = listRaw.split(",").map((part) => resolveGrpcEndpointAlias(part.trim())).filter((u) => Boolean(u));
+    if (resolved.length > 0) return resolved;
+  }
+  if (key) return [BLOCKVISION_GRPC_WEB_URL];
+  return [MYSTEN_PUBLIC_GRPC_URL];
+}
+var GRPC_ENDPOINT_ALIASES = {
+  publicnode: PUBLICNODE_PUBLIC_GRPC_URL,
+  mysten: MYSTEN_PUBLIC_GRPC_URL,
+  blockvision: BLOCKVISION_GRPC_WEB_URL
+};
+function resolveGrpcEndpointAlias(token) {
+  if (!token) return null;
+  const alias = GRPC_ENDPOINT_ALIASES[token.toLowerCase()];
+  if (alias) return alias.replace(/\/$/, "");
+  if (/^https?:\/\//i.test(token)) return token.replace(/\/$/, "");
+  return null;
+}
+function resolveBlockvisionApiKey() {
+  return envStr("VITE_BLOCKVISION_API_KEY") ?? envStr("BLOCKVISION_API_KEY");
+}
+function resolveSuiGrpcUrl() {
+  const key = resolveBlockvisionApiKey();
+  const fromEnv = envStr("VITE_SUI_GRPC_URL") ?? envStr("SUI_GRPC_URL");
+  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  if (key) return BLOCKVISION_GRPC_WEB_URL;
+  return MYSTEN_PUBLIC_GRPC_URL;
+}
+function resolveSuiGraphqlUrl() {
+  return (envStr("VITE_SUI_GRAPHQL_URL") ?? envStr("SUI_GRAPHQL_URL") ?? MYSTEN_PUBLIC_GRAPHQL_URL).replace(/\/$/, "");
+}
+
+// src/services/suiData/createGrpcClient.ts
+import { SuiGrpcClient } from "@mysten/sui/grpc";
+
 // src/utils/deploymentOrigin.ts
 function deploymentOrigin() {
   if (typeof window !== "undefined") return null;
@@ -90,743 +149,6 @@ function extFetchUrl(absoluteUrl) {
   }
 }
 
-// src/utils/suiRpcUrl.ts
-var DEFAULT_MAINNET_JSON_RPC_URL = "https://mainnet.suiet.app";
-var DASHBOARD_RPC_FALLBACK_URLS = [DEFAULT_MAINNET_JSON_RPC_URL];
-var DEPRECATED_JSON_RPC_HOSTS = /* @__PURE__ */ new Set([
-  "fullnode.mainnet.sui.io",
-  "fullnode.testnet.sui.io",
-  "fullnode.devnet.sui.io",
-  "sui-rpc.publicnode.com",
-  "sui.publicnode.com",
-  "sui.api.onfinality.io"
-]);
-var RPC_HOST_ALIASES = {
-  "sui.publicnode.com": DEFAULT_MAINNET_JSON_RPC_URL
-};
-function rpcFromProcessEnv() {
-  if (typeof process === "undefined" || !process.env) return void 0;
-  const v = process.env.VITE_SUI_RPC_URL ?? process.env.SUI_RPC_URL;
-  if (typeof v === "string" && v.trim().length > 0) return v.trim();
-  return void 0;
-}
-function normalizeSuiRpcUrl(url) {
-  try {
-    const u = new URL(url);
-    const host = u.hostname.toLowerCase();
-    if (DEPRECATED_JSON_RPC_HOSTS.has(host)) {
-      return DEFAULT_MAINNET_JSON_RPC_URL;
-    }
-    const alias = RPC_HOST_ALIASES[host];
-    if (alias) return alias;
-  } catch {
-  }
-  return url;
-}
-function resolveSuiRpcUrl() {
-  const fromProcess = rpcFromProcessEnv();
-  if (fromProcess) return normalizeSuiRpcUrl(fromProcess);
-  const fromEnv = import.meta.env?.VITE_SUI_RPC_URL;
-  if (typeof fromEnv === "string" && fromEnv.trim().length > 0) {
-    return normalizeSuiRpcUrl(fromEnv.trim());
-  }
-  return DEFAULT_MAINNET_JSON_RPC_URL;
-}
-function resolveServerSuiRpcUrl() {
-  return resolveSuiRpcUrl();
-}
-function resolveBrowserRpcUrl() {
-  const absolute = resolveSuiRpcUrl();
-  if (typeof window === "undefined") return absolute;
-  const isDev = Boolean(import.meta.env?.DEV);
-  if (!isDev) {
-    return extFetchUrl(absolute);
-  }
-  const proxied = extFetchUrl(absolute);
-  if (proxied !== absolute && proxied.startsWith("/")) return proxied;
-  try {
-    const u = new URL(absolute);
-    return `/ext/sui-rpc${u.pathname}${u.search}`;
-  } catch {
-    return "/ext/sui-rpc";
-  }
-}
-
-// src/rpc/providerPool.ts
-import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
-
-// src/rpc/rollingLatency.ts
-var RollingLatency = class {
-  buf;
-  i = 0;
-  filled = 0;
-  name;
-  constructor(name, capacity = 512) {
-    this.name = name;
-    this.buf = new Array(Math.max(16, capacity));
-  }
-  push(ms) {
-    if (!Number.isFinite(ms) || ms < 0) return;
-    this.buf[this.i] = ms;
-    this.i = (this.i + 1) % this.buf.length;
-    this.filled = Math.min(this.filled + 1, this.buf.length);
-  }
-  samples() {
-    if (this.filled < this.buf.length) return this.buf.slice(0, this.filled);
-    const out = [];
-    for (let k = 0; k < this.filled; k++) {
-      out.push(this.buf[(this.i + k) % this.buf.length]);
-    }
-    return out;
-  }
-  stats() {
-    const s = this.samples().sort((a, b) => a - b);
-    if (s.length === 0) {
-      return { count: 0, min: 0, max: 0, mean: 0, p50: 0, p90: 0, p95: 0, p99: 0 };
-    }
-    const sum = s.reduce((a, b) => a + b, 0);
-    return {
-      count: s.length,
-      min: s[0],
-      max: s[s.length - 1],
-      mean: sum / s.length,
-      p50: percentile(s, 0.5),
-      p90: percentile(s, 0.9),
-      p95: percentile(s, 0.95),
-      p99: percentile(s, 0.99)
-    };
-  }
-};
-function percentile(sortedAsc, p) {
-  if (sortedAsc.length === 0) return 0;
-  if (sortedAsc.length === 1) return sortedAsc[0];
-  const idx = (sortedAsc.length - 1) * p;
-  const lo = Math.floor(idx);
-  const hi = Math.ceil(idx);
-  if (lo === hi) return sortedAsc[lo];
-  const w = idx - lo;
-  return sortedAsc[lo] * (1 - w) + sortedAsc[hi] * w;
-}
-
-// src/rpc/providerPool.ts
-var DEFAULT_TIMEOUT_MS = 8e3;
-var DEFAULT_FAILURES_BEFORE_QUARANTINE = 2;
-var DEFAULT_QUARANTINE_MS = 12e3;
-var HARD_DOWN_MS = 5 * 6e4;
-var MAX_IN_FLIGHT = 1;
-var MIN_GAP_MS = 300;
-var RATE_LIMIT_COOLDOWN_MS = 2e3;
-var RATE_LIMIT_PASSES = 4;
-var STAGGER_RACE_MS = 180;
-var HEALTH_PROBE_MS = 2e4;
-function isHardDownMessage(msg) {
-  return /no longer available|has been deprecated|Method not found|Unexpected status code: 403/i.test(
-    msg
-  );
-}
-function shortLabel(url) {
-  try {
-    const h = new URL(url).hostname;
-    return h.replace(/^www\./, "").slice(0, 28);
-  } catch {
-    return url.slice(0, 28);
-  }
-}
-function classifyError(msg) {
-  if (/timeout|aborted|AbortError|ETIMEDOUT/i.test(msg)) return "timeout";
-  if (/429|rate limit|Too Many|too frequent/i.test(msg)) return "429";
-  if (/\b5\d\d\b|502|503|504|Bad Gateway|Service Unavailable/i.test(msg)) return "5xx";
-  return "other";
-}
-function timedFetch(timeoutMs) {
-  return async (input, init) => {
-    const ctrl = new AbortController();
-    const parent = init?.signal;
-    const onParentAbort = () => ctrl.abort();
-    if (parent) {
-      if (parent.aborted) ctrl.abort();
-      else parent.addEventListener("abort", onParentAbort, { once: true });
-    }
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      return await fetch(input, { ...init, signal: ctrl.signal });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (/abort/i.test(msg) || e instanceof Error && e.name === "AbortError") {
-        throw new Error(`RPC timeout after ${timeoutMs}ms`, { cause: e });
-      }
-      throw e;
-    } finally {
-      clearTimeout(timer);
-      parent?.removeEventListener("abort", onParentAbort);
-    }
-  };
-}
-var Provider = class {
-  url;
-  label;
-  client;
-  requestCount = 0;
-  successCount = 0;
-  failureCount = 0;
-  timeoutCount = 0;
-  count429 = 0;
-  count5xx = 0;
-  consecutiveFailures = 0;
-  lastSuccessAt = null;
-  lastFailureAt = null;
-  quarantinedUntil = null;
-  /** Skip this URL even in the all-providers fallback (dead gateway / removed API). */
-  hardDownUntil = null;
-  circuit = "CLOSED";
-  latency = new RollingLatency("rpc");
-  constructor(url, timeoutMs) {
-    this.url = url;
-    this.label = shortLabel(url);
-    this.client = new SuiJsonRpcClient({
-      url,
-      network: "mainnet",
-      // @ts-expect-error mysten client accepts fetch in runtime options
-      fetch: timedFetch(timeoutMs)
-    });
-  }
-  healthScore(now2 = Date.now()) {
-    if (this.circuit === "OPEN" && this.quarantinedUntil != null && now2 < this.quarantinedUntil) {
-      return 0;
-    }
-    const total = this.requestCount || 1;
-    const successRate = this.successCount / total;
-    const lat = this.latency.stats();
-    const latPenalty = lat.p95 > 0 ? Math.min(1, lat.p95 / 3e3) : 0;
-    const failPenalty = Math.min(1, this.consecutiveFailures / 5);
-    return Math.max(0, Math.min(1, successRate * (1 - 0.4 * latPenalty) * (1 - 0.5 * failPenalty)));
-  }
-  isHardDown(now2 = Date.now()) {
-    return this.hardDownUntil != null && now2 < this.hardDownUntil;
-  }
-  isUsable(now2 = Date.now()) {
-    this.maybeAdvanceCircuit(now2);
-    if (this.isHardDown(now2)) return false;
-    return this.circuit === "CLOSED" || this.circuit === "HALF_OPEN";
-  }
-  maybeAdvanceCircuit(now2 = Date.now()) {
-    if (this.circuit === "OPEN" && this.quarantinedUntil != null && now2 >= this.quarantinedUntil) {
-      this.circuit = "HALF_OPEN";
-    }
-  }
-  recordSuccess(latencyMs) {
-    this.requestCount++;
-    this.successCount++;
-    this.consecutiveFailures = 0;
-    this.lastSuccessAt = Date.now();
-    this.latency.push(latencyMs);
-    this.quarantinedUntil = null;
-    this.hardDownUntil = null;
-    this.circuit = "CLOSED";
-  }
-  recordFailure(err, failuresBeforeQuarantine, quarantineMs) {
-    this.requestCount++;
-    this.failureCount++;
-    this.consecutiveFailures++;
-    this.lastFailureAt = Date.now();
-    const msg = err instanceof Error ? err.message : String(err);
-    const kind = classifyError(msg);
-    if (kind === "timeout") this.timeoutCount++;
-    if (kind === "429") this.count429++;
-    if (kind === "5xx") this.count5xx++;
-    if (isHardDownMessage(msg)) {
-      this.hardDownUntil = Date.now() + HARD_DOWN_MS;
-      this.openCircuit(HARD_DOWN_MS);
-      return;
-    }
-    if (this.circuit === "HALF_OPEN") {
-      this.openCircuit(quarantineMs);
-      return;
-    }
-    if (kind === "429" || kind === "5xx" || this.consecutiveFailures >= failuresBeforeQuarantine) {
-      this.openCircuit(quarantineMs);
-    }
-  }
-  openCircuit(quarantineMs) {
-    this.circuit = "OPEN";
-    this.quarantinedUntil = Date.now() + quarantineMs;
-  }
-  snapshot() {
-    const lat = this.latency.stats();
-    return {
-      url: this.url,
-      label: this.label,
-      requestCount: this.requestCount,
-      successCount: this.successCount,
-      failureCount: this.failureCount,
-      timeoutCount: this.timeoutCount,
-      count429: this.count429,
-      count5xx: this.count5xx,
-      latency: { p50: lat.p50, p90: lat.p90, p95: lat.p95, count: lat.count },
-      lastSuccessAt: this.lastSuccessAt,
-      lastFailureAt: this.lastFailureAt,
-      consecutiveFailures: this.consecutiveFailures,
-      healthScore: this.healthScore(),
-      quarantinedUntil: this.quarantinedUntil,
-      circuit: this.circuit
-    };
-  }
-};
-var RpcProviderPool = class {
-  providers;
-  preferredIndex = 0;
-  inFlight = 0;
-  nextStartAt = 0;
-  slotQueue = [];
-  timeoutMs;
-  failuresBeforeQuarantine;
-  quarantineMs;
-  retriesPerProvider;
-  /** Callbacks when active URL changes (Turbos SDK rebind). */
-  onUrlChange = [];
-  healthTimer = null;
-  constructor(opts) {
-    this.timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.failuresBeforeQuarantine = opts?.failuresBeforeQuarantine ?? DEFAULT_FAILURES_BEFORE_QUARANTINE;
-    this.quarantineMs = opts?.quarantineMs ?? DEFAULT_QUARANTINE_MS;
-    this.retriesPerProvider = Math.max(0, opts?.retriesPerProvider ?? 0);
-    const urls = opts?.urls?.length ? opts.urls.map(normalizeSuiRpcUrl) : [resolveServerSuiRpcUrl()];
-    this.providers = urls.map((u) => new Provider(u, this.timeoutMs));
-    if (this.providers.length === 0) {
-      this.providers = [new Provider(normalizeSuiRpcUrl(resolveServerSuiRpcUrl()), this.timeoutMs)];
-    }
-    this.startHealthProbe();
-  }
-  /** Quiet checkpoint ping — clears soft quarantine when a flapping node recovers. */
-  startHealthProbe() {
-    if (typeof setInterval === "undefined") return;
-    if (this.healthTimer != null) return;
-    this.healthTimer = setInterval(() => {
-      void this.probeUnhealthyProviders();
-    }, HEALTH_PROBE_MS);
-    if (typeof this.healthTimer === "object" && this.healthTimer && "unref" in this.healthTimer) {
-      ;
-      this.healthTimer.unref();
-    }
-  }
-  async probeUnhealthyProviders() {
-    const now2 = Date.now();
-    for (const p of this.providers) {
-      if (p.isHardDown(now2)) continue;
-      if (p.circuit === "CLOSED" && p.consecutiveFailures === 0) continue;
-      try {
-        const t0 = Date.now();
-        await p.client.getLatestCheckpointSequenceNumber();
-        p.recordSuccess(Date.now() - t0);
-        const idx = this.providers.indexOf(p);
-        if (idx >= 0) {
-          this.preferredIndex = idx;
-          for (const cb of this.onUrlChange) cb(p.url);
-        }
-      } catch {
-      }
-    }
-  }
-  onActiveUrlChange(cb) {
-    this.onUrlChange.push(cb);
-  }
-  urls() {
-    return this.providers.map((p) => p.url);
-  }
-  activeUrl() {
-    return this.pickOrder()[0]?.url ?? this.providers[0].url;
-  }
-  activeClient() {
-    const p = this.pickOrder()[0] ?? this.providers[0];
-    return p.client;
-  }
-  getClientForUrl(url) {
-    return this.providers.find((p) => p.url === url)?.client ?? null;
-  }
-  stats() {
-    return this.providers.map((p) => p.snapshot());
-  }
-  formatTable() {
-    const rows = this.stats();
-    const lines = [
-      "RPC PROVIDERS",
-      "provider".padEnd(28) + "success%".padStart(9) + "timeout".padStart(8) + "429".padStart(5) + "5xx".padStart(5) + "p50".padStart(7) + "p95".padStart(7) + "  health  state"
-    ];
-    for (const r of rows) {
-      const pct2 = r.requestCount > 0 ? `${(100 * r.successCount / r.requestCount).toFixed(1)}%` : "n/a";
-      lines.push(
-        r.label.padEnd(28) + pct2.padStart(9) + String(r.timeoutCount).padStart(8) + String(r.count429).padStart(5) + String(r.count5xx).padStart(5) + `${Math.round(r.latency.p50)}`.padStart(7) + `${Math.round(r.latency.p95)}`.padStart(7) + `  ${r.healthScore.toFixed(2).padStart(5)}  ${r.circuit}`
-      );
-    }
-    return lines.join("\n");
-  }
-  /** Keep public nodes under their request-per-second cap. */
-  acquireSlot() {
-    return new Promise((resolve) => {
-      const start = () => {
-        this.inFlight++;
-        const now2 = Date.now();
-        const wait = Math.max(0, this.nextStartAt - now2);
-        this.nextStartAt = Math.max(this.nextStartAt, now2) + MIN_GAP_MS;
-        if (wait === 0) resolve();
-        else setTimeout(resolve, wait);
-      };
-      if (this.inFlight < MAX_IN_FLIGHT) start();
-      else this.slotQueue.push(start);
-    });
-  }
-  releaseSlot() {
-    this.inFlight = Math.max(0, this.inFlight - 1);
-    const next = this.slotQueue.shift();
-    if (next) next();
-  }
-  deferAfterRateLimit() {
-    this.nextStartAt = Math.max(this.nextStartAt, Date.now() + RATE_LIMIT_COOLDOWN_MS);
-  }
-  /** Ordered usable providers: preferred first, then by healthScore desc. */
-  pickOrder(now2 = Date.now()) {
-    for (const p of this.providers) p.maybeAdvanceCircuit(now2);
-    const alive = this.providers.filter((p) => !p.isHardDown(now2));
-    const base = alive.length > 0 ? alive : [...this.providers];
-    const usable = base.filter((p) => p.isUsable(now2));
-    const pool = usable.length > 0 ? usable : base;
-    const preferred = this.providers[this.preferredIndex];
-    pool.sort((a, b) => {
-      if (preferred && a === preferred) return -1;
-      if (preferred && b === preferred) return 1;
-      if (a.circuit === "HALF_OPEN" && b.circuit !== "HALF_OPEN") return 1;
-      if (b.circuit === "HALF_OPEN" && a.circuit !== "HALF_OPEN") return -1;
-      return b.healthScore(now2) - a.healthScore(now2);
-    });
-    return pool;
-  }
-  markPreferred(p) {
-    const idx = this.providers.indexOf(p);
-    if (idx < 0) return;
-    if (idx !== this.preferredIndex) {
-      this.preferredIndex = idx;
-      for (const cb of this.onUrlChange) cb(p.url);
-    } else {
-      this.preferredIndex = idx;
-    }
-  }
-  /**
-   * Staggered race across up to 2 healthy providers (EdgeApp pattern).
-   * First success wins; losers still record failure/success for scoring.
-   */
-  async raceTwo(fn, a, b) {
-    const run = (p) => {
-      const t0 = Date.now();
-      return fn(p.client, p.url).then(
-        (result) => ({ ok: true, provider: p, result, latencyMs: Date.now() - t0 }),
-        (error) => ({ ok: false, provider: p, error })
-      );
-    };
-    const first = run(a);
-    const late = { p: null };
-    const timer = setTimeout(() => {
-      late.p = run(b);
-    }, STAGGER_RACE_MS);
-    const settled = await first;
-    clearTimeout(timer);
-    if (settled.ok) {
-      settled.provider.recordSuccess(settled.latencyMs);
-      this.markPreferred(settled.provider);
-      if (late.p) {
-        void late.p.then((o) => {
-          if (o.ok) o.provider.recordSuccess(o.latencyMs);
-          else o.provider.recordFailure(o.error, this.failuresBeforeQuarantine, this.quarantineMs);
-        });
-      }
-      return {
-        result: settled.result,
-        meta: {
-          providerUrl: settled.provider.url,
-          providerLabel: settled.provider.label,
-          latencyMs: settled.latencyMs,
-          failoverUsed: false,
-          providersTried: late.p ? 2 : 1
-        }
-      };
-    }
-    settled.provider.recordFailure(settled.error, this.failuresBeforeQuarantine, this.quarantineMs);
-    if (classifyError(settled.error instanceof Error ? settled.error.message : String(settled.error)) === "429") {
-      this.deferAfterRateLimit();
-    }
-    if (!late.p) late.p = run(b);
-    const other = await late.p;
-    if (other.ok) {
-      other.provider.recordSuccess(other.latencyMs);
-      this.markPreferred(other.provider);
-      return {
-        result: other.result,
-        meta: {
-          providerUrl: other.provider.url,
-          providerLabel: other.provider.label,
-          latencyMs: other.latencyMs,
-          failoverUsed: true,
-          providersTried: 2
-        }
-      };
-    }
-    other.provider.recordFailure(other.error, this.failuresBeforeQuarantine, this.quarantineMs);
-    if (classifyError(other.error instanceof Error ? other.error.message : String(other.error)) === "429") {
-      this.deferAfterRateLimit();
-    }
-    return { error: other.error ?? settled.error, tried: 2 };
-  }
-  /**
-   * Run fn against providers with fast failover + staggered race on the first pair.
-   */
-  async execute(fn, opts) {
-    await this.acquireSlot();
-    try {
-      let lastErr;
-      for (let pass = 0; pass < RATE_LIMIT_PASSES; pass++) {
-        if (pass > 0) {
-          await new Promise((r) => setTimeout(r, RATE_LIMIT_COOLDOWN_MS));
-        }
-        const order = this.pickOrder();
-        const max = Math.min(opts?.maxProviders ?? order.length, order.length);
-        if (max === 0) break;
-        let rateLimited = false;
-        let tried = 0;
-        if (max >= 2) {
-          const raced = await this.raceTwo(fn, order[0], order[1]);
-          if ("result" in raced) return raced;
-          tried += raced.tried;
-          lastErr = raced.error;
-          const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
-          if (classifyError(msg) === "429") rateLimited = true;
-          for (let i = 2; i < max; i++) {
-            const p = order[i];
-            tried++;
-            const t0 = Date.now();
-            try {
-              const result = await fn(p.client, p.url);
-              p.recordSuccess(Date.now() - t0);
-              this.markPreferred(p);
-              return {
-                result,
-                meta: {
-                  providerUrl: p.url,
-                  providerLabel: p.label,
-                  latencyMs: Date.now() - t0,
-                  failoverUsed: true,
-                  providersTried: tried
-                }
-              };
-            } catch (e) {
-              lastErr = e;
-              p.recordFailure(e, this.failuresBeforeQuarantine, this.quarantineMs);
-              if (classifyError(e instanceof Error ? e.message : String(e)) === "429") {
-                rateLimited = true;
-                this.deferAfterRateLimit();
-              }
-            }
-          }
-        } else {
-          const p = order[0];
-          const attempts = 1 + this.retriesPerProvider;
-          for (let attempt = 0; attempt < attempts; attempt++) {
-            tried++;
-            const t0 = Date.now();
-            try {
-              const result = await fn(p.client, p.url);
-              p.recordSuccess(Date.now() - t0);
-              this.markPreferred(p);
-              return {
-                result,
-                meta: {
-                  providerUrl: p.url,
-                  providerLabel: p.label,
-                  latencyMs: Date.now() - t0,
-                  failoverUsed: false,
-                  providersTried: tried
-                }
-              };
-            } catch (e) {
-              lastErr = e;
-              p.recordFailure(e, this.failuresBeforeQuarantine, this.quarantineMs);
-              if (classifyError(e instanceof Error ? e.message : String(e)) === "429") {
-                rateLimited = true;
-                this.deferAfterRateLimit();
-              }
-              if (p.circuit === "OPEN") break;
-            }
-          }
-        }
-        if (!rateLimited) break;
-      }
-      throw lastErr instanceof Error ? lastErr : new Error(String(lastErr ?? "All RPC providers failed"));
-    } finally {
-      this.releaseSlot();
-    }
-  }
-  async call(fn) {
-    const { result } = await this.execute((c, url) => fn(c, url));
-    return result;
-  }
-};
-function createPooledSuiClient(pool) {
-  const handler = {
-    get(_target, prop, receiver) {
-      if (prop === "then") return void 0;
-      const sample = pool.activeClient();
-      const val = Reflect.get(sample, prop, receiver);
-      if (typeof val !== "function") return val;
-      return (...args) => pool.call((c) => {
-        const fn = Reflect.get(c, prop);
-        return Promise.resolve(fn.apply(c, args));
-      });
-    }
-  };
-  return new Proxy(pool.activeClient(), handler);
-}
-
-// src/rpc/dashboardPool.ts
-function envStr(name) {
-  if (typeof process !== "undefined" && process.env) {
-    const v = process.env[name];
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  try {
-    const meta = import.meta.env;
-    const v = meta?.[name];
-    if (typeof v === "string" && v.trim()) return v.trim();
-  } catch {
-  }
-  return void 0;
-}
-function envNum(name, fallback) {
-  const raw = envStr(name);
-  const n2 = raw != null ? Number(raw) : NaN;
-  return Number.isFinite(n2) && n2 > 0 ? n2 : fallback;
-}
-function splitCsv(raw) {
-  if (!raw) return [];
-  return raw.split(",").map((s) => s.trim()).filter(Boolean);
-}
-function toBrowserUrl(absolute) {
-  try {
-    const proxied = extFetchUrl(absolute);
-    if (proxied !== absolute) return proxied;
-  } catch {
-  }
-  return absolute;
-}
-function parseDashboardRpcUrls() {
-  const fromList = splitCsv(envStr("SUI_RPC_URLS") ?? envStr("VITE_SUI_RPC_URLS"));
-  const primary = envStr("SUI_RPC_URL") ?? envStr("VITE_SUI_RPC_URL");
-  const list = [...fromList];
-  if (primary) {
-    const n2 = normalizeSuiRpcUrl(primary);
-    if (!list.map(normalizeSuiRpcUrl).includes(n2)) list.unshift(n2);
-  }
-  for (const u of DASHBOARD_RPC_FALLBACK_URLS) {
-    const n2 = normalizeSuiRpcUrl(u);
-    if (!list.map(normalizeSuiRpcUrl).includes(n2)) list.push(n2);
-  }
-  const abs = list.length > 0 ? list.map(normalizeSuiRpcUrl) : [resolveServerSuiRpcUrl()];
-  const unique = [...new Set(abs)];
-  if (typeof window === "undefined") return unique;
-  return selectBrowserDashboardRpcUrls(unique, resolveBrowserRpcUrl(), toBrowserUrl);
-}
-function selectBrowserDashboardRpcUrls(absoluteUrls, browserPrimary, rewrite) {
-  const extras = absoluteUrls.map((u) => {
-    try {
-      return rewrite(u);
-    } catch {
-      return u;
-    }
-  }).filter((u) => u.startsWith("/") && u !== browserPrimary);
-  return [.../* @__PURE__ */ new Set([browserPrimary, ...extras])];
-}
-var sharedPool = null;
-var sharedClient = null;
-function getDashboardRpcPool() {
-  if (!sharedPool) {
-    sharedPool = new RpcProviderPool({
-      urls: parseDashboardRpcUrls(),
-      timeoutMs: envNum("SUI_RPC_TIMEOUT_MS", envNum("VITE_SUI_RPC_TIMEOUT_MS", 8e3)),
-      failuresBeforeQuarantine: envNum("SUI_RPC_FAILURES_BEFORE_QUARANTINE", 2),
-      // Soft quarantine — PublicNode/Suiet flap; health probe re-opens ~20s.
-      quarantineMs: envNum("SUI_RPC_QUARANTINE_MS", 12e3),
-      retriesPerProvider: 0
-    });
-  }
-  return sharedPool;
-}
-function getDashboardSuiClient() {
-  if (!sharedClient) {
-    sharedClient = createPooledSuiClient(getDashboardRpcPool());
-  }
-  return sharedClient;
-}
-
-// src/services/suiData/createGrpcClient.ts
-import { SuiGrpcClient } from "@mysten/sui/grpc";
-
-// src/services/suiData/config.ts
-function envStr2(name) {
-  if (typeof process !== "undefined" && process.env) {
-    const v = process.env[name];
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  try {
-    const meta = import.meta.env;
-    const v = meta?.[name];
-    if (typeof v === "string" && v.trim()) return v.trim();
-  } catch {
-  }
-  return void 0;
-}
-var MYSTEN_PUBLIC_GRPC_URL = "https://fullnode.mainnet.sui.io";
-var PUBLICNODE_PUBLIC_GRPC_URL = "https://sui-grpc.publicnode.com:443";
-var MYSTEN_PUBLIC_GRAPHQL_URL = "https://graphql.mainnet.sui.io/graphql";
-var BLOCKVISION_GRPC_WEB_URL = "https://sui-mainnet-grpc-web.blockvision.org";
-function resolvePublicGrpcEndpoints() {
-  const key = resolveBlockvisionApiKey();
-  const fromEnv = envStr2("VITE_SUI_GRPC_URL") ?? envStr2("SUI_GRPC_URL");
-  if (fromEnv) return [fromEnv.replace(/\/$/, "")];
-  const listRaw = envStr2("SUI_GRPC_ENDPOINTS") ?? envStr2("VITE_SUI_GRPC_ENDPOINTS");
-  if (listRaw) {
-    const resolved = listRaw.split(",").map((part) => resolveGrpcEndpointAlias(part.trim())).filter((u) => Boolean(u));
-    if (resolved.length > 0) return resolved;
-  }
-  if (key) return [BLOCKVISION_GRPC_WEB_URL];
-  return [MYSTEN_PUBLIC_GRPC_URL];
-}
-var GRPC_ENDPOINT_ALIASES = {
-  publicnode: PUBLICNODE_PUBLIC_GRPC_URL,
-  mysten: MYSTEN_PUBLIC_GRPC_URL,
-  blockvision: BLOCKVISION_GRPC_WEB_URL
-};
-function resolveGrpcEndpointAlias(token) {
-  if (!token) return null;
-  const alias = GRPC_ENDPOINT_ALIASES[token.toLowerCase()];
-  if (alias) return alias.replace(/\/$/, "");
-  if (/^https?:\/\//i.test(token)) return token.replace(/\/$/, "");
-  return null;
-}
-function resolveSuiDataTransport() {
-  const raw = (envStr2("VITE_SUI_DATA_TRANSPORT") ?? envStr2("SUI_DATA_TRANSPORT") ?? "grpc").toLowerCase();
-  return raw === "jsonrpc" ? "jsonrpc" : "grpc";
-}
-function resolveBlockvisionApiKey() {
-  return envStr2("VITE_BLOCKVISION_API_KEY") ?? envStr2("BLOCKVISION_API_KEY");
-}
-function resolveSuiGrpcUrl() {
-  const key = resolveBlockvisionApiKey();
-  const fromEnv = envStr2("VITE_SUI_GRPC_URL") ?? envStr2("SUI_GRPC_URL");
-  if (fromEnv) return fromEnv.replace(/\/$/, "");
-  if (key) return BLOCKVISION_GRPC_WEB_URL;
-  return MYSTEN_PUBLIC_GRPC_URL;
-}
-function resolveSuiGraphqlUrl() {
-  return (envStr2("VITE_SUI_GRAPHQL_URL") ?? envStr2("SUI_GRAPHQL_URL") ?? MYSTEN_PUBLIC_GRAPHQL_URL).replace(/\/$/, "");
-}
-
 // src/services/suiData/createGrpcClient.ts
 function browserGrpcBaseUrl(absolute) {
   const cleaned = absolute.replace(/\/$/, "");
@@ -857,20 +179,17 @@ function getDashboardGrpcClient() {
   if (!shared) shared = createDashboardGrpcClient();
   return shared;
 }
-function _resetDashboardGrpcClientForTests() {
-  shared = null;
-}
 
 // src/services/suiData/throttle.ts
-var MAX_IN_FLIGHT2 = 3;
-var MIN_GAP_MS2 = 80;
+var MAX_IN_FLIGHT = 3;
+var MIN_GAP_MS = 80;
 var inFlight = 0;
 var lastStart = 0;
 var waiters = [];
 function kick() {
-  while (inFlight < MAX_IN_FLIGHT2 && waiters.length > 0) {
+  while (inFlight < MAX_IN_FLIGHT && waiters.length > 0) {
     const now2 = Date.now();
-    const wait = Math.max(0, MIN_GAP_MS2 - (now2 - lastStart));
+    const wait = Math.max(0, MIN_GAP_MS - (now2 - lastStart));
     if (wait > 0 && inFlight > 0) {
       setTimeout(kick, wait);
       return;
@@ -1514,6 +833,15 @@ function createJsonRpcCompatClient(grpc = getDashboardGrpcClient()) {
         typeParameters: fn.typeParameters ?? []
       };
     },
+    /** Latest checkpoint via GraphQL `Query.checkpoint`. JSON-RPC method of the same name is gone. */
+    async getLatestCheckpointSequenceNumber() {
+      const data = await suiGraphqlRequest(
+        "query LatestCheckpoint { checkpoint { sequenceNumber } }"
+      );
+      const n2 = data.checkpoint?.sequenceNumber;
+      if (n2 == null) throw new Error("GraphQL checkpoint has no sequenceNumber");
+      return String(n2);
+    },
     /** Escape hatch for native gRPC methods (listBalances, listOwnedObjects, …). */
     get grpc() {
       return grpc;
@@ -1526,24 +854,13 @@ function getJsonRpcCompatClient() {
   if (!sharedCompat) sharedCompat = createJsonRpcCompatClient();
   return sharedCompat;
 }
-function _resetJsonRpcCompatClientForTests() {
-  sharedCompat = null;
-}
 
 // src/services/portfolioReadRpcSource.ts
 var active = null;
 var jsonRpcFallbackReason = null;
-function resetPortfolioReadRpcSource() {
-  active = null;
-  jsonRpcFallbackReason = null;
-}
 function recordPortfolioReadRpcSource(source) {
   active = source;
   if (source !== "jsonrpc") jsonRpcFallbackReason = null;
-}
-function recordPortfolioJsonRpcFallback(reason) {
-  active = "jsonrpc";
-  jsonRpcFallbackReason = reason;
 }
 function grpcUrlToRpcSource(url) {
   const u = url.replace(/\/$/, "").toLowerCase();
@@ -1599,13 +916,6 @@ var consecutiveFailuresByUrl = /* @__PURE__ */ new Map();
 var stickyEndpointIndex = 0;
 var lastPublicNodeFailureReason = null;
 var hasLockedGrpcWinner = false;
-function _resetGrpcEndpointHealthForTests() {
-  cooldownUntilByUrl.clear();
-  consecutiveFailuresByUrl.clear();
-  stickyEndpointIndex = 0;
-  lastPublicNodeFailureReason = null;
-  hasLockedGrpcWinner = false;
-}
 function hasGrpcEndpointWinner() {
   return hasLockedGrpcWinner;
 }
@@ -1711,8 +1021,6 @@ function isGrpcTransportFailure(err) {
     msg
   );
 }
-function resetPortfolioJsonRpcFallbackReason() {
-}
 async function invokeGrpcOnEndpoint(endpointIndex, endpoints, _urls, prop, args, receiver, opts) {
   const { url, client } = endpoints[endpointIndex];
   const fn = Reflect.get(client, prop, receiver);
@@ -1791,39 +1099,6 @@ function wrapGrpcEndpointFailover(endpoints) {
     }
   });
 }
-function wrapPortfolioReadWithJsonRpcFallback(primary) {
-  const fallback = getDashboardSuiClient();
-  return new Proxy(primary, {
-    get(_target, prop, receiver) {
-      if (prop === "grpc") {
-        return primary.grpc;
-      }
-      const primaryVal = Reflect.get(primary, prop, receiver);
-      if (typeof primaryVal !== "function") {
-        return primaryVal;
-      }
-      return async (...args) => {
-        const fn = Reflect.get(primary, prop, receiver);
-        if (typeof fn !== "function") {
-          throw new TypeError(`suiClient.${String(prop)} is not a function`);
-        }
-        try {
-          return await fn.apply(primary, args);
-        } catch (e) {
-          if (!isGrpcTransportFailure(e)) throw e;
-          const reason = classifyGrpcFailureReason(e);
-          recordPortfolioJsonRpcFallback(reason);
-          console.warn(
-            `[portfolio-read] jsonrpc fallback on ${String(prop)}: ${reason}`
-          );
-          const fbFn = Reflect.get(fallback, prop, receiver);
-          if (typeof fbFn !== "function") throw e;
-          return fbFn.apply(fallback, args);
-        }
-      };
-    }
-  });
-}
 function createGrpcCompatStack() {
   const urls = resolvePublicGrpcEndpoints();
   const endpoints = urls.map((url) => ({
@@ -1833,24 +1108,13 @@ function createGrpcCompatStack() {
   return wrapGrpcEndpointFailover(endpoints);
 }
 function createPortfolioReadSuiClient() {
-  if (resolveSuiDataTransport() === "jsonrpc") {
-    recordPortfolioReadRpcSource("jsonrpc");
-    return getDashboardSuiClient();
-  }
-  return wrapPortfolioReadWithJsonRpcFallback(createGrpcCompatStack());
+  recordPortfolioReadRpcSource("mysten-grpc");
+  return createGrpcCompatStack();
 }
 var shared2 = null;
 function getPortfolioReadSuiClient() {
   if (!shared2) shared2 = createPortfolioReadSuiClient();
   return shared2;
-}
-function _resetPortfolioReadSuiClientForTests() {
-  shared2 = null;
-  resetPortfolioReadRpcSource();
-  resetPortfolioJsonRpcFallbackReason();
-  _resetGrpcEndpointHealthForTests();
-  _resetJsonRpcCompatClientForTests();
-  _resetDashboardGrpcClientForTests();
 }
 
 // src/services/suiClient.ts
@@ -1864,9 +1128,6 @@ var suiClient = new Proxy({}, {
     return val;
   }
 });
-function getRpcUrl() {
-  return getDashboardRpcPool().activeUrl();
-}
 
 // src/utils/formatting.ts
 import Decimal from "decimal.js";
@@ -2071,7 +1332,7 @@ async function getSdk() {
     try {
       const a = await Aftermath.create({
         network: "MAINNET",
-        fullnodeUrl: getRpcUrl()
+        fullnodeUrl: MYSTEN_PUBLIC_GRPC_URL
       });
       sdk = a;
       return a;
@@ -3411,6 +2672,10 @@ async function withRpcBackoff(fn, opts = {}) {
   throw last instanceof Error ? last : new Error(String(last));
 }
 
+// src/utils/suiRpcUrl.ts
+var DEFAULT_MAINNET_JSON_RPC_URL = "https://mainnet.suiet.app";
+var DASHBOARD_RPC_FALLBACK_URLS = [DEFAULT_MAINNET_JSON_RPC_URL];
+
 // src/services/coinMetadata.ts
 var METADATA_FALLBACK_RPCS = DASHBOARD_RPC_FALLBACK_URLS.filter(
   (url) => !url.includes("blastapi.io")
@@ -3913,7 +3178,7 @@ async function fetchConfig(forceRefresh = false) {
 async function fetchRewards(walletAddress, priceByType, symbolByType) {
   try {
     const { getUserAvailableLendingRewards } = await import("@naviprotocol/lending");
-    const client = getDashboardSuiClient();
+    const client = getDashboardGrpcClient();
     const rawRewards = await getUserAvailableLendingRewards(walletAddress, {
       client,
       env: "prod"
@@ -7318,8 +6583,7 @@ function mmtSdkMainnet() {
   try {
     return MmtSDK.NEW({
       network: "mainnet",
-      suiClientUrl: getRpcUrl(),
-      client: getDashboardSuiClient()
+      client: getJsonRpcCompatClient()
     });
   } catch (e) {
     console.warn("MmtSDK.NEW failed \u2014 Momentum open positions unavailable", e);
@@ -12852,7 +12116,7 @@ async function getAftermathSdk() {
     try {
       const a = await Aftermath2.create({
         network: "MAINNET",
-        fullnodeUrl: getRpcUrl()
+        fullnodeUrl: MYSTEN_PUBLIC_GRPC_URL
       });
       _sdk = a;
       return a;
@@ -13266,25 +12530,7 @@ function logSnapErr(part, e) {
   console.error(`[snapshot] ${part}:`, msg);
 }
 async function loadPortfolioSnapshotDetailed(rawAddress) {
-  let result = await loadPortfolioSnapshotDetailedOnce(rawAddress);
-  if (result.incomplete && resolveSuiDataTransport() !== "jsonrpc") {
-    const prev = process.env.SUI_DATA_TRANSPORT;
-    const prevVite = process.env.VITE_SUI_DATA_TRANSPORT;
-    try {
-      process.env.SUI_DATA_TRANSPORT = "jsonrpc";
-      process.env.VITE_SUI_DATA_TRANSPORT = "jsonrpc";
-      _resetPortfolioReadSuiClientForTests();
-      const retry = await loadPortfolioSnapshotDetailedOnce(rawAddress);
-      if (!retry.incomplete) result = retry;
-    } finally {
-      if (prev === void 0) delete process.env.SUI_DATA_TRANSPORT;
-      else process.env.SUI_DATA_TRANSPORT = prev;
-      if (prevVite === void 0) delete process.env.VITE_SUI_DATA_TRANSPORT;
-      else process.env.VITE_SUI_DATA_TRANSPORT = prevVite;
-      _resetPortfolioReadSuiClientForTests();
-    }
-  }
-  return result;
+  return loadPortfolioSnapshotDetailedOnce(rawAddress);
 }
 async function loadPortfolioSnapshotDetailedOnce(rawAddress) {
   const walletAddr = normalizeSuiAddress17(rawAddress).toLowerCase();

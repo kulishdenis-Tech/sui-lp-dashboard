@@ -3,11 +3,10 @@ import type { OpenPosition } from '@/types'
 import { getDashboardSuiClient } from '@/rpc/dashboardPool'
 import {
 	_resetPortfolioReadSuiClientForTests,
-	wrapPortfolioReadWithJsonRpcFallback,
+	createPortfolioReadSuiClient,
 } from '@/services/portfolioSuiReadClient'
 import {
 	getPortfolioReadRpcSource,
-	getPortfolioReadRpcSourceReason,
 	resetPortfolioReadRpcSource,
 } from '@/services/portfolioReadRpcSource'
 
@@ -50,30 +49,22 @@ import { buildAdvisorState } from '@/services/server/advisorState'
 import { getCurrentPositions, EMPTY_CURRENT_SNAP } from '@/services/currentService'
 import { getUsdPerTokenAtTimestamp } from '@/services/priceService'
 
-describe('portfolio JSON-RPC fallback QA', () => {
+describe('portfolio read stays on gRPC', () => {
 	afterEach(() => {
 		_resetPortfolioReadSuiClientForTests()
 		resetPortfolioReadRpcSource()
+		vi.unstubAllEnvs()
 		vi.restoreAllMocks()
 	})
 
-	it('records rpcSource jsonrpc and reason when gRPC transport fails', async () => {
-		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-		const primary = {
-			getObject: vi.fn().mockRejectedValue(new Error('grpc call timeout after 15000ms')),
-		}
-		const fallback = {
-			getObject: vi.fn().mockResolvedValue({ data: { objectId: '0x2' } }),
-		}
-		vi.mocked(getDashboardSuiClient).mockReturnValue(fallback as never)
-
+	it('does not open the JSON-RPC pool when a leftover jsonrpc flag is set', () => {
+		vi.stubEnv('SUI_DATA_TRANSPORT', 'jsonrpc')
+		vi.mocked(getDashboardSuiClient).mockReturnValue({} as never)
 		resetPortfolioReadRpcSource()
-		const wrapped = wrapPortfolioReadWithJsonRpcFallback(primary as never)
-		await wrapped.getObject({ id: '0x2' })
-
-		expect(getPortfolioReadRpcSource()).toBe('jsonrpc')
-		expect(getPortfolioReadRpcSourceReason()).toMatch(/call-timeout:15000ms/)
-		expect(warn.mock.calls.some((c) => String(c[0]).includes('jsonrpc fallback'))).toBe(true)
+		const client = createPortfolioReadSuiClient()
+		expect(getDashboardSuiClient).not.toHaveBeenCalled()
+		expect(typeof client.getObject).toBe('function')
+		expect(getPortfolioReadRpcSource()).toBe('mysten-grpc')
 	})
 })
 

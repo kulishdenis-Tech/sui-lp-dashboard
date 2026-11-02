@@ -4,6 +4,8 @@
  */
 
 import type { SuiJsonRpcClient } from '@mysten/sui/jsonRpc'
+import { getJsonRpcCompatClient } from '@/services/suiData/jsonRpcCompat'
+import { resolveSuiGrpcUrl } from '@/services/suiData/config'
 import {
 	getRpcProviderPool,
 	type RpcCallMeta,
@@ -19,13 +21,13 @@ export {
 	type RpcCallMeta,
 } from '@/poolQuote/rpc/providerPool'
 
-/** Active healthy client (may change after failover). */
+/** gRPC/GraphQL facade. The name stays so DEX adapters keep compiling. */
 export function getArbJsonRpcClient(): SuiJsonRpcClient {
-	return getRpcProviderPool().activeClient()
+	return getJsonRpcCompatClient() as unknown as SuiJsonRpcClient
 }
 
 export function getArbRpcUrl(): string {
-	return getRpcProviderPool().activeUrl()
+	return resolveSuiGrpcUrl()
 }
 
 /**
@@ -49,7 +51,19 @@ export async function executeWithFailover<T>(
 	fn: (client: SuiJsonRpcClient, url: string) => Promise<T>,
 	opts?: { label?: string; maxProviders?: number },
 ): Promise<{ result: T; meta: RpcCallMeta }> {
-	return getRpcProviderPool().execute(fn, opts)
+	const started = Date.now()
+	const providerUrl = resolveSuiGrpcUrl()
+	const result = await fn(getArbJsonRpcClient(), providerUrl)
+	return {
+		result,
+		meta: {
+			providerUrl,
+			providerLabel: opts?.label ?? 'grpc',
+			latencyMs: Date.now() - started,
+			failoverUsed: false,
+			providersTried: 1,
+		},
+	}
 }
 
 export async function fetchLatestCheckpoint(): Promise<string | null> {

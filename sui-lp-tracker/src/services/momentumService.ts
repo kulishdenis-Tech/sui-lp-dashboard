@@ -1,7 +1,7 @@
 import { MmtSDK, TickMath, Utils } from '@mmt-finance/clmm-sdk'
 import type { OpenPosition } from '@/types'
-import { suiClient, getRpcUrl } from '@/services/suiClient'
-import { getDashboardSuiClient } from '@/rpc/dashboardPool'
+import { suiClient } from '@/services/suiClient'
+import { getJsonRpcCompatClient } from '@/services/suiData/jsonRpcCompat'
 import {
 	momentumUserRowsFromOwnedRpc,
 	scanMomentumOwnedPositionIds,
@@ -20,14 +20,12 @@ import BN from 'bn.js'
 function mmtSdkMainnet(): MmtSDK | null {
 	try {
 		/**
-		 * peer `@mmt-finance/clmm-sdk` still expects JSON-RPC `SuiClient`.
-		 * Portfolio reads use gRPC compat (`suiClient`); Momentum SDK keeps a
-		 * dedicated pooled JSON-RPC client until MMT accepts gRPC.
+		 * MMT still calls `devInspectTransactionBlock` / `getObject`.
+		 * The compat client serves those shapes from gRPC simulate / getObject.
 		 */
 		return MmtSDK.NEW({
 			network: 'mainnet',
-			suiClientUrl: getRpcUrl(),
-			client: getDashboardSuiClient() as never,
+			client: getJsonRpcCompatClient() as never,
 		})
 	} catch (e) {
 		 

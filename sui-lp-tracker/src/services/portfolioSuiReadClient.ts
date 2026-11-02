@@ -1,10 +1,8 @@
 /**
- * Portfolio / LP / Current position reads — default gRPC (Mysten) with JSON-RPC fallback.
- * DEX SDK helpers that still need raw JSON-RPC use `dashboardPool` / Suiet directly.
+ * Portfolio / LP / Current position reads — gRPC (Mysten) and GraphQL for events.
  */
 
 import type { SuiJsonRpcClient } from '@mysten/sui/jsonRpc'
-import { getDashboardSuiClient } from '@/rpc/dashboardPool'
 import {
 	createJsonRpcCompatClient,
 	getJsonRpcCompatClient,
@@ -12,9 +10,8 @@ import {
 	type JsonRpcCompatClient,
 } from '@/services/suiData/jsonRpcCompat'
 import { createDashboardGrpcClient, _resetDashboardGrpcClientForTests } from '@/services/suiData/createGrpcClient'
-import { resolvePublicGrpcEndpoints, resolveSuiDataTransport } from '@/services/suiData/config'
+import { resolvePublicGrpcEndpoints } from '@/services/suiData/config'
 import {
-	classifyGrpcFailureReason,
 	isImmediateGrpcEndpointFailure,
 	markGrpcEndpointFailed,
 	markGrpcEndpointSuccess,
@@ -28,7 +25,6 @@ import {
 import {
 	grpcUrlToRpcSource,
 	recordPortfolioReadRpcSource,
-	recordPortfolioJsonRpcFallback,
 	resetPortfolioReadRpcSource,
 	getPortfolioReadRpcSourceReason,
 	type PortfolioReadRpcSource,
@@ -161,7 +157,6 @@ async function invokeThroughGrpcEndpoints(
 
 /** Cheap hedge: probe endpoints with short timeout before heavy advisor load. */
 export async function probePortfolioReadGrpcEndpoints(): Promise<void> {
-	if (resolveSuiDataTransport() === 'jsonrpc') return
 	if (hasGrpcEndpointWinner()) return
 	const urls = resolvePublicGrpcEndpoints()
 	if (urls.length === 0) return
@@ -201,44 +196,6 @@ export async function ensurePortfolioReadTransportReady(): Promise<void> {
 	await probePortfolioReadGrpcEndpoints()
 }
 
-/** Per-call JSON-RPC fallback when the gRPC stack fails (no session-wide sticky flip). */
-export function wrapPortfolioReadWithJsonRpcFallback(
-	primary: JsonRpcCompatClient,
-): SuiJsonRpcClient {
-	const fallback = getDashboardSuiClient()
-
-	return new Proxy(primary as unknown as SuiJsonRpcClient, {
-		get(_target, prop, receiver) {
-			if (prop === 'grpc') {
-				return primary.grpc
-			}
-			const primaryVal = Reflect.get(primary as object, prop, receiver)
-			if (typeof primaryVal !== 'function') {
-				return primaryVal
-			}
-			return async (...args: unknown[]) => {
-				const fn = Reflect.get(primary as object, prop, receiver)
-				if (typeof fn !== 'function') {
-					throw new TypeError(`suiClient.${String(prop)} is not a function`)
-				}
-				try {
-					return await (fn as (...a: unknown[]) => unknown).apply(primary, args)
-				} catch (e) {
-					if (!isGrpcTransportFailure(e)) throw e
-					const reason = classifyGrpcFailureReason(e)
-					recordPortfolioJsonRpcFallback(reason)
-					console.warn(
-						`[portfolio-read] jsonrpc fallback on ${String(prop)}: ${reason}`,
-					)
-					const fbFn = Reflect.get(fallback as object, prop, receiver)
-					if (typeof fbFn !== 'function') throw e
-					return (fbFn as (...a: unknown[]) => unknown).apply(fallback, args)
-				}
-			}
-		},
-	})
-}
-
 function createGrpcCompatStack(): JsonRpcCompatClient {
 	const urls = resolvePublicGrpcEndpoints()
 	const endpoints = urls.map((url) => ({
@@ -249,11 +206,8 @@ function createGrpcCompatStack(): JsonRpcCompatClient {
 }
 
 export function createPortfolioReadSuiClient(): SuiJsonRpcClient {
-	if (resolveSuiDataTransport() === 'jsonrpc') {
-		recordPortfolioReadRpcSource('jsonrpc')
-		return getDashboardSuiClient()
-	}
-	return wrapPortfolioReadWithJsonRpcFallback(createGrpcCompatStack())
+	recordPortfolioReadRpcSource('mysten-grpc')
+	return createGrpcCompatStack() as unknown as SuiJsonRpcClient
 }
 
 let shared: SuiJsonRpcClient | null = null
@@ -273,15 +227,12 @@ export function _resetPortfolioReadSuiClientForTests(): void {
 	_resetDashboardGrpcClientForTests()
 }
 
-/** Force JSON-RPC transport for one server snapshot attempt (no singleton reuse). */
+/** One-shot gRPC client. The `jsonrpc` argument is ignored; that transport is gone. */
 export function createPortfolioReadSuiClientForcedTransport(
-	transport: 'grpc' | 'jsonrpc',
+	_transport: 'grpc' | 'jsonrpc',
 ): SuiJsonRpcClient {
-	if (transport === 'jsonrpc') {
-		recordPortfolioReadRpcSource('jsonrpc')
-		return getDashboardSuiClient()
-	}
-	return wrapPortfolioReadWithJsonRpcFallback(createGrpcCompatStack())
+	recordPortfolioReadRpcSource('mysten-grpc')
+	return createGrpcCompatStack() as unknown as SuiJsonRpcClient
 }
 
 /**

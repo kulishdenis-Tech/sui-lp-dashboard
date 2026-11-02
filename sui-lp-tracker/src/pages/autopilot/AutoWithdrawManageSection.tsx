@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useSignPersonalMessage } from '@mysten/dapp-kit'
+import { useWalletSigner } from '@/wallet/useWalletSigner'
 import type { OpenPosition } from '@/types'
 import {
 	conditionAlreadyMetAtEnable,
@@ -88,7 +88,7 @@ export function AutoWithdrawManageSection({
 		ok: boolean
 		lastCheckedAtMs: number | null
 	} | null>(null)
-	const { mutateAsync: signPersonalMessage } = useSignPersonalMessage()
+	const { signPersonalMessage } = useWalletSigner()
 
 	useEffect(() => {
 		setRule(getAutoWithdrawRule(position.id) ?? null)

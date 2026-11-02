@@ -6,7 +6,7 @@
  * succeeds. Only clear on address change / disconnect (or hard failure with no prior data).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useCurrentAccount } from '@mysten/dapp-kit'
+import { useCurrentAccount } from '@mysten/dapp-kit-react'
 import { useAppStore } from '@/store/appStore'
 import { getEffectiveWalletAddress } from '@/utils/walletAddress'
 import {

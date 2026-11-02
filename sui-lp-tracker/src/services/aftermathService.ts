@@ -16,7 +16,8 @@
 import { Aftermath } from 'aftermath-ts-sdk'
 import { mapPool } from '@/utils/concurrency'
 import { RPC_CONCURRENCY } from '@/utils/constants'
-import { getRpcUrl, suiClient } from '@/services/suiClient'
+import { suiClient } from '@/services/suiClient'
+import { MYSTEN_PUBLIC_GRPC_URL } from '@/services/suiData/config'
 import type { OpenPosition } from '@/types'
 
 // ── Aftermath SDK singleton ───────────────────────────────────────────────────
@@ -31,10 +32,11 @@ async function getAftermathSdk(): Promise<Aftermath | null> {
 	if (_sdkInflight) return _sdkInflight
 	_sdkInflight = (async () => {
 		try {
-			// Aftermath SDK still speaks JSON-RPC only (separate from gRPC portfolio path).
+			// Aftermath.create builds a SuiGrpcClient from fullnodeUrl. The SDK also
+			// constructs an unused JSON-RPC client; Farms() does not call it.
 			const a = await Aftermath.create({
 				network: 'MAINNET',
-				fullnodeUrl: getRpcUrl(),
+				fullnodeUrl: MYSTEN_PUBLIC_GRPC_URL,
 			})
 			_sdk = a
 			return a

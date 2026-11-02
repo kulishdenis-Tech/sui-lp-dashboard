@@ -645,6 +645,16 @@ export function createJsonRpcCompatClient(grpc: SuiGrpcClient = getDashboardGrpc
 			}
 		},
 
+		/** Latest checkpoint via GraphQL `Query.checkpoint`. JSON-RPC method of the same name is gone. */
+		async getLatestCheckpointSequenceNumber() {
+			const data = await suiGraphqlRequest<{ checkpoint?: { sequenceNumber?: string | number } | null }>(
+				'query LatestCheckpoint { checkpoint { sequenceNumber } }',
+			)
+			const n = data.checkpoint?.sequenceNumber
+			if (n == null) throw new Error('GraphQL checkpoint has no sequenceNumber')
+			return String(n)
+		},
+
 		/** Escape hatch for native gRPC methods (listBalances, listOwnedObjects, …). */
 		get grpc(): SuiGrpcClient {
 			return grpc

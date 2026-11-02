@@ -1,13 +1,23 @@
 /**
- * Browser shim for @mysten/sui/client
+ * Browser shim for `@mysten/sui/client`.
  *
- * Portfolio dashboard reads go through `@/services/suiData` (gRPC + GraphQL).
- * This shim remains JSON-RPC for DEX/lending SDKs that still construct `SuiClient`
- * themselves (Momentum CLMM, Navi, Aftermath `fullnodeUrl`, AlphaLend inspect).
- *
- * @mysten/sui v2.x no longer exports `SuiClient` from `./client`.
- * Re-export `SuiJsonRpcClient` as `SuiClient` for those SDK outliers until they
- * accept `SuiGrpcClient` / `ClientWithCoreApi`.
+ * Vite aliases that specifier here so older DEX SDKs can still `import { SuiClient }`.
+ * The real client module no longer exports `SuiClient`; that name stays a JSON-RPC
+ * client for those SDKs. Everything else is the official client (gRPC core helpers),
+ * loaded by file path so this alias does not loop.
  */
-export { SuiJsonRpcClient as SuiClient } from '@mysten/sui/jsonRpc'
-export { getJsonRpcFullnodeUrl as getFullnodeUrl } from '@mysten/sui/jsonRpc'
+export {
+	BaseClient,
+	ClientCache,
+	CoreClient,
+	ObjectError,
+	SimulationError,
+	SuiClientError,
+	TransactionError,
+	extractStatusFromEffectsBcs,
+	formatMoveAbortMessage,
+	parseTransactionBcs,
+	parseTransactionEffectsBcs,
+} from '../../node_modules/@mysten/sui/dist/client/index.mjs'
+
+export { SuiJsonRpcClient as SuiClient, getJsonRpcFullnodeUrl as getFullnodeUrl } from '@mysten/sui/jsonRpc'

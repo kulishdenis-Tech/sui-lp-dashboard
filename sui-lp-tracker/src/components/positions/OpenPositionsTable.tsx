@@ -1,6 +1,6 @@
 import { useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useCurrentAccount } from '@mysten/dapp-kit'
+import { useCurrentAccount } from '@mysten/dapp-kit-react'
 import type { OpenPosition } from '@/types'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
 import { useAutoWithdrawRulesVersion } from '@/pages/autopilot/useAutoWithdrawRulesVersion'

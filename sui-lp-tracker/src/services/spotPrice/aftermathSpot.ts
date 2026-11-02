@@ -1,5 +1,5 @@
 import { Aftermath } from 'aftermath-ts-sdk'
-import { getRpcUrl } from '@/services/suiClient'
+import { MYSTEN_PUBLIC_GRPC_URL } from '@/services/suiData/config'
 
 let sdk: Aftermath | null = null
 let initFailed = false
@@ -13,7 +13,7 @@ async function getSdk(): Promise<Aftermath | null> {
 		try {
 			const a = await Aftermath.create({
 				network: 'MAINNET',
-				fullnodeUrl: getRpcUrl(),
+				fullnodeUrl: MYSTEN_PUBLIC_GRPC_URL,
 			})
 			sdk = a
 			return a

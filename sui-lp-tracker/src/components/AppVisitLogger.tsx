@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useCurrentAccount } from '@mysten/dapp-kit'
+import { useCurrentAccount } from '@mysten/dapp-kit-react'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
 import { reportAppVisit } from '@/services/serverVisitsApi'
 

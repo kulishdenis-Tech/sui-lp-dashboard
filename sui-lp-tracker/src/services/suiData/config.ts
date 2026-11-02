@@ -19,7 +19,7 @@ function envStr(name: string): string | undefined {
 	return undefined
 }
 
-export type SuiDataTransport = 'grpc' | 'jsonrpc'
+export type SuiDataTransport = 'grpc'
 
 /** Default Mysten public-good endpoints (no key; rate-limited). */
 export const MYSTEN_PUBLIC_GRPC_URL = 'https://fullnode.mainnet.sui.io'
@@ -62,9 +62,9 @@ export function resolveGrpcEndpointAlias(token: string): string | null {
 	return null
 }
 
+/** Portfolio reads stay on gRPC. A leftover `jsonrpc` env value is ignored. */
 export function resolveSuiDataTransport(): SuiDataTransport {
-	const raw = (envStr('VITE_SUI_DATA_TRANSPORT') ?? envStr('SUI_DATA_TRANSPORT') ?? 'grpc').toLowerCase()
-	return raw === 'jsonrpc' ? 'jsonrpc' : 'grpc'
+	return 'grpc'
 }
 
 export function resolveBlockvisionApiKey(): string | undefined {

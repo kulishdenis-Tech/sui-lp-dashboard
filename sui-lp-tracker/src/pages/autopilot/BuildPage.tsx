@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { useCurrentAccount } from '@mysten/dapp-kit'
+import { useCurrentAccount } from '@mysten/dapp-kit-react'
 import { ConstructorPage } from './ConstructorPage'
 import { PreviewDrawer } from './PreviewDrawer'
 import { deleteConfig, loadConfigs, renameConfig } from './storage'

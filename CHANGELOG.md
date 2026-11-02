@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.4
+
+- Гаманець підключено через `@mysten/dapp-kit-react` і офіційний `SuiGrpcClient`. Старий dapp-kit, який вмів лише JSON-RPC, прибрано.
+- Портфель, rewards Navi, Momentum і Aftermath читають офіційний fullnode через gRPC. Історія подій і номер checkpoint ідуть через GraphQL. Запасний виклик на Suiet більше не вмикається.
+
 ## 2.0.3
 
 - Запасний JSON-RPC лишається на Suiet до 14.11. Офіційний `fullnode.mainnet.sui.io` JSON-RPC уже не обслуговує: живий виклик повертає Method not found. Портфель (LP, lending, HF) і далі читається через gRPC того ж вузла. Гаманець dapp-kit 1.x, rewards Navi і SDK бірж усе ще потребують JSON-RPC, тож підставляти їм адресу fullnode не можна.

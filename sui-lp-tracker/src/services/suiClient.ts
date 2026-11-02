@@ -1,12 +1,10 @@
 import type { SuiJsonRpcClient } from '@mysten/sui/jsonRpc'
-import { getDashboardRpcPool } from '@/rpc/dashboardPool'
+import { MYSTEN_PUBLIC_GRPC_URL } from '@/services/suiData/config'
 import { getPortfolioReadSuiClient } from '@/services/portfolioSuiReadClient'
-import { resolveSuiDataTransport } from '@/services/suiData'
 
 /**
  * Read-only Sui client for portfolio / LP / Current reads.
- * Default: Mysten public gRPC (`fullnode.mainnet.sui.io`) with Suiet JSON-RPC fallback.
- * Opt out with VITE_SUI_DATA_TRANSPORT=jsonrpc.
+ * Mysten public gRPC (`fullnode.mainnet.sui.io`). Events and history use GraphQL.
  */
 export const suiClient: SuiJsonRpcClient = new Proxy({} as SuiJsonRpcClient, {
 	get(_target, prop, receiver) {
@@ -22,15 +20,12 @@ export const suiClient: SuiJsonRpcClient = new Proxy({} as SuiJsonRpcClient, {
 /** Alias kept for call sites that imported DashboardSuiClient during migration. */
 export type DashboardSuiClient = SuiJsonRpcClient
 
-/**
- * JSON-RPC URL for DEX SDK outliers (Momentum, Aftermath) and dapp-kit.
- * Not used by the default gRPC portfolio path.
- */
+/** Official fullnode base URL. Live reads use gRPC on this host. */
 export function getRpcUrl(): string {
-	return getDashboardRpcPool().activeUrl()
+	return MYSTEN_PUBLIC_GRPC_URL
 }
 
-/** True when portfolio reads go through gRPC/GraphQL compat. */
+/** Portfolio reads go through the gRPC/GraphQL client. */
 export function isGrpcDataTransport(): boolean {
-	return resolveSuiDataTransport() !== 'jsonrpc'
+	return true
 }

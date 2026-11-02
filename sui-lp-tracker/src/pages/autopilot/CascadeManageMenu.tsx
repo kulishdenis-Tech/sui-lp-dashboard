@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import { useCurrentAccount } from '@mysten/dapp-kit'
+import { useCurrentAccount } from '@mysten/dapp-kit-react'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
 import type { OpenPosition } from '@/types'
 import { Button } from '@/components/ui/Button'

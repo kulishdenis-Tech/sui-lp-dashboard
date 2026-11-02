@@ -33,7 +33,7 @@ import type {
 import { getCurrentSpot } from '@/services/spotPrice/currentSpotCache'
 import { extFetchUrl } from '@/utils/externalFetchUrl'
 import { suiClient } from '@/services/suiClient'
-import { getDashboardSuiClient } from '@/rpc/dashboardPool'
+import { getDashboardGrpcClient } from '@/services/suiData/createGrpcClient'
 import { enrichSupplyLiquidationPrices, normalizeLiquidationThresholdFactor } from '@/utils/supplyLiquidationPrice'
 
 const NAVI_ORIGIN = 'https://open-api.naviprotocol.io'
@@ -143,8 +143,8 @@ async function fetchRewards(
 ): Promise<LendingRewardToClaim[]> {
 	try {
 		const { getUserAvailableLendingRewards } = await import('@naviprotocol/lending')
-		// SDK requires a Core-capable JSON-RPC client (`client.core`); portfolio reads use gRPC compat.
-		const client = getDashboardSuiClient()
+		// Navi 2.1 reads rewards through SuiGrpcClient.core.simulateTransaction.
+		const client = getDashboardGrpcClient()
 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const rawRewards: any[] = await getUserAvailableLendingRewards(walletAddress, {

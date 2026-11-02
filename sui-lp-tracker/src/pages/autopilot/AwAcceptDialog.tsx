@@ -4,7 +4,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAutoWithdrawRulesVersion } from './useAutoWithdrawRulesVersion'
-import { useCurrentAccount, useSignPersonalMessage, useSignTransaction } from '@mysten/dapp-kit'
+import { useCurrentAccount } from '@mysten/dapp-kit-react'
+import { useWalletSigner } from '@/wallet/useWalletSigner'
 import { fromBase64 } from '@mysten/sui/utils'
 import type { AutoWithdrawRule } from '@autopilot/engine'
 import { principalOnlySupportForProtocol } from '@autopilot/engine'
@@ -77,8 +78,7 @@ function readyRules(owner: string): AutoWithdrawRule[] {
 export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 	const account = useCurrentAccount()
 	const network = 'mainnet' as const
-	const { mutateAsync: signPersonalMessage } = useSignPersonalMessage()
-	const { mutateAsync: signTransaction } = useSignTransaction()
+	const { signPersonalMessage, signTransaction } = useWalletSigner()
 	const submitGate = useRef(createSubmitOnceGate()).current
 	const awRulesVersion = useAutoWithdrawRulesVersion()
 	const [queue, setQueue] = useState<AutoWithdrawRule[]>(() =>
@@ -280,7 +280,6 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 				signed = await signWithTimeout(() =>
 					signTransaction({
 						transaction: frozen.txBytesBase64,
-						chain: 'sui:mainnet',
 					}),
 				)
 			} catch (e) {

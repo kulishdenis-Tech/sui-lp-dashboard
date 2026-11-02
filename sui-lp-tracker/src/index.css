@@ -5,6 +5,24 @@ html {
 	scrollbar-gutter: stable;
 }
 
+/* Wallet connect modal (dapp-kit web component). Variables inherit into its shadow root. */
+:root {
+	--background: #0f172a;
+	--foreground: #e2e8f0;
+	--primary: #0ea5e9;
+	--primary-foreground: #082f49;
+	--secondary: #1e293b;
+	--secondary-foreground: #e2e8f0;
+	--border: #334155;
+	--muted: #1e293b;
+	--muted-foreground: #94a3b8;
+	--popover: #0f172a;
+	--popover-foreground: #e2e8f0;
+	--accent: #0ea5e9;
+	--accent-foreground: #082f49;
+	--radius: 0.5rem;
+}
+
 @theme {
 	/* ─── Surfaces ─── */
 	--color-app-bg: #060b15;

@@ -1,4 +1,5 @@
-import { useCurrentAccount, useSignTransaction } from '@mysten/dapp-kit'
+import { useCurrentAccount } from '@mysten/dapp-kit-react'
+import { useWalletSigner } from '@/wallet/useWalletSigner'
 import { fromBase64 } from '@mysten/sui/utils'
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
@@ -167,7 +168,7 @@ export function PreviewDrawer({
 	returnFocusRef?: RefObject<HTMLElement | null>
 }) {
 	const account = useCurrentAccount()
-	const { mutateAsync: signTransaction } = useSignTransaction()
+	const { signTransaction } = useWalletSigner()
 	const tokenBalances = useAppStore((s) => s.tokenBalances)
 	const network = 'mainnet' as const
 	const panelRef = useRef<HTMLElement>(null)
@@ -944,7 +945,6 @@ export function PreviewDrawer({
 			const signed = await signWithTimeout(() =>
 				signTransaction({
 					transaction: frozen,
-					chain: 'sui:mainnet',
 				}),
 			)
 			if (rejectIfPostWalletInvalid({ genAtSign, accountAtSign })) return
@@ -1453,7 +1453,6 @@ export function PreviewDrawer({
 					const signed = await signWithTimeout(() =>
 						signTransaction({
 							transaction: frozen,
-							chain: 'sui:mainnet',
 						}),
 					)
 					if (

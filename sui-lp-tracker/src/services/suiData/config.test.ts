@@ -38,9 +38,9 @@ describe('suiData config (gRPC default)', () => {
 		expect(resolveGrpcEndpointAlias('https://custom.example/grpc')).toBe('https://custom.example/grpc')
 	})
 
-	it('honors SUI_DATA_TRANSPORT=jsonrpc opt-out', () => {
+	it('ignores a leftover jsonrpc transport flag', () => {
 		vi.stubEnv('SUI_DATA_TRANSPORT', 'jsonrpc')
-		expect(resolveSuiDataTransport()).toBe('jsonrpc')
+		expect(resolveSuiDataTransport()).toBe('grpc')
 	})
 
 	it('honors explicit SUI_GRPC_URL override', () => {

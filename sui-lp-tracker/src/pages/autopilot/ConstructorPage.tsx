@@ -1,4 +1,4 @@
-import { useCurrentAccount } from '@mysten/dapp-kit'
+import { useCurrentAccount } from '@mysten/dapp-kit-react'
 import { useEffect, useMemo, useState } from 'react'
 import { suiClient } from '@/services/suiClient'
 import { useAppStore } from '@/store/appStore'

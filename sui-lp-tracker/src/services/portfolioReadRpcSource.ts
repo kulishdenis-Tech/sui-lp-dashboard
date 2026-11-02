@@ -2,7 +2,6 @@ import {
 	MYSTEN_PUBLIC_GRPC_URL,
 	PUBLICNODE_PUBLIC_GRPC_URL,
 	BLOCKVISION_GRPC_WEB_URL,
-	resolveSuiDataTransport,
 } from '@/services/suiData/config'
 
 /** Which transport actually served portfolio reads for this process / request. */
@@ -51,6 +50,5 @@ export function grpcUrlToRpcSource(url: string): PortfolioReadRpcSource {
 
 /** Last recorded source, or configured default before any RPC call. */
 export function getPortfolioReadRpcSource(): PortfolioReadRpcSource {
-	if (resolveSuiDataTransport() === 'jsonrpc') return 'jsonrpc'
-	return active ?? 'publicnode-grpc'
+	return active ?? 'mysten-grpc'
 }

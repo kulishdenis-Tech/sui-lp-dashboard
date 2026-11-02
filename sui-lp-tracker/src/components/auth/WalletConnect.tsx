@@ -1,4 +1,6 @@
-import { ConnectModal, useCurrentAccount, useDisconnectWallet } from '@mysten/dapp-kit'
+import { useCurrentAccount } from '@mysten/dapp-kit-react'
+import { ConnectModal } from '@mysten/dapp-kit-react/ui'
+import { useWalletSigner } from '@/wallet/useWalletSigner'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { clearAwAuth, getAwAuthAddress, revokeAwSession } from '@/pages/autopilot/autoWithdrawStore'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
@@ -63,8 +65,7 @@ function WalletOrPaste() {
 	const setManualViewAddress = useAppStore((s) => s.setManualViewAddress)
 	const [draft, setDraft] = useState('')
 	const [err, setErr] = useState<string | null>(null)
-	/* ConnectModal + useWallets() can cause "Maximum update depth" if mounted on every paint; mount only when user wants wallet UI. */
-	const [mountConnectModal, setMountConnectModal] = useState(false)
+	const [connectOpen, setConnectOpen] = useState(false)
 
 	function onPasteSubmit(e: FormEvent) {
 		e.preventDefault()
@@ -79,19 +80,18 @@ function WalletOrPaste() {
 
 	return (
 		<div className="flex w-full max-w-xl flex-col gap-3 sm:max-w-none sm:flex-row sm:flex-wrap sm:items-end">
-			{mountConnectModal ? (
-				<ConnectModal
-					trigger={
-						<button type="button" className={connectBtnClass}>
-							Connect Wallet
-						</button>
-					}
-				/>
-			) : (
-				<button type="button" className={connectBtnClass} onClick={() => setMountConnectModal(true)}>
-					Connect Wallet
-				</button>
-			)}
+			<button type="button" className={connectBtnClass} onClick={() => setConnectOpen(true)}>
+				Connect Wallet
+			</button>
+			<ConnectModal
+				ref={(node) => {
+					const el = node as unknown as HTMLElement | null
+					if (!el || el.dataset.bound === '1') return
+					el.dataset.bound = '1'
+					el.addEventListener('closed', () => setConnectOpen(false))
+				}}
+				open={connectOpen}
+			/>
 			<div className="hidden text-slate-500 sm:block sm:pb-2">or</div>
 			<form
 				className="flex flex-1 flex-col gap-1 sm:min-w-[280px]"
@@ -126,7 +126,7 @@ function WalletOrPaste() {
 
 /** Connected wallet branch — Visits is admin-only, never labeled as capability status. */
 function ConnectedWalletRow() {
-	const { mutate: disconnectFromKit } = useDisconnectWallet()
+	const { disconnectWallet } = useWalletSigner()
 	const acc = useCurrentAccount()
 	const address = acc?.address
 	if (!address) return null
@@ -148,7 +148,7 @@ function ConnectedWalletRow() {
 				onClick={() => {
 					void revokeAwSession()
 					useAppStore.getState().clearPortfolio()
-					disconnectFromKit()
+					void disconnectWallet()
 				}}
 			>
 				Disconnect

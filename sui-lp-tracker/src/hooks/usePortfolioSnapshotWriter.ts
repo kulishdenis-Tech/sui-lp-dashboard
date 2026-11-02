@@ -3,7 +3,7 @@
  * Mount once under AppLayout so Overview does not duplicate writers.
  */
 import { useEffect, useRef } from 'react'
-import { useCurrentAccount } from '@mysten/dapp-kit'
+import { useCurrentAccount } from '@mysten/dapp-kit-react'
 import { useAppStore } from '@/store/appStore'
 import { getEffectiveWalletAddress } from '@/utils/walletAddress'
 import {
