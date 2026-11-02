@@ -184,6 +184,8 @@ export interface OpenPosition {
 	historyPartial?: boolean
 	/** Row kept from last good read after source refresh failed. */
 	readStale?: boolean
+	/** Epoch ms of last successful refresh (for STALE UI). */
+	lastSuccessAtMs?: number
 	/** Bluefin: деталізація unclaimed (fee/reward) з on-chain + spot. */
 	bluefinUnclaimed?: BluefinUnclaimedSnapshot
 	/**
@@ -516,6 +518,11 @@ export interface LendingSnapshot {
 	rewardsToClaim: LendingRewardToClaim[]
 	/** Protocol name, e.g. 'Scallop' */
 	protocol: string
+	/** Last good on-chain read; HF/Liq alerts require metricsLive. */
+	readStale?: boolean
+	lastSuccessAtMs?: number
+	/** When false, HF / liquidation UI is STALE and P0 alerts are suppressed. */
+	metricsLive?: boolean
 }
 
 export type SpotSource =
@@ -603,4 +610,8 @@ export interface NetWorthSnapshot {
 	netLendingUSD: number
 	/** `wallet + LP + netLending` = true net worth. */
 	totalNetUSD: number
+	/** Verified total (excludes UNVERIFIED STALE > 30 min). */
+	verifiedTotalNetUSD?: number
+	/** STALE positions older than 30 min — not in verifiedTotalNetUSD. */
+	unverifiedUSD?: number
 }

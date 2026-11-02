@@ -20,11 +20,25 @@ import { getLastPublicNodeGrpcFailureReason } from '@/services/grpcEndpointHealt
 import { ensurePortfolioReadTransportReady } from '@/services/portfolioSuiReadClient'
 import { inferPortfolioLpSourceId } from '@/utils/portfolioPositionKeys'
 import {
+	resolveAdvisorStateDeadlineMs,
+	splitVerifiedUnverifiedUsd,
+} from '@/utils/advisorStalePolicy'
+import {
+	getAdvisorCacheSavedAtMs,
+	getCachedAdvisorCurrent,
+	getCachedAdvisorLpPositions,
+	recordAdvisorSnapshotSuccess,
+} from '@/services/server/advisorSnapshotCache'
+import {
 	isSuiReadProfilingEnabled,
 	logSuiReadProfile,
 	resetSuiReadProfile,
 	type SuiReadProfileSnapshot,
 } from '@/services/suiReadProfiler'
+
+function delay(ms: number): Promise<{ kind: 'timeout' }> {
+	return new Promise((resolve) => setTimeout(() => resolve({ kind: 'timeout' }), ms))
+}
 
 /** Hardcoded advisor wallet (read-only). */
 const ADVISOR_WALLET =
@@ -89,6 +103,12 @@ export type AdvisorLpPosition = {
 	currentValueUSD: number
 	/** Last good row after partial RPC failure for this source. */
 	readStale?: boolean
+	lastSuccessAtMs?: number
+}
+
+export type AdvisorNetTotals = {
+	verifiedUSD: number
+	unverifiedUSD: number
 }
 
 export type AdvisorState = {
@@ -106,8 +126,13 @@ export type AdvisorState = {
 		totalSuppliedUSD: number
 		totalBorrowedUSD: number
 		netValueUSD: number
+		readStale?: boolean
+		lastSuccessAtMs?: number
+		/** When false, HF / liquidation price are STALE (no P0 from cache). */
+		metricsLive?: boolean
 	}
 	lpPositions: AdvisorLpPosition[]
+	net: AdvisorNetTotals
 	prices: { SUI: number | null; DEEP: number | null }
 	/** Present when SUI_LP_ADVISOR_PROFILE=1 */
 	readProfile?: SuiReadProfileSnapshot
@@ -193,6 +218,9 @@ function mapLpPosition(p: OpenPosition, staleSourceIds: ReadonlySet<string>): Ad
 		p.readStale === true ||
 		p.currentMultiply?.readStale === true ||
 		(sourceId != null && staleSourceIds.has(sourceId))
+	const resolvedLastSuccessAtMs = readStale
+		? p.lastSuccessAtMs ?? getAdvisorCacheSavedAtMs() ?? Date.now()
+		: undefined
 	const range = clmmRangeFromOpenPosition({
 		tickLower: p.tickLower,
 		tickUpper: p.tickUpper,
@@ -218,7 +246,69 @@ function mapLpPosition(p: OpenPosition, staleSourceIds: ReadonlySet<string>): Ad
 		tokenA: p.tokenA,
 		tokenB: p.tokenB,
 		currentValueUSD: p.currentValueUSD,
-		...(readStale ? { readStale: true } : {}),
+		...(readStale
+			? {
+					readStale: true,
+					lastSuccessAtMs: resolvedLastSuccessAtMs,
+				}
+			: {}),
+	}
+}
+
+function stampOpenPositionsStale(positions: OpenPosition[], savedAtMs: number): OpenPosition[] {
+	return positions.map((p) => ({
+		...p,
+		readStale: true,
+		lastSuccessAtMs: p.lastSuccessAtMs ?? savedAtMs,
+		currentMultiply: p.currentMultiply
+			? { ...p.currentMultiply, readStale: true }
+			: p.currentMultiply,
+	}))
+}
+
+function attachCurrentMetricsMeta(
+	snap: LendingSnapshot,
+	stale: boolean,
+	lastSuccessAtMs?: number,
+): LendingSnapshot {
+	if (!stale) {
+		return { ...snap, metricsLive: true, readStale: false }
+	}
+	const at = lastSuccessAtMs ?? getAdvisorCacheSavedAtMs() ?? Date.now()
+	return {
+		...snap,
+		readStale: true,
+		metricsLive: false,
+		lastSuccessAtMs: at,
+	}
+}
+
+function computeAdvisorNetTotals(
+	lpPositions: AdvisorLpPosition[],
+	currentSnap: LendingSnapshot,
+	nowMs: number,
+): AdvisorNetTotals {
+	const lpSplit = splitVerifiedUnverifiedUsd(
+		lpPositions.map((p) => ({
+			usd: p.currentValueUSD,
+			readStale: p.readStale,
+			lastSuccessAtMs: p.lastSuccessAtMs,
+		})),
+		nowMs,
+	)
+	const currentSplit = splitVerifiedUnverifiedUsd(
+		[
+			{
+				usd: currentSnap.netValueUSD,
+				readStale: currentSnap.readStale,
+				lastSuccessAtMs: currentSnap.lastSuccessAtMs,
+			},
+		],
+		nowMs,
+	)
+	return {
+		verifiedUSD: lpSplit.verifiedUSD + currentSplit.verifiedUSD,
+		unverifiedUSD: lpSplit.unverifiedUSD + currentSplit.unverifiedUSD,
 	}
 }
 
@@ -294,34 +384,90 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 	await ensurePortfolioReadTransportReady()
 	const wallet = normalizeSuiAddress(ADVISOR_WALLET).toLowerCase()
 	const errors: string[] = []
-	const nowSec = Math.floor(Date.now() / 1000)
+	const nowMs = Date.now()
+	const nowSec = Math.floor(nowMs / 1000)
+	const deadlineMs = resolveAdvisorStateDeadlineMs()
 
-	const [currentResult, lpResult] = await Promise.allSettled([
+	const loadWork = Promise.allSettled([
 		advisorTimed('current', () => getCurrentPositions(wallet, { skipCashflow: true })),
 		advisorTimed('lp-load', () => loadAllPortfolioLpSources(wallet)),
 	])
 
+	const raced = await Promise.race([loadWork.then((r) => ({ kind: 'done' as const, r })), delay(deadlineMs)])
+
 	let currentSnap: LendingSnapshot = EMPTY_CURRENT_SNAP
-	if (currentResult.status === 'fulfilled') {
-		currentSnap = currentResult.value
+	let openLpRows: OpenPosition[] = []
+	let currentLive = false
+	let lpLive = false
+
+	if (raced.kind === 'timeout') {
+		errors.push(`advisor: deadline ${deadlineMs}ms exceeded`)
+		const cacheAt = getAdvisorCacheSavedAtMs() ?? nowMs
+		openLpRows = stampOpenPositionsStale(getCachedAdvisorLpPositions(), cacheAt)
+		currentSnap = attachCurrentMetricsMeta(getCachedAdvisorCurrent(), true, cacheAt)
 	} else {
-		errors.push(`current: ${errMsg(currentResult.reason)}`)
+		const [currentResult, lpResult] = raced.r
+		if (currentResult.status === 'fulfilled') {
+			currentSnap = currentResult.value
+			currentLive = true
+		} else {
+			errors.push(`current: ${errMsg(currentResult.reason)}`)
+			const cacheAt = getAdvisorCacheSavedAtMs() ?? nowMs
+			currentSnap = attachCurrentMetricsMeta(getCachedAdvisorCurrent(), true, cacheAt)
+		}
+
+		if (lpResult.status === 'fulfilled') {
+			lpLive = true
+			const lp = lpResult.value
+			for (const st of lp.statuses) {
+				if (!st.ok) errors.push(`lp:${st.id}: ${st.error ?? 'unavailable'}`)
+			}
+			appendStaleCachedErrors(errors, lp.positions)
+			if (lp.positions.length > 0) {
+				openLpRows = lp.positions
+			} else if (lp.incomplete || lp.statuses.some((s) => !s.ok)) {
+				const cacheAt = getAdvisorCacheSavedAtMs() ?? nowMs
+				openLpRows = stampOpenPositionsStale(getCachedAdvisorLpPositions(), cacheAt)
+			} else {
+				openLpRows = lp.positions
+			}
+		} else {
+			errors.push(`lp: ${errMsg(lpResult.reason)}`)
+			const cacheAt = getAdvisorCacheSavedAtMs() ?? nowMs
+			openLpRows = stampOpenPositionsStale(getCachedAdvisorLpPositions(), cacheAt)
+		}
 	}
 
-	let lpPositions: AdvisorLpPosition[] = []
-	if (lpResult.status === 'fulfilled') {
-		const lp = lpResult.value
-		for (const st of lp.statuses) {
-			if (!st.ok) errors.push(`lp:${st.id}: ${st.error ?? 'unavailable'}`)
-		}
-		appendStaleCachedErrors(errors, lp.positions)
-		const staleSourceIds = collectLpStaleSourceIds(errors, lp.positions)
-		lpPositions = await advisorTimed('lp-map', () =>
-			mapPool(lp.positions, LP_MAP_CONCURRENCY, async (p) => mapLpPosition(p, staleSourceIds)),
-		)
-	} else {
-		errors.push(`lp: ${errMsg(lpResult.reason)}`)
+	if (currentLive && !currentSnap.readStale) {
+		currentSnap = attachCurrentMetricsMeta(currentSnap, false)
+	} else if (
+		errors.some((e) => e.startsWith('current:') || e.startsWith('lp:') || e.startsWith('advisor:'))
+	) {
+		const cacheAt = getAdvisorCacheSavedAtMs() ?? nowMs
+		currentSnap = attachCurrentMetricsMeta(currentSnap, true, cacheAt)
+		openLpRows = openLpRows.length
+			? openLpRows.map((p) => ({
+					...p,
+					readStale: p.readStale ?? true,
+					lastSuccessAtMs: p.lastSuccessAtMs ?? cacheAt,
+				}))
+			: stampOpenPositionsStale(getCachedAdvisorLpPositions(), cacheAt)
 	}
+
+	if (
+		raced.kind === 'done' &&
+		!errors.some((e) => e.startsWith('advisor:')) &&
+		currentLive &&
+		lpLive &&
+		!errors.some((e) => e.startsWith('lp:') || e.startsWith('current:'))
+	) {
+		recordAdvisorSnapshotSuccess(openLpRows, currentSnap, nowMs)
+	}
+
+	const staleSourceIds = collectLpStaleSourceIds(errors, openLpRows)
+	let lpPositions: AdvisorLpPosition[] = await advisorTimed('lp-map', () =>
+		mapPool(openLpRows, LP_MAP_CONCURRENCY, async (p) => mapLpPosition(p, staleSourceIds)),
+	)
 
 	const [suiPx, deepPx] = await advisorTimed('prices', () =>
 		Promise.all([
@@ -330,6 +476,7 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 		]),
 	)
 
+	const net = computeAdvisorNetTotals(lpPositions, currentSnap, nowMs)
 	const rpcReason = getPortfolioReadRpcSourceReason()
 	const state: AdvisorState = {
 		timestamp: new Date().toISOString(),
@@ -344,8 +491,19 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 			totalSuppliedUSD: currentSnap.totalSuppliedUSD,
 			totalBorrowedUSD: currentSnap.totalBorrowedUSD,
 			netValueUSD: currentSnap.netValueUSD,
+			...(currentSnap.readStale
+				? {
+						readStale: true,
+						metricsLive: false,
+						lastSuccessAtMs:
+							currentSnap.lastSuccessAtMs ??
+							getAdvisorCacheSavedAtMs() ??
+							nowMs,
+					}
+				: { metricsLive: true }),
 		},
 		lpPositions,
+		net,
 		prices: { SUI: suiPx, DEEP: deepPx },
 	}
 	if (errors.length > 0) state.errors = errors

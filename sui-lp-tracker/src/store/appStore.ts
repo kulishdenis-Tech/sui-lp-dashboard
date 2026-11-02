@@ -46,6 +46,7 @@ import { classifyAllBalances, sumVisibleWalletUSD } from '@/services/tokenClassi
 import { TURBOS_ENRICH_CONCURRENCY } from '@/utils/constants'
 import { mapPool } from '@/utils/concurrency'
 import { computeNetWorth } from '@/utils/netWorth'
+import { markLendingSnapshotLive, markLendingSnapshotStale } from '@/utils/advisorStalePolicy'
 import type { NetWorthSnapshot } from '@/types'
 
 /** Збільшується кожен `loadAll` — старі відповіді не перезаписують UI. */
@@ -397,12 +398,30 @@ export const useAppStore = create<AppState>((set, get) => ({
 					],
 					protocol: 'AlphaLend+Navi+Current',
 				}
+				const lendingNetSegments = [
+					{
+						usd: alphaLend.netValueUSD,
+						readStale: alphaLend.readStale,
+						lastSuccessAtMs: alphaLend.lastSuccessAtMs,
+					},
+					{
+						usd: navi.netValueUSD,
+						readStale: navi.readStale,
+						lastSuccessAtMs: navi.lastSuccessAtMs,
+					},
+					{
+						usd: current.netValueUSD,
+						readStale: current.readStale,
+						lastSuccessAtMs: current.lastSuccessAtMs,
+					},
+				]
 				set({
 					netWorth: computeNetWorth(
 						st.tokenBalances,
 						st.openPositions,
 						mergedLending,
 						walletVisibleUSD,
+						lendingNetSegments,
 					),
 				})
 			}
@@ -568,7 +587,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 			).then((lend) => {
 				if (isStale()) return
 				lendingDone = true
-				set({ lendingSnapshot: lend })
+				set({ lendingSnapshot: markLendingSnapshotLive(lend) })
 				recomputeNetWorth()
 				onLendingAllDone()
 			}).catch((e) => {
@@ -578,8 +597,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 					const keep =
 						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
 					if (keep) lendingLoadDegraded = true
+					const lastAt = get().lendingDataUpdatedAtMs ?? Date.now()
 					set({
-						lendingSnapshot: keep ? prev : EMPTY_LEND,
+						lendingSnapshot: keep
+							? markLendingSnapshotStale(prev, lastAt)
+							: EMPTY_LEND,
 						lendingError: softRpcUserMessage(toMsg(e)),
 					})
 					onLendingAllDone()
@@ -590,7 +612,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 			).then((snap) => {
 				if (isStale()) return
 				naviDone = true
-				set({ naviSnapshot: snap })
+				set({ naviSnapshot: markLendingSnapshotLive(snap) })
 				recomputeNetWorth()
 				onLendingAllDone()
 			}).catch((e) => {
@@ -601,14 +623,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 					const keep =
 						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
 					if (keep) lendingLoadDegraded = true
-					set({ naviSnapshot: keep ? prev : EMPTY_NAVI_SNAP })
+					const lastAt = get().lendingDataUpdatedAtMs ?? Date.now()
+					set({ naviSnapshot: keep ? markLendingSnapshotStale(prev, lastAt) : EMPTY_NAVI_SNAP })
 					onLendingAllDone()
 				}
 			})
 			void afterBalanceRpc(() => getCurrentPositions(address)).then((snap) => {
 				if (isStale()) return
 				currentDone = true
-				set({ currentSnapshot: snap })
+				set({ currentSnapshot: markLendingSnapshotLive(snap) })
 				recomputeNetWorth()
 				onLendingAllDone()
 			}).catch((e) => {
@@ -619,7 +642,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 					const keep =
 						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
 					if (keep) lendingLoadDegraded = true
-					set({ currentSnapshot: keep ? prev : EMPTY_CURRENT_SNAP })
+					const lastAt = get().lendingDataUpdatedAtMs ?? Date.now()
+					set({
+						currentSnapshot: keep
+							? markLendingSnapshotStale(prev, lastAt)
+							: EMPTY_CURRENT_SNAP,
+					})
 					onLendingAllDone()
 				}
 			})

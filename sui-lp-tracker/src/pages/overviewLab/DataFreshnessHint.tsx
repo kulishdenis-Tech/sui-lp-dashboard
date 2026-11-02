@@ -1,18 +1,23 @@
 import { formatUpdatedAtKyiv, isOnChainDataStale } from '@/pages/overviewLab/overviewSourceStatus'
+import { formatStaleAgeUk } from '@/utils/advisorStalePolicy'
 
 type Props = {
 	updatedAtMs: number | null | undefined
 	nowMs?: number
 	/** When set, use this stale rule instead of on-chain default. */
 	stale?: boolean
+	/** Last successful read (STALE rows). */
+	lastSuccessAtMs?: number | null
 	className?: string
 }
 
 /** Non-blocking STALE hint with Kyiv refresh time. */
-export function DataFreshnessHint({ updatedAtMs, nowMs, stale, className = '' }: Props) {
-	if (updatedAtMs == null || !Number.isFinite(updatedAtMs)) return null
-	const isStale = stale ?? isOnChainDataStale(updatedAtMs, nowMs)
-	const kyiv = formatUpdatedAtKyiv(updatedAtMs)
+export function DataFreshnessHint({ updatedAtMs, nowMs, stale, lastSuccessAtMs, className = '' }: Props) {
+	const displayMs = lastSuccessAtMs ?? updatedAtMs
+	if (displayMs == null || !Number.isFinite(displayMs)) return null
+	const isStale = stale ?? isOnChainDataStale(updatedAtMs ?? displayMs, nowMs)
+	const kyiv = formatUpdatedAtKyiv(displayMs)
+	const relative = isStale && lastSuccessAtMs != null ? formatStaleAgeUk(lastSuccessAtMs, nowMs) : null
 	return (
 		<span className={`inline-flex flex-wrap items-center gap-1 text-[10px] text-slate-500 ${className}`}>
 			{isStale ? (
@@ -20,7 +25,10 @@ export function DataFreshnessHint({ updatedAtMs, nowMs, stale, className = '' }:
 					STALE
 				</span>
 			) : null}
-			<span>оновлено {kyiv} (Київ)</span>
+			<span>
+				оновлено {kyiv} (Київ)
+				{relative ? ` · ${relative}` : ''}
+			</span>
 		</span>
 	)
 }

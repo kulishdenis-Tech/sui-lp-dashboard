@@ -100,7 +100,6 @@ async function invokeGrpcOnEndpoint(
 			if (opts.recordFailure && isGrpcTransportFailure(e)) {
 				markGrpcEndpointFailed(url, e)
 			}
-			const reason = classifyGrpcFailureReason(e)
 			if (isImmediateGrpcEndpointFailure(e)) break
 			if (attempt + 1 >= attempts || !isGrpcTransportFailure(e)) break
 		}

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { STALE_UNVERIFIED_AFTER_MS } from '@/utils/advisorStalePolicy'
 import type { LendingSnapshot, OpenPosition, TokenBalance } from '@/types'
 import { computeNetWorth } from './netWorth'
 
@@ -159,5 +160,40 @@ describe('computeNetWorth', () => {
 		const snap = computeNetWorth([], [openPosition(1000), openPosition(2000)], null)
 		expect(snap.openLpUSD).toBe(3000)
 		expect(snap.openLpPartial).toBeUndefined()
+	})
+
+	it('excludes STALE >30m LP from verifiedTotalNetUSD', () => {
+		const oldMs = Date.now() - STALE_UNVERIFIED_AFTER_MS - 60_000
+		const stalePos = {
+			...openPosition(800),
+			readStale: true,
+			lastSuccessAtMs: oldMs,
+		}
+		const freshPos = openPosition(200)
+		const snap = computeNetWorth([], [stalePos, freshPos], null)
+		expect(snap.verifiedTotalNetUSD).toBe(200)
+		expect(snap.unverifiedUSD).toBe(800)
+		expect(snap.totalNetUSD).toBe(1000)
+	})
+
+	it('excludes STALE >30m Current net from verifiedTotalNetUSD via segments', () => {
+		const oldMs = Date.now() - STALE_UNVERIFIED_AFTER_MS - 60_000
+		const lending = {
+			netValueUSD: 500,
+			totalSuppliedUSD: 500,
+			totalBorrowedUSD: 0,
+			supplies: [],
+			borrows: [],
+			healthFactor: null,
+			rewardsToClaim: [],
+			protocol: 'Current',
+			readStale: true,
+			lastSuccessAtMs: oldMs,
+		} as LendingSnapshot
+		const snap = computeNetWorth([], [], lending, undefined, [
+			{ usd: 500, readStale: true, lastSuccessAtMs: oldMs },
+		])
+		expect(snap.verifiedTotalNetUSD).toBe(0)
+		expect(snap.unverifiedUSD).toBe(500)
 	})
 })

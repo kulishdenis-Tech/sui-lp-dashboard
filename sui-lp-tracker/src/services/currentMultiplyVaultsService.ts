@@ -145,7 +145,7 @@ async function getJson<T>(path: string): Promise<T> {
 let multiplyListCache: { ts: number; rows: MultiplyVaultRow[] } | null = null
 
 const multiplyInFlight = new Map<string, Promise<OpenPosition[]>>()
-const multiplyCacheByWallet = new Map<string, OpenPosition[]>()
+const multiplyCacheByWallet = new Map<string, { rows: OpenPosition[]; savedAtMs: number }>()
 
 export function _resetMultiplyReadStateForTests(): void {
 	multiplyInFlight.clear()
@@ -153,10 +153,11 @@ export function _resetMultiplyReadStateForTests(): void {
 	multiplyListCache = null
 }
 
-function stampMultiplyStale(positions: OpenPosition[]): OpenPosition[] {
+function stampMultiplyStale(positions: OpenPosition[], savedAtMs: number): OpenPosition[] {
 	return positions.map((p) => ({
 		...p,
 		readStale: true,
+		lastSuccessAtMs: savedAtMs,
 		currentMultiply: p.currentMultiply
 			? { ...p.currentMultiply, readStale: true, completeness: 'partial' as const }
 			: p.currentMultiply,
@@ -286,14 +287,14 @@ export async function getCurrentMultiplyVaultPositions(
 
 	const work = loadCurrentMultiplyVaultPositionsOnce(walletAddress, _opts)
 		.then((rows) => {
-			multiplyCacheByWallet.set(key, rows)
+			multiplyCacheByWallet.set(key, { rows, savedAtMs: Date.now() })
 			return rows
 		})
 		.catch((e) => {
 			const cached = multiplyCacheByWallet.get(key)
-			if (cached?.length) {
+			if (cached?.rows.length) {
 				console.warn('[current-multiply] refresh failed, serving cached STALE', e)
-				return stampMultiplyStale(cached)
+				return stampMultiplyStale(cached.rows, cached.savedAtMs)
 			}
 			throw e
 		})

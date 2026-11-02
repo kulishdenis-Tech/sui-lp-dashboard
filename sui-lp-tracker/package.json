@@ -53,6 +53,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run --config vitest.config.ts",
+    "test:smoke": "node scripts/vite-advisor-smoke.mjs",
     "typecheck": "tsc -b --pretty false",
     "probe:rpc": "node scripts/probe-sui-rpc-nodes.mjs",
     "spike:grpc-graphql": "node scripts/spike-sui-grpc-graphql.mjs"

@@ -26,11 +26,23 @@ export function lendingHealthFactorThresholds(protocol: string): LendingHealthFa
 export function healthFactorColorClass(
 	hf: number,
 	thresholds: LendingHealthFactorThresholds = DEFAULT_LENDING_HF_THRESHOLDS,
+	options?: { metricsLive?: boolean },
 ): string {
+	if (options?.metricsLive === false) return 'text-slate-500'
 	if (hf <= 0) return 'text-slate-500'
 	if (hf >= thresholds.safeMin) return 'text-emerald-400'
 	if (hf >= thresholds.warningMin) return 'text-yellow-400'
 	return 'text-red-400'
+}
+
+/** P0 alert (HF below warningMin) — only when on-chain metrics are live, not STALE cache. */
+export function isHealthFactorP0Alert(
+	hf: number,
+	thresholds: LendingHealthFactorThresholds = DEFAULT_LENDING_HF_THRESHOLDS,
+	options?: { metricsLive?: boolean },
+): boolean {
+	if (options?.metricsLive === false) return false
+	return hf > 0 && hf < thresholds.warningMin
 }
 
 export function healthFactorStatTip(protocol: string): string {

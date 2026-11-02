@@ -59,12 +59,17 @@ export function SummaryCards() {
 				value={formatUSD(netWorth.netLendingUSD)}
 				tooltip={NET_LENDING_TOOLTIP}
 			/>
-			<Card label="Total Value" value={formatUSD(netWorth.totalNetUSD)} tooltip={TOTAL_VALUE_TOOLTIP}>
+			<Card label="Total Value" value={formatUSD(netWorth.verifiedTotalNetUSD ?? netWorth.totalNetUSD)} tooltip={TOTAL_VALUE_TOOLTIP}>
 				<DataFreshnessHint
 					updatedAtMs={freshness.displayUpdatedAtMs}
 					stale={freshness.anyStale}
 					className="mt-1"
 				/>
+				{(netWorth.unverifiedUSD ?? 0) > 0 ? (
+					<div className="mt-1 text-[10px] text-amber-300/90">
+						UNVERIFIED (STALE &gt;30 хв): {formatUSD(netWorth.unverifiedUSD!)}
+					</div>
+				) : null}
 			</Card>
 		</div>
 	)

@@ -282,10 +282,12 @@ function SupplyRow({
 	s,
 	showLiqPrice,
 	updatedAtMs,
+	metricsLiveStale,
 }: {
 	s: SupplyPosition
 	showLiqPrice: boolean
 	updatedAtMs?: number | null
+	metricsLiveStale?: boolean
 }) {
 	const hasBreakdown = !!s.aprBreakdown
 	const currentPrice =
@@ -344,7 +346,9 @@ function SupplyRow({
 							className="inline-flex cursor-help"
 						>
 							<span
-								className={`underline decoration-dashed decoration-slate-600 underline-offset-2 ${supplyLiqPriceClass(currentPrice, liqPrice)}`}
+								className={`underline decoration-dashed decoration-slate-600 underline-offset-2 ${
+									metricsLiveStale ? 'text-slate-500' : supplyLiqPriceClass(currentPrice, liqPrice)
+								}`}
 							>
 								{formatLiqPrice(liqPrice)}
 							</span>
@@ -567,7 +571,11 @@ function ProtocolSection({
 					<ConcentrationWarning segment={concentrationSegment} />
 					<DebtExceedsHint segment={concentrationSegment} />
 				</div>
-				<DataFreshnessHint updatedAtMs={updatedAtMs ?? null} />
+				<DataFreshnessHint
+					updatedAtMs={updatedAtMs ?? null}
+					stale={snapshot.readStale === true}
+					lastSuccessAtMs={snapshot.lastSuccessAtMs}
+				/>
 			</div>
 			{/* ── Header stats ─────────────────────────────────────────── */}
 			<div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
@@ -597,8 +605,13 @@ function ProtocolSection({
 						valueClass={healthFactorColorClass(
 							snapshot.healthFactor,
 							lendingHealthFactorThresholds(snapshot.protocol),
+							{ metricsLive: snapshot.metricsLive !== false },
 						)}
-						tip={healthFactorStatTip(snapshot.protocol)}
+						tip={
+							snapshot.metricsLive === false
+								? `${healthFactorStatTip(snapshot.protocol)} (STALE — P0 лише з живих даних)`
+								: healthFactorStatTip(snapshot.protocol)
+						}
 					/>
 				)}
 				{hasRewards && (
@@ -688,6 +701,7 @@ function ProtocolSection({
 										s={s}
 										showLiqPrice={hasBorrows}
 										updatedAtMs={updatedAtMs}
+										metricsLiveStale={snapshot.metricsLive === false}
 									/>
 								))}
 							</tbody>
