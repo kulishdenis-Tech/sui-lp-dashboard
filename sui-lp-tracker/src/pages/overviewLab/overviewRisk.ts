@@ -4,6 +4,13 @@ import { isNativeSuiCoinType } from '@/utils/suiCoinType'
 
 export type OverviewRiskKind = 'current_market' | 'multiply'
 
+/** One watch wallet's Current book. The open `?wallet=` is not the only source. */
+export interface OverviewWalletBook {
+	walletId: string
+	label: string
+	current: LendingSnapshot | null | undefined
+}
+
 export interface OverviewRiskRow {
 	id: string
 	kind: OverviewRiskKind
@@ -51,44 +58,61 @@ function multiplyHealthFactor(
 	return liquidationLtv / currentLtv
 }
 
+function lendingRowsFromSnapshot(
+	current: LendingSnapshot,
+	wallet?: { walletId: string; label: string },
+): OverviewRiskRow[] {
+	const byVenue = new Map<string, typeof current.borrows>()
+	for (const borrow of current.borrows) {
+		if (!(Number.isFinite(borrow.currentDebtUSD) && borrow.currentDebtUSD > 0)) continue
+		const key = venueKey(borrow.venue)
+		const list = byVenue.get(key)
+		if (list) list.push(borrow)
+		else byVenue.set(key, [borrow])
+	}
+	const rows: OverviewRiskRow[] = []
+	for (const [venue, borrows] of byVenue) {
+		const factors = borrows
+			.map((borrow) => borrow.healthFactor)
+			.filter((value): value is number => Number.isFinite(value) && value >= 0)
+		const supplies = current.supplies.filter((supply) => venueKey(supply.venue) === venue)
+		const suiSupplies = supplies.filter((supply) => isSuiName(supply.asset, supply.coinType))
+		const prices = suiSupplies
+			.map((supply) => supply.liquidationPriceUSD)
+			.filter((price): price is number => price != null && Number.isFinite(price) && price > 0)
+		const title = wallet ? `Current · ${wallet.label} · ${venue}` : `Current · ${venue}`
+		rows.push({
+			id: wallet ? `current:${wallet.walletId}:${venue}` : `current:${venue}`,
+			kind: 'current_market',
+			title,
+			healthFactor: factors.length > 0 ? Math.min(...factors) : null,
+			verified: true,
+			suiCollateral: suiSupplies.length > 0,
+			suiLiquidationPriceUSD: prices.length > 0 ? Math.min(...prices) : null,
+		})
+	}
+	return rows
+}
+
 /**
  * One row per isolated Current market that still has debt, plus one row per
- * Multiplier vault. Markets without debt are omitted.
+ * Multiplier vault. Pass `wallets` to show every watch wallet, not only `?wallet=`.
+ * Markets without debt are omitted.
  */
 export function buildOverviewRiskRows(
 	current: LendingSnapshot | null | undefined,
 	positions: readonly OpenPosition[],
+	wallets?: readonly OverviewWalletBook[],
 ): OverviewRiskRow[] {
 	const rows: OverviewRiskRow[] = []
 
-	if (current) {
-		const byVenue = new Map<string, typeof current.borrows>()
-		for (const borrow of current.borrows) {
-			if (!(Number.isFinite(borrow.currentDebtUSD) && borrow.currentDebtUSD > 0)) continue
-			const key = venueKey(borrow.venue)
-			const list = byVenue.get(key)
-			if (list) list.push(borrow)
-			else byVenue.set(key, [borrow])
+	if (wallets && wallets.length > 0) {
+		for (const book of wallets) {
+			if (!book.current) continue
+			rows.push(...lendingRowsFromSnapshot(book.current, book))
 		}
-		for (const [venue, borrows] of byVenue) {
-			const factors = borrows
-				.map((borrow) => borrow.healthFactor)
-				.filter((value): value is number => Number.isFinite(value) && value >= 0)
-			const supplies = current.supplies.filter((supply) => venueKey(supply.venue) === venue)
-			const suiSupplies = supplies.filter((supply) => isSuiName(supply.asset, supply.coinType))
-			const prices = suiSupplies
-				.map((supply) => supply.liquidationPriceUSD)
-				.filter((price): price is number => price != null && Number.isFinite(price) && price > 0)
-			rows.push({
-				id: `current:${venue}`,
-				kind: 'current_market',
-				title: `Current · ${venue}`,
-				healthFactor: factors.length > 0 ? Math.min(...factors) : null,
-				verified: true,
-				suiCollateral: suiSupplies.length > 0,
-				suiLiquidationPriceUSD: prices.length > 0 ? Math.min(...prices) : null,
-			})
-		}
+	} else if (current) {
+		rows.push(...lendingRowsFromSnapshot(current))
 	}
 
 	for (const position of positions) {

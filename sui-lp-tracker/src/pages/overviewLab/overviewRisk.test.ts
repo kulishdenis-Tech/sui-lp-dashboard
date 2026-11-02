@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { LendingSnapshot, OpenPosition } from '@/types'
+import { CURRENT_LENDING_HF_THRESHOLDS, healthFactorColorClass } from '@/config/lendingHealthFactorThresholds'
 import { buildOverviewRiskRows } from './overviewRisk'
 
 function currentSnap(partial: Partial<LendingSnapshot>): LendingSnapshot {
@@ -76,6 +77,63 @@ describe('buildOverviewRiskRows', () => {
 			suiCollateral: true,
 			suiLiquidationPriceUSD: 1.5,
 		})
+	})
+
+	it('shows HF and SUI liquidation for every watch wallet, not only the open one', () => {
+		const main = currentSnap({
+			borrows: [
+				{
+					asset: 'USDC',
+					coinType: '0xusdc',
+					currentDebtUSD: 10,
+					healthFactor: 1.374,
+					venue: 'Main',
+				},
+			] as LendingSnapshot['borrows'],
+			supplies: [
+				{
+					asset: 'SUI',
+					coinType: '0x2::sui::SUI',
+					currentValueUSD: 20,
+					liquidationPriceUSD: 0.646,
+					venue: 'Main',
+				},
+			] as LendingSnapshot['supplies'],
+		})
+		const second = currentSnap({
+			borrows: [
+				{
+					asset: 'USDC',
+					coinType: '0xusdc',
+					currentDebtUSD: 4,
+					healthFactor: 1.208,
+					venue: 'Main',
+				},
+			] as LendingSnapshot['borrows'],
+			supplies: [
+				{
+					asset: 'SUI',
+					coinType: '0x2::sui::SUI',
+					currentValueUSD: 8,
+					liquidationPriceUSD: 0.735,
+					venue: 'Main',
+				},
+			] as LendingSnapshot['supplies'],
+		})
+		const rows = buildOverviewRiskRows(null, [], [
+			{ walletId: 'wallet-main', label: '0xaaaa…1111', current: main },
+			{ walletId: 'wallet-second', label: '0xbbbb…2222', current: second },
+		])
+		expect(rows.map((row) => row.title)).toEqual([
+			'Current · 0xbbbb…2222 · Main',
+			'Current · 0xaaaa…1111 · Main',
+		])
+		expect(rows[0]).toMatchObject({ healthFactor: 1.208, suiLiquidationPriceUSD: 0.735 })
+		expect(rows[1]).toMatchObject({ healthFactor: 1.374, suiLiquidationPriceUSD: 0.646 })
+		expect(healthFactorColorClass(1.374, CURRENT_LENDING_HF_THRESHOLDS)).toBe('text-emerald-400')
+		expect(healthFactorColorClass(1.208, CURRENT_LENDING_HF_THRESHOLDS)).toBe('text-emerald-400')
+		expect(healthFactorColorClass(1.18, CURRENT_LENDING_HF_THRESHOLDS)).toBe('text-yellow-400')
+		expect(healthFactorColorClass(1.14, CURRENT_LENDING_HF_THRESHOLDS)).toBe('text-red-400')
 	})
 
 	it('keeps a multiplier vault unverified and refuses a zero when legs are missing', () => {

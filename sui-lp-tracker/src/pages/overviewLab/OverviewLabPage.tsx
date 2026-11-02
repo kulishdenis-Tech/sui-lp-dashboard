@@ -38,6 +38,7 @@ import {
 	type CascadeBand,
 } from '@/pages/overviewLab/overviewMetrics'
 import { buildOverviewRiskRows } from '@/pages/overviewLab/overviewRisk'
+import { useWatchWalletRiskBooks } from '@/pages/overviewLab/useWatchWalletRiskBooks'
 import { OverviewRiskStrip } from '@/pages/overviewLab/OverviewRiskStrip'
 import {
 	buildLendingAttentionItems,
@@ -413,9 +414,10 @@ export function OverviewLabPage() {
 		(lendingDebt ?? 0) > 0 && healthByProtocol.length > 0
 			? healthByProtocol.reduce((a, b) => (a.hf <= b.hf ? a : b))
 			: null
+	const watchBooks = useWatchWalletRiskBooks(walletAddr, currentSnapshot, isLoadingLending)
 	const riskRows = useMemo(
-		() => buildOverviewRiskRows(currentSnapshot, openPositions),
-		[currentSnapshot, openPositions],
+		() => buildOverviewRiskRows(currentSnapshot, openPositions, watchBooks),
+		[currentSnapshot, openPositions, watchBooks],
 	)
 
 	const goLending = () => {
