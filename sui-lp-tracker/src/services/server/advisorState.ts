@@ -16,6 +16,13 @@ import {
 	resetPortfolioReadRpcSource,
 } from '@/services/portfolioReadRpcSource'
 import { getLastPublicNodeGrpcFailureReason } from '@/services/grpcEndpointHealth'
+import { ensurePortfolioReadTransportReady } from '@/services/portfolioSuiReadClient'
+import {
+	isSuiReadProfilingEnabled,
+	logSuiReadProfile,
+	resetSuiReadProfile,
+	type SuiReadProfileSnapshot,
+} from '@/services/suiReadProfiler'
 
 /** Hardcoded advisor wallet (read-only). */
 const ADVISOR_WALLET =
@@ -96,6 +103,8 @@ export type AdvisorState = {
 	}
 	lpPositions: AdvisorLpPosition[]
 	prices: { SUI: number | null; DEEP: number | null }
+	/** Present when SUI_LP_ADVISOR_PROFILE=1 */
+	readProfile?: SuiReadProfileSnapshot
 	errors?: string[]
 }
 
@@ -236,12 +245,14 @@ async function softUsdPrice(
 export async function buildAdvisorState(): Promise<AdvisorState> {
 	return advisorTimed('total', async () => {
 	resetPortfolioReadRpcSource()
+	if (isSuiReadProfilingEnabled()) resetSuiReadProfile()
+	await ensurePortfolioReadTransportReady()
 	const wallet = normalizeSuiAddress(ADVISOR_WALLET).toLowerCase()
 	const errors: string[] = []
 	const nowSec = Math.floor(Date.now() / 1000)
 
 	const [currentResult, lpResult] = await Promise.allSettled([
-		advisorTimed('current', () => getCurrentPositions(wallet)),
+		advisorTimed('current', () => getCurrentPositions(wallet, { skipCashflow: true })),
 		advisorTimed('lp-load', () => loadAllPortfolioLpSources(wallet)),
 	])
 
@@ -290,6 +301,9 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 	}
 	if (errors.length > 0) state.errors = errors
 	const pnFail = getLastPublicNodeGrpcFailureReason()
+	if (isSuiReadProfilingEnabled()) {
+		state.readProfile = logSuiReadProfile('advisor-state')
+	}
 	console.log(
 		`[advisor-state] rpcSource: ${state.rpcSource}${pnFail ? `; publicnode: ${pnFail}` : ''}`,
 	)

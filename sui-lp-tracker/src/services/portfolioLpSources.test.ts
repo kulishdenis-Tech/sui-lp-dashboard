@@ -88,8 +88,8 @@ describe('QA-2026-11-01-02: Portfolio LP sources parallelization', () => {
 			}
 		}
 		
-		// Should respect concurrency limit of 3 (may be less if sources complete quickly)
-		expect(maxConcurrent).toBeLessThanOrEqual(3)
+		// Default concurrency limit 6 (PORTFOLIO_LP_SOURCE_CONCURRENCY)
+		expect(maxConcurrent).toBeLessThanOrEqual(6)
 		expect(maxConcurrent).toBeGreaterThan(0) // At least some parallelism
 		
 		// Should have a result for each source

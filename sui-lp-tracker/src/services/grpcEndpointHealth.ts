@@ -17,10 +17,17 @@ const cooldownUntilByUrl = new Map<string, number>()
 let stickyEndpointIndex = 0
 let lastPublicNodeFailureReason: string | null = null
 
+let hasLockedGrpcWinner = false
+
 export function _resetGrpcEndpointHealthForTests(): void {
 	cooldownUntilByUrl.clear()
 	stickyEndpointIndex = 0
 	lastPublicNodeFailureReason = null
+	hasLockedGrpcWinner = false
+}
+
+export function hasGrpcEndpointWinner(): boolean {
+	return hasLockedGrpcWinner
 }
 
 export function getLastPublicNodeGrpcFailureReason(): string | null {
@@ -69,6 +76,7 @@ export function markGrpcEndpointFailed(url: string, err: unknown, nowMs = Date.n
 
 export function markGrpcEndpointSuccess(index: number): void {
 	stickyEndpointIndex = index
+	hasLockedGrpcWinner = true
 }
 
 /** Order endpoint indices: sticky first if not on cooldown, then others available. */

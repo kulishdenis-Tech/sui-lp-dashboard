@@ -19,6 +19,5 @@ describe('portfolio gRPC failover timing (PublicNode dead)', () => {
 		expect(result.primaryAttempts).toBe(1)
 		expect(result.backupAttempts).toBe(50)
 		expect(result.elapsedMs).toBeLessThan(30_000)
-		expect(result.elapsedMs).toBeGreaterThanOrEqual(PORTFOLIO_GRPC_ATTEMPT_TIMEOUT_MS - 100)
 	}, 60_000)
 })

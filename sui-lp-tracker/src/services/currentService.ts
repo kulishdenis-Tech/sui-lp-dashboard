@@ -1109,7 +1109,10 @@ async function currentAdvisorTimed<T>(step: string, fn: () => Promise<T>): Promi
 	}
 }
 
-export async function getCurrentPositions(walletAddress: string): Promise<LendingSnapshot> {
+export async function getCurrentPositions(
+	walletAddress: string,
+	options?: { skipCashflow?: boolean },
+): Promise<LendingSnapshot> {
 	const obligations = await currentAdvisorTimed('obligations-rest', () =>
 		getJson<ObligationRow[]>(`/user/getObligationList/${walletAddress}`),
 	)
@@ -1479,10 +1482,11 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 	const netAPR = totalSuppliedUSD > 0 ? (supplyYield - borrowCost) / totalSuppliedUSD : null
 	const rewardsToClaim = mergeClaimed(claimed)
 	const unclaimedUSD = rewardsToClaim.reduce((s, r) => s + r.valueUSD, 0)
+	let cashflowUsd: LendingCashflowUsd | null = null
+	if (!options?.skipCashflow) {
 	const loaded = await currentAdvisorTimed('cashflow', () =>
 		loadCashflowTokens(walletAddress, marketTypes, allListed).catch(() => null),
 	)
-	let cashflowUsd: LendingCashflowUsd | null = null
 	if (loaded) {
 		const listPrice = (coin: string) => {
 			const p = Number(marketByToken(allListed, coin)?.tokenInfo?.price ?? 0)
@@ -1531,6 +1535,7 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 			resultUSD: supplyInterestUSD - borrowInterestUSD + loaded.claimedRewardsUSD + unclaimedUSD,
 			usedSpotPrice: loaded.usedSpotPrice,
 		}
+	}
 	}
 
 	return {

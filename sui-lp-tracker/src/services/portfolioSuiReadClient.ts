@@ -20,6 +20,7 @@ import {
 	withGrpcAttemptTimeout,
 	_resetGrpcEndpointHealthForTests,
 	getLastPublicNodeGrpcFailureReason,
+	hasGrpcEndpointWinner,
 } from '@/services/grpcEndpointHealth'
 import {
 	grpcUrlToRpcSource,
@@ -50,6 +51,70 @@ export function isGrpcTransportFailure(err: unknown): boolean {
 
 type GrpcEndpointClient = { url: string; client: JsonRpcCompatClient }
 
+async function invokeThroughGrpcEndpoints(
+	endpoints: GrpcEndpointClient[],
+	urls: string[],
+	prop: string | symbol,
+	args: unknown[],
+	receiver: unknown,
+): Promise<unknown> {
+	const order = planGrpcEndpointTryOrder(endpoints.length, urls)
+	if (order.length === 0) throw new Error('no grpc endpoints configured')
+
+	const callOne = async (i: number, recordFailure: boolean) => {
+		const { url, client } = endpoints[i]!
+		const fn = Reflect.get(client as object, prop, receiver)
+		if (typeof fn !== 'function') {
+			throw new TypeError(`suiClient.${String(prop)} is not a function`)
+		}
+		try {
+			const out = await withGrpcAttemptTimeout(() =>
+				(fn as (...a: unknown[]) => unknown).apply(client, args),
+			)
+			markGrpcEndpointSuccess(i)
+			recordPortfolioReadRpcSource(grpcUrlToRpcSource(url))
+			return out
+		} catch (e) {
+			if (recordFailure && isGrpcTransportFailure(e)) {
+				markGrpcEndpointFailed(url, e)
+			}
+			throw e
+		}
+	}
+
+	if (!hasGrpcEndpointWinner() && order.length > 1) {
+		return new Promise((resolve, reject) => {
+			let settled = false
+			let failures = 0
+			let lastErr: unknown
+			for (const i of order) {
+				void callOne(i, true).then((out) => {
+					if (settled) return
+					settled = true
+					resolve(out)
+				}).catch((e) => {
+					lastErr = e
+					failures++
+					if (!settled && failures >= order.length) {
+						reject(lastErr instanceof Error ? lastErr : new Error(String(lastErr)))
+					}
+				})
+			}
+		})
+	}
+
+	let lastErr: unknown
+	for (const i of order) {
+		try {
+			return await callOne(i, true)
+		} catch (e) {
+			lastErr = e
+			if (!isGrpcTransportFailure(e)) throw e
+		}
+	}
+	throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
+}
+
 /** Try each gRPC compat client in order before giving up (PublicNode → Mysten). */
 export function wrapGrpcEndpointFailover(endpoints: GrpcEndpointClient[]): JsonRpcCompatClient {
 	if (endpoints.length === 0) return getJsonRpcCompatClient()
@@ -59,30 +124,22 @@ export function wrapGrpcEndpointFailover(endpoints: GrpcEndpointClient[]): JsonR
 		get(_target, prop, receiver) {
 			const first = Reflect.get(endpoints[0]!.client as object, prop, receiver)
 			if (typeof first !== 'function') return first
-			return async (...args: unknown[]) => {
-				let lastErr: unknown
-				const order = planGrpcEndpointTryOrder(endpoints.length, urls)
-				for (const i of order) {
-					const { url, client } = endpoints[i]!
-					const fn = Reflect.get(client as object, prop, receiver)
-					if (typeof fn !== 'function') continue
-					try {
-						const out = await withGrpcAttemptTimeout(() =>
-							(fn as (...a: unknown[]) => unknown).apply(client, args),
-						)
-						markGrpcEndpointSuccess(i)
-						recordPortfolioReadRpcSource(grpcUrlToRpcSource(url))
-						return out
-					} catch (e) {
-						lastErr = e
-						if (!isGrpcTransportFailure(e)) throw e
-						markGrpcEndpointFailed(url, e)
-					}
-				}
-				throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
-			}
+			return (...args: unknown[]) =>
+				invokeThroughGrpcEndpoints(endpoints, urls, prop, args, receiver)
 		},
 	}) as JsonRpcCompatClient
+}
+
+/** Hedge endpoints once before heavy advisor load (cheap RPC). */
+export async function ensurePortfolioReadTransportReady(): Promise<void> {
+	if (resolveSuiDataTransport() === 'jsonrpc') return
+	if (hasGrpcEndpointWinner()) return
+	const client = getPortfolioReadSuiClient()
+	try {
+		await client.getReferenceGasPrice()
+	} catch {
+		/* fallback may engage on subsequent reads */
+	}
 }
 
 /** After gRPC endpoints fail, stick to JSON-RPC for the rest of the session. */

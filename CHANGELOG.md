@@ -6,7 +6,8 @@
 - **Bluefin ticks:** `readMoveI32` — gRPC `{ bits }` і JSON-RPC `{ fields: { bits } }`; live bounds SUI/USDC + DEEP/SUI.
 - **STALE при збої read:** збереження попередніх рядків, `onChainReadDegraded` + підказка STALE (не $0 / не порожні секції на refresh).
 - **`/api/advisor/state`:** поле `rpcSource` + лог `[advisor-state] rpcSource: …`; PublicNode skip з причиною (timeout/dns/tls/http).
-- **gRPC failover:** 4 s attempt timeout, sticky endpoint + 5 хв cooldown (без повторного очікування мертвого PublicNode на кожному RPC).
+- **gRPC failover:** 4 s attempt timeout, **hedged first call** (PublicNode ∥ Mysten), sticky endpoint + 5 хв cooldown; `SUI_GRPC_ENDPOINTS=mysten,publicnode` у `.env.example`.
+- **Advisor `/api/advisor/state`:** без cashflow history (~15 s saved), LP sources concurrency 6, `SUI_LP_ADVISOR_PROFILE=1` → `readProfile` + RPC counts.
 - **Snapshots:** повтор спроби з `SUI_DATA_TRANSPORT=jsonrpc`, якщо gRPC-load incomplete; GHA retry з JSON-RPC fallback.
 - Live acceptance (opt-in `SUI_LP_LIVE_RPC=1`): допуск до v1.1.1 — суми 1%, HF ±0.01.
 
