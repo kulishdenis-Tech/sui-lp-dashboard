@@ -13,12 +13,11 @@ export const PROXY_HOST_TO_ORIGIN: Record<string, string> = {
 	'api.current.finance': 'https://api.current.finance',
 	// SUI JSON-RPC — proxied in prod so browser calls stay same-origin
 	// (avoids Chrome extension fetch interception that breaks getAllBalances)
-	// fullnode host is gRPC/GraphQL, not JSON-RPC. Residual JSON-RPC default is Suiet.
+	// fullnode host is gRPC/GraphQL, not JSON-RPC. JSON-RPC is not proxied.
 	'fullnode.mainnet.sui.io': 'https://fullnode.mainnet.sui.io',
 	'sui-rpc.publicnode.com': 'https://sui-rpc.publicnode.com',
 	'sui.publicnode.com': 'https://sui.publicnode.com',
 	'rpc-mainnet.suiscan.xyz': 'https://rpc-mainnet.suiscan.xyz',
-	'mainnet.suiet.app': 'https://mainnet.suiet.app',
 	'sui.api.onfinality.io': 'https://sui.api.onfinality.io',
 	'api-sui.cetus.zone': 'https://api-sui.cetus.zone',
 	'haedal.xyz': 'https://haedal.xyz',

@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
 import { useAppStore } from '@/store/appStore'
@@ -21,7 +21,7 @@ import { appBuildDateTooltip, formatAppVersionLabel } from '@/config/appBuildInf
  * Two-row header aligned with MainContent (`max-w-6xl` + `px-4`).
  *
  * Row 1 — brand · SUI quote · wallet
- * Row 2 — section tabs · Refresh Data / Reload History / Clear Local Cache
+ * Row 2 — section tabs · Refresh Data · service menu
  */
 export function Header() {
 	const { isConnected, address } = useWalletAuth()
@@ -51,6 +51,8 @@ export function Header() {
 	}, [])
 
 	const actionsDisabled = !address || isLoading
+	const [serviceMenuOpen, setServiceMenuOpen] = useState(false)
+	const [serviceConfirm, setServiceConfirm] = useState<null | 'history' | 'cache'>(null)
 
 	return (
 		<header className={appHeaderSurface}>
@@ -111,29 +113,90 @@ export function Header() {
 								disabled={actionsDisabled}
 								title="Refetch spot prices and balances (uses server LP history when warm)"
 							>
-								Refresh Data
-							</button>
+							Refresh Data
+						</button>
+						<div className="relative">
 							<button
 								type="button"
 								className={appHeaderSegAction}
-								onClick={forceRescanLp}
-								disabled={actionsDisabled}
-								title="Re-scan LP events on-chain from scratch, bypassing server history cache"
+								aria-haspopup="menu"
+								aria-expanded={serviceMenuOpen}
+								onClick={() => setServiceMenuOpen((open) => !open)}
 							>
-								Reload History
+								More
 							</button>
-							<button
-								type="button"
-								className={appHeaderSegAction}
-								onClick={clearCacheAndReload}
-								title="Delete locally cached events and price data, then reload"
-							>
-								Clear Local Cache
-							</button>
+							{serviceMenuOpen ? (
+								<div
+									role="menu"
+									className="absolute right-0 z-30 mt-1 w-44 rounded-md border border-slate-700 bg-slate-950 p-1 shadow-lg"
+								>
+									<button
+										type="button"
+										role="menuitem"
+										className="block w-full rounded px-2 py-1.5 text-left text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-40"
+										disabled={actionsDisabled}
+										onClick={() => {
+											setServiceMenuOpen(false)
+											setServiceConfirm('history')
+										}}
+									>
+										Reload History
+									</button>
+									<button
+										type="button"
+										role="menuitem"
+										className="block w-full rounded px-2 py-1.5 text-left text-xs text-rose-200 hover:bg-slate-800"
+										onClick={() => {
+											setServiceMenuOpen(false)
+											setServiceConfirm('cache')
+										}}
+									>
+										Clear Local Cache
+									</button>
+								</div>
+							) : null}
+						</div>
 						</div>
 					</div>
 				) : null}
 			</div>
+			{serviceConfirm ? (
+				<div
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="service-confirm-title"
+					className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4"
+				>
+					<div className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-4">
+						<p id="service-confirm-title" className="text-sm text-slate-100">
+							{serviceConfirm === 'cache'
+								? 'Clear local cache and reload this page?'
+								: 'Reload LP history from the chain?'}
+						</p>
+						<div className="mt-4 flex justify-end gap-2">
+							<button
+								type="button"
+								className={appHeaderSegAction}
+								onClick={() => setServiceConfirm(null)}
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								className={appHeaderSegAction}
+								onClick={() => {
+									const next = serviceConfirm
+									setServiceConfirm(null)
+									if (next === 'history') forceRescanLp()
+									else clearCacheAndReload()
+								}}
+							>
+								Confirm
+							</button>
+						</div>
+					</div>
+				</div>
+			) : null}
 		</header>
 	)
 }

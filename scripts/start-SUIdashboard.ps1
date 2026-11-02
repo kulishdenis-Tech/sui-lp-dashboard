@@ -16,6 +16,22 @@ $ApiPort = 5191
 $Url = "http://localhost:$Port/"
 $Marker = 'Projects\SUI Dashboard'
 
+function Write-ReleaseTagWarning {
+	try {
+		$head = (git rev-parse HEAD 2>$null)
+		$tag = (git tag -l 'v2.0.*' --sort=-v:refname | Select-Object -First 1)
+		if (-not $tag) { return }
+		$tagged = (git rev-parse "$tag^{commit}" 2>$null)
+		if ($head -and $tagged -and $head.Trim() -ne $tagged.Trim()) {
+			Write-Host "Увага: git HEAD не збігається з останнім тегом $tag."
+		}
+	} catch {
+		return
+	}
+}
+
+Write-ReleaseTagWarning
+
 function Fail([string]$Message) {
 	Write-Host ""
 	Write-Host "ERROR: $Message" -ForegroundColor Red
@@ -184,7 +200,7 @@ if (-not $ourVite) {
 
 Start-Process $Url
 Write-Host ""
-Write-Host "SUI Dashboard 2.0.6 відкрито: $Url"
+Write-Host "SUI Dashboard 2.0.7 відкрито: $Url"
 Write-Host "Бот: http://127.0.0.1:$ApiPort/  режим MONITOR_ONLY"
 Write-Host "База: $DbFile"
 exit 0

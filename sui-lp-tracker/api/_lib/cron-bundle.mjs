@@ -119,7 +119,6 @@ var HOST_PREFIX = {
   "sui-rpc.publicnode.com": "/ext/sui-rpc",
   "sui.publicnode.com": "/ext/sui-rpc",
   "rpc-mainnet.suiscan.xyz": "/ext/sui-suiscan",
-  "mainnet.suiet.app": "/ext/sui-suiet",
   "sui.api.onfinality.io": "/ext/sui-onfinality",
   // Mysten public gRPC-Web + GraphQL (default dashboard transport; no API key).
   "fullnode.mainnet.sui.io": "/ext/sui-grpc-web",
@@ -2673,8 +2672,7 @@ async function withRpcBackoff(fn, opts = {}) {
 }
 
 // src/utils/suiRpcUrl.ts
-var DEFAULT_MAINNET_JSON_RPC_URL = "https://mainnet.suiet.app";
-var DASHBOARD_RPC_FALLBACK_URLS = [DEFAULT_MAINNET_JSON_RPC_URL];
+var DASHBOARD_RPC_FALLBACK_URLS = [];
 
 // src/services/coinMetadata.ts
 var METADATA_FALLBACK_RPCS = DASHBOARD_RPC_FALLBACK_URLS.filter(
@@ -5576,7 +5574,6 @@ function dynamicFieldChildId(item) {
 // src/services/verifiedTokenList.ts
 import { normalizeSuiAddress as normalizeSuiAddress2 } from "@mysten/sui/utils";
 var DEFAULT_LIST_URLS = [];
-var BLOCKLIST_URL = "https://guardians.suiet.app/coin-list.json";
 var LS_VERIFIED = "suiet_verified_coins";
 var LS_BLOCK = "suiet_blocklist_coins";
 var LS_TS = (k) => `${k}_at`;
@@ -5788,29 +5785,9 @@ async function getSuietBlocklist() {
       return { data: [], ok: false };
     }
   };
-  const write2 = (bl) => {
-    if (typeof localStorage === "undefined") return;
-    try {
-      localStorage.setItem(LS_BLOCK, JSON.stringify(bl));
-      localStorage.setItem(LS_TS(LS_BLOCK), String(Date.now()));
-    } catch {
-    }
-  };
   const c = readBlockCache();
   if (c.ok && c.data.length) {
     return expandBlocklistSet(c.data);
-  }
-  try {
-    const r = await fetch(BLOCKLIST_URL, { signal: AbortSignal.timeout(8e3) });
-    if (r.ok) {
-      const j = await r.json();
-      const bl = j?.blocklist;
-      if (Array.isArray(bl) && bl.length) {
-        write2(bl);
-        return expandBlocklistSet(bl);
-      }
-    }
-  } catch {
   }
   return /* @__PURE__ */ new Set();
 }

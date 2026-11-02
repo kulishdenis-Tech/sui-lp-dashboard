@@ -23,7 +23,6 @@ const HOST_PREFIX: Record<string, string> = {
 	'sui-rpc.publicnode.com': '/ext/sui-rpc',
 	'sui.publicnode.com': '/ext/sui-rpc',
 	'rpc-mainnet.suiscan.xyz': '/ext/sui-suiscan',
-	'mainnet.suiet.app': '/ext/sui-suiet',
 	'sui.api.onfinality.io': '/ext/sui-onfinality',
 	// Mysten public gRPC-Web + GraphQL (default dashboard transport; no API key).
 	'fullnode.mainnet.sui.io': '/ext/sui-grpc-web',

@@ -12,8 +12,6 @@ import { GT_HEADER } from '@/services/spotPrice/http'
  */
 const DEFAULT_LIST_URLS = [] as const
 
-/** Suiet guardians list. After 14 Nov 2026 this host may go away; a miss yields an empty set. */
-const BLOCKLIST_URL = 'https://guardians.suiet.app/coin-list.json'
 const LS_VERIFIED = 'suiet_verified_coins'
 const LS_BLOCK = 'suiet_blocklist_coins'
 const LS_TS = (k: string) => `${k}_at`
@@ -288,32 +286,11 @@ export async function getSuietBlocklist(): Promise<Set<string>> {
 			return { data: [], ok: false }
 		}
 	}
-	const write = (bl: string[]) => {
-		if (typeof localStorage === 'undefined') return
-		try {
-			localStorage.setItem(LS_BLOCK, JSON.stringify(bl))
-			localStorage.setItem(LS_TS(LS_BLOCK), String(Date.now()))
-		} catch {
-			/* */
-		}
-	}
 	const c = readBlockCache()
 	if (c.ok && c.data.length) {
 		return expandBlocklistSet(c.data)
 	}
-	try {
-		const r = await fetch(BLOCKLIST_URL, { signal: AbortSignal.timeout(8_000) })
-		if (r.ok) {
-			const j = (await r.json()) as { blocklist?: string[] }
-			const bl = j?.blocklist
-			if (Array.isArray(bl) && bl.length) {
-				write(bl)
-				return expandBlocklistSet(bl)
-			}
-		}
-	} catch {
-		/* */
-	}
+	// guardians.suiet.app is not fetched. A miss is an empty set and the dashboard keeps running.
 	return new Set()
 }
 
@@ -335,4 +312,4 @@ export function blocklistCovers(s: Set<string>, coinType: string): boolean {
 	return s.has(normalizeCoinType(coinType))
 }
 
-export { BLOCKLIST_URL, CACHE_KEY, CACHE_TTL, HARDCODED_VERIFIED }
+export { CACHE_KEY, CACHE_TTL, HARDCODED_VERIFIED }

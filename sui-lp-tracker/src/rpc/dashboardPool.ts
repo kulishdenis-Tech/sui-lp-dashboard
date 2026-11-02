@@ -8,7 +8,6 @@ import {
 	DASHBOARD_RPC_FALLBACK_URLS,
 	normalizeSuiRpcUrl,
 	resolveBrowserRpcUrl,
-	resolveServerSuiRpcUrl,
 } from '@/utils/suiRpcUrl'
 import { createPooledSuiClient, RpcProviderPool } from '@/rpc/providerPool'
 
@@ -58,18 +57,17 @@ export function parseDashboardRpcUrls(): string[] {
 	const list = [...fromList]
 	if (primary) {
 		const n = normalizeSuiRpcUrl(primary)
-		if (!list.map(normalizeSuiRpcUrl).includes(n)) list.unshift(n)
+		if (n && !list.map(normalizeSuiRpcUrl).includes(n)) list.unshift(n)
 	}
-	// Always keep public failover nodes so a single PublicNode 429 can rotate.
 	for (const u of DASHBOARD_RPC_FALLBACK_URLS) {
 		const n = normalizeSuiRpcUrl(u)
-		if (!list.map(normalizeSuiRpcUrl).includes(n)) list.push(n)
+		if (n && !list.map(normalizeSuiRpcUrl).includes(n)) list.push(n)
 	}
-	const abs = list.length > 0 ? list.map(normalizeSuiRpcUrl) : [resolveServerSuiRpcUrl()]
-	const unique = [...new Set(abs)]
+	const abs = [...new Set(list.map(normalizeSuiRpcUrl).filter((url) => url.length > 0))]
+	if (abs.length === 0) return []
 
-	if (typeof window === 'undefined') return unique
-	return selectBrowserDashboardRpcUrls(unique, resolveBrowserRpcUrl(), toBrowserUrl)
+	if (typeof window === 'undefined') return abs
+	return selectBrowserDashboardRpcUrls(abs, resolveBrowserRpcUrl(), toBrowserUrl)
 }
 
 /**

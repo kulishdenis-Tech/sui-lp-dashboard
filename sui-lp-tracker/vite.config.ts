@@ -216,28 +216,12 @@ export default defineConfig({
 		allowedHosts: TAILSCALE_ALLOWED_HOSTS,
 		/** Обхід CORS у dev для порівняння джерел цін (браузер → той самий origin → проксі). */
 		proxy: {
-			// Path ↔ host is fixed so the dashboard pool can fail over without remapping.
-			// Residual JSON-RPC for dapp-kit / DEX SDKs (not Build broadcast — that uses gRPC).
-			'/ext/sui-rpc': {
-				target: 'https://mainnet.suiet.app',
-				changeOrigin: true,
-				secure: true,
-				agent: extHttpsAgent,
-				rewrite: (p) => p.replace(/^\/ext\/sui-rpc/, '') || '/',
-			},
 			'/ext/sui-suiscan': {
 				target: 'https://rpc-mainnet.suiscan.xyz',
 				changeOrigin: true,
 				secure: true,
 				agent: extHttpsAgent,
 				rewrite: (p) => p.replace(/^\/ext\/sui-suiscan/, '') || '/',
-			},
-			'/ext/sui-suiet': {
-				target: 'https://mainnet.suiet.app',
-				changeOrigin: true,
-				secure: true,
-				agent: extHttpsAgent,
-				rewrite: (p) => p.replace(/^\/ext\/sui-suiet/, '') || '/',
 			},
 			'/ext/sui-onfinality': {
 				target: 'https://sui.api.onfinality.io',

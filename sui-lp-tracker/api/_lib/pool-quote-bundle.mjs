@@ -574,7 +574,6 @@ var HOST_PREFIX = {
   "sui-rpc.publicnode.com": "/ext/sui-rpc",
   "sui.publicnode.com": "/ext/sui-rpc",
   "rpc-mainnet.suiscan.xyz": "/ext/sui-suiscan",
-  "mainnet.suiet.app": "/ext/sui-suiet",
   "sui.api.onfinality.io": "/ext/sui-onfinality",
   // Mysten public gRPC-Web + GraphQL (default dashboard transport; no API key).
   "fullnode.mainnet.sui.io": "/ext/sui-grpc-web",
@@ -1342,18 +1341,16 @@ function getJsonRpcCompatClient() {
 }
 
 // src/utils/suiRpcUrl.ts
-var DEFAULT_MAINNET_JSON_RPC_URL = "https://mainnet.suiet.app";
-var DEPRECATED_JSON_RPC_HOSTS = /* @__PURE__ */ new Set([
+var RETIRED_JSON_RPC_HOSTS = /* @__PURE__ */ new Set([
   "fullnode.mainnet.sui.io",
   "fullnode.testnet.sui.io",
   "fullnode.devnet.sui.io",
   "sui-rpc.publicnode.com",
   "sui.publicnode.com",
-  "sui.api.onfinality.io"
+  "sui.api.onfinality.io",
+  "rpc-mainnet.suiscan.xyz",
+  "mainnet.suiet.app"
 ]);
-var RPC_HOST_ALIASES = {
-  "sui.publicnode.com": DEFAULT_MAINNET_JSON_RPC_URL
-};
 function rpcFromProcessEnv() {
   if (typeof process === "undefined" || !process.env) return void 0;
   const v = process.env.VITE_SUI_RPC_URL ?? process.env.SUI_RPC_URL;
@@ -1362,13 +1359,8 @@ function rpcFromProcessEnv() {
 }
 function normalizeSuiRpcUrl(url) {
   try {
-    const u = new URL(url);
-    const host = u.hostname.toLowerCase();
-    if (DEPRECATED_JSON_RPC_HOSTS.has(host)) {
-      return DEFAULT_MAINNET_JSON_RPC_URL;
-    }
-    const alias = RPC_HOST_ALIASES[host];
-    if (alias) return alias;
+    const host = new URL(url).hostname.toLowerCase();
+    if (RETIRED_JSON_RPC_HOSTS.has(host)) return "";
   } catch {
   }
   return url;
@@ -1380,7 +1372,7 @@ function resolveSuiRpcUrl() {
   if (typeof fromEnv === "string" && fromEnv.trim().length > 0) {
     return normalizeSuiRpcUrl(fromEnv.trim());
   }
-  return DEFAULT_MAINNET_JSON_RPC_URL;
+  return "";
 }
 function resolveServerSuiRpcUrl() {
   return resolveSuiRpcUrl();
