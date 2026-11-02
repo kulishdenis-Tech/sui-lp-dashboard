@@ -144,9 +144,15 @@ export function toLiquidationPct(mark: number, liquidation: number): number | nu
 	return ((liquidation - mark) / mark) * 100
 }
 
+/** Drop toward liquidation, shown as a positive percent. Never a leading minus. */
 export function formatToLiquidationPct(pct: number | null): string {
 	if (pct == null || !Number.isFinite(pct)) return '—'
-	return `${pct.toFixed(1)}%`
+	return `${Math.abs(pct).toFixed(1)}%`
+}
+
+export function formatSuiLiquidationPrice(price: number | null | undefined): string {
+	if (price == null || !Number.isFinite(price) || !(price > 0)) return '—'
+	return `$${price.toFixed(3)}`
 }
 
 /** Current lending only. A multiplier vault HF is not a candidate. */
@@ -188,6 +194,8 @@ function toneClass(tone: RiskTone): string {
 export interface RiskRowFigures {
 	primaryText: string
 	primaryClass: string
+	/** SUI price at liquidation, or the USDSUI/USDC liquidation rate. */
+	suiLiqText: string
 	toLiqText: string
 	status: string
 	statusClass: string
@@ -203,8 +211,9 @@ export function riskRowFigures(row: OverviewRiskRow, suiPriceUsd: number | null)
 		const toLiq =
 			rate != null && Number.isFinite(rate) ? toLiquidationPct(rate, USDSUI_USDC_LIQUIDATION_RATE) : null
 		return {
-			primaryText: rate != null && Number.isFinite(rate) ? rate.toFixed(4) : '—',
+			primaryText: rate != null && Number.isFinite(rate) ? `${rate.toFixed(4)} rate` : '—',
 			primaryClass: stableLoopColorClass(row.pegAlert),
+			suiLiqText: USDSUI_USDC_LIQUIDATION_RATE.toFixed(4),
 			toLiqText: formatToLiquidationPct(toLiq),
 			status: toneStatus(tone),
 			statusClass: toneClass(tone),
@@ -222,6 +231,7 @@ export function riskRowFigures(row: OverviewRiskRow, suiPriceUsd: number | null)
 		return {
 			primaryText: hf != null && Number.isFinite(hf) ? formatHealthFactor(hf) : '—',
 			primaryClass: 'text-slate-300',
+			suiLiqText: formatSuiLiquidationPrice(row.suiLiquidationPriceUSD),
 			toLiqText: formatToLiquidationPct(toLiq),
 			status: 'Estimate',
 			statusClass: 'text-slate-400',
@@ -240,6 +250,7 @@ export function riskRowFigures(row: OverviewRiskRow, suiPriceUsd: number | null)
 			hf != null && Number.isFinite(hf)
 				? healthFactorColorClass(hf, CURRENT_LENDING_HF_THRESHOLDS)
 				: 'text-slate-400',
+		suiLiqText: row.suiCollateral ? formatSuiLiquidationPrice(row.suiLiquidationPriceUSD) : '—',
 		toLiqText: formatToLiquidationPct(toLiq),
 		status: toneStatus(tone),
 		statusClass: toneClass(tone),

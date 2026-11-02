@@ -246,6 +246,31 @@ export function buildSourceAttentionItems(sources: OverviewSourceHealth[]): Atte
 	return items
 }
 
+const ATTENTION_RANK = ['p0', 'warning', 'out_of_range', 'near_edge', 'other'] as const
+
+function attentionRank(item: AttentionItem): (typeof ATTENTION_RANK)[number] {
+	if (item.id.startsWith('oor-')) return 'out_of_range'
+	if (item.id.startsWith('near-')) return 'near_edge'
+	if (item.severity === 'critical') return 'p0'
+	if (item.severity === 'warn' && item.kind === 'action') return 'warning'
+	return 'other'
+}
+
+/** P0, then warning, then out of range, then near edge. */
+export function orderOverviewAttention(items: readonly AttentionItem[]): AttentionItem[] {
+	return [...items].sort(
+		(a, b) => ATTENTION_RANK.indexOf(attentionRank(a)) - ATTENTION_RANK.indexOf(attentionRank(b)),
+	)
+}
+
+/** Grey footer. Sources that are stale or failed; "none" when every source is fresh. */
+export function staleAttentionLabel(sources: readonly { status: string; label: string }[]): string {
+	const names = sources
+		.filter((source) => source.status === 'stale' || source.status === 'error')
+		.map((source) => source.label)
+	return names.length === 0 ? 'STALE · none' : `STALE · ${names.join(', ')}`
+}
+
 export function mergeAttentionItems(...groups: AttentionItem[][]): AttentionItem[] {
 	const seen = new Set<string>()
 	const out: AttentionItem[] = []

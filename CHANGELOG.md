@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.19
+
+- Overview зверху вниз: Risk, графік з плитками й Attention, таблиця позицій, потім LP by protocol, Token exposure і Lending. Графік, праві плитки і логіка HF без змін.
+- У таблиці Risk додано ціну SUI на ліквідації і додатний відсоток падіння до неї. Для USDSUI/USDC у колонці HF лишається ставка, а на ліквідації показано 0.8825. Пороги ставки ті самі, що в 2.0.17.
+- Під таблицею: Supplied, Borrowed, Vault і Lowest HF по Current на всіх гаманцях.
+- Attention — окремі плашки. Порядок: P0, warning, поза діапазоном, near edge. Останній рядок завжди STALE.
+- Таблиця позицій показує всі рядки фільтра. Cascade розкривається. View All з цієї таблиці прибрано. Лічильники All і Empty без змін.
+- У Lending борг Multiplier окремо, Total debt = Borrowed + Vault. Рядок боргу з Token exposure прибрано.
+- На плитках час оновлення англійською: updated … (Kyiv).
+
 ## 2.0.18
 
 - Lowest HF бере мінімум по Current-позиціях усіх watch-гаманців. Health factor Multiplier vault у це число і в Attention не входить.

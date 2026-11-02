@@ -6,6 +6,8 @@ import {
 	buildLpAttentionItems,
 	buildRangeExceptionItems,
 	buildSourceAttentionItems,
+	orderOverviewAttention,
+	staleAttentionLabel,
 } from './overviewAttention'
 import { buildOverviewRiskRows } from './overviewRisk'
 
@@ -186,5 +188,19 @@ describe('overviewAttention', () => {
 		expect(items.map((item) => item.title).join(' | ')).toMatch(/Out of range/)
 		expect(items.map((item) => item.title).join(' | ')).toMatch(/Near edge/)
 		expect(items.map((item) => `${item.title} ${item.detail}`).join(' ').toLowerCase()).not.toContain('risk')
+	})
+
+	it('orders P0, then warning, then out of range, then near edge', () => {
+		const ordered = orderOverviewAttention([
+			{ id: 'near-summary', severity: 'warn', kind: 'update', title: 'Near edge', detail: '' },
+			{ id: 'oor-summary', severity: 'warn', kind: 'update', title: 'Out of range', detail: '' },
+			{ id: 'lend-hf-ok', severity: 'warn', kind: 'action', title: 'Warning', detail: '' },
+			{ id: 'lend-hf-p0', severity: 'critical', kind: 'action', title: 'P0', detail: '' },
+		])
+		expect(ordered.map((item) => item.title)).toEqual(['P0', 'Warning', 'Out of range', 'Near edge'])
+		expect(staleAttentionLabel([])).toBe('STALE · none')
+		expect(staleAttentionLabel([{ status: 'ok', label: 'LP' }, { status: 'stale', label: 'Wallet' }])).toBe(
+			'STALE · Wallet',
+		)
 	})
 })

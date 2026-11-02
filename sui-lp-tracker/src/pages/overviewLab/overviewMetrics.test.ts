@@ -18,6 +18,7 @@ import {
 	computeValueChangeForRange,
 	formatSharePct,
 	overviewDebtParts,
+	overviewTotalDebt,
 } from './overviewMetrics'
 
 function pos(partial: Partial<OpenPosition> & { id: string }): OpenPosition {
@@ -513,6 +514,9 @@ describe('overviewMetrics', () => {
 			] : [],
 		)
 		expect(parts.lendingUSD + parts.multiplyUSD).toBe(chart.debtUSD)
+		expect(overviewTotalDebt(parts.lendingUSD, parts.multiplyUSD)).toBe(110)
+		expect(overviewTotalDebt(80989, 30008)).toBe(110997)
+		expect(overviewTotalDebt(null, 30008)).toBeNull()
 	})
 
 	it('protocol allocation reports partial when a member value is null', () => {

@@ -373,6 +373,12 @@ export function overviewDebtParts(
 	return { lendingUSD, multiplyUSD }
 }
 
+/** Borrowed lending debt plus Multiplier vault debt. Null until borrowed is known. */
+export function overviewTotalDebt(borrowed: number | null, vault: number): number | null {
+	if (borrowed == null || !Number.isFinite(borrowed) || !Number.isFinite(vault)) return null
+	return borrowed + vault
+}
+
 /** Prefer SUI / USDC rows; fold the rest into Other. */
 export function collapseExposureForChart(
 	exposure: TokenExposure,

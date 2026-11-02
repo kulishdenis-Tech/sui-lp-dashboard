@@ -1,17 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCurrentAccount } from '@mysten/dapp-kit-react'
 import { useShallow } from 'zustand/react/shallow'
 import { PageShell } from '@/components/ui/PageShell'
 import { MetricValueWithPartial } from '@/components/ui/PartialDataMark'
 import { ProtocolIcon } from '@/components/ui/ProtocolIcon'
-import { PositionRangeBar } from '@/components/positions/PositionRangeBar'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { useAppStore } from '@/store/appStore'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
 import { usePortfolioHistory, type TimeRange } from '@/hooks/usePortfolioHistory'
 import { getEffectiveWalletAddress } from '@/utils/walletAddress'
-import { formatHealthFactor } from '@/config/lendingHealthFactorThresholds'
+import {
+	CURRENT_LENDING_HF_THRESHOLDS,
+	formatHealthFactor,
+	healthFactorColorClass,
+} from '@/config/lendingHealthFactorThresholds'
 import { formatUSD, formatUSDAdaptive } from '@/utils/formatting'
 import { isNativeSuiCoinType } from '@/utils/suiCoinType'
 import { coverageIsPartial, aggregateOpenMetrics } from '@/utils/aggregateOpenMetrics'
@@ -19,7 +22,6 @@ import { isEmptyLpPosition } from '@/utils/lpLifecycle'
 import { isCetusVaultPosition } from '@/utils/cetusVault'
 import { isCurrentMultiplyVaultPosition } from '@/utils/currentMultiplyVault'
 import { positionValueUsdOrNull, unclaimedIncomeUsdOrNull } from '@/utils/positionDerivedMetrics'
-import { rangeBarToneForCascade } from '@/utils/rangeBarTone'
 import type { OpenPosition } from '@/types'
 import { groupRememberedCascades } from '@/pages/autopilot/groupRememberedCascades'
 import {
@@ -32,9 +34,11 @@ import {
 	analyzeValueChangeForRange,
 	formatSharePct,
 	overviewDebtParts,
+	overviewTotalDebt,
 	type CascadeBand,
+	type LpFilterCounts,
 } from '@/pages/overviewLab/overviewMetrics'
-import { buildOverviewRiskRows } from '@/pages/overviewLab/overviewRisk'
+import { buildOverviewRiskRows, lowestCurrentHealthFactor } from '@/pages/overviewLab/overviewRisk'
 import { useWatchWalletRiskBooks } from '@/pages/overviewLab/useWatchWalletRiskBooks'
 import { useOverviewSources } from '@/pages/overviewLab/useOverviewSources'
 import { labelAmountOrStale } from '@/pages/overviewLab/overviewSourceStatus'
@@ -45,8 +49,9 @@ import {
 	buildLendingAttentionItems,
 	buildRangeExceptionItems,
 	mergeAttentionItems,
+	orderOverviewAttention,
+	staleAttentionLabel,
 } from '@/pages/overviewLab/overviewAttention'
-import { lowestCurrentHealthFactor } from '@/pages/overviewLab/overviewRisk'
 import {
 	PortfolioChart,
 	type ChartMode,
@@ -101,6 +106,195 @@ function StatusPill({ band }: { band: CascadeBand }) {
 								? 'Empty'
 								: 'Unknown'
 	return <span className={`overview-lab__pill overview-lab__pill--${band}`}>{label}</span>
+}
+
+type LpDisplayRow = {
+	id: string
+	label: string
+	protocol: OpenPosition['protocol']
+	band: CascadeBand
+	value: number | null
+	valuePartial: boolean
+	unclaimed: number | null
+	unclaimedPartial: boolean
+	members: OpenPosition[]
+	hrefId: string
+	isCascade: boolean
+}
+
+function FilterShareBar({ counts }: { counts: LpFilterCounts }) {
+	if (counts.all <= 0) return null
+	const parts = [
+		{ key: 'in', n: counts.in, className: 'bg-emerald-400/80' },
+		{ key: 'near', n: counts.near, className: 'bg-amber-400/80' },
+		{ key: 'above', n: counts.above, className: 'bg-sky-400/70' },
+		{ key: 'below', n: counts.below, className: 'bg-violet-400/70' },
+	]
+	return (
+		<div className="overview-lab__filter-share" aria-hidden>
+			{parts.map((part) =>
+				part.n > 0 ? (
+					<span key={part.key} className={part.className} style={{ width: `${(part.n / counts.all) * 100}%` }} />
+				) : null,
+			)}
+		</div>
+	)
+}
+
+function OverviewPositions({
+	rows,
+	filterCounts,
+	lpFilter,
+	onFilter,
+	hideAmounts,
+	onOpen,
+}: {
+	rows: readonly LpDisplayRow[]
+	filterCounts: LpFilterCounts
+	lpFilter: LpFilter
+	onFilter: (next: LpFilter) => void
+	hideAmounts: boolean
+	onOpen: (id: string) => void
+}) {
+	const [openIds, setOpenIds] = useState<Record<string, boolean>>({})
+	const filters = [
+		{ id: 'all' as const, label: `All (${filterCounts.all})` },
+		{ id: 'in' as const, label: `In (${filterCounts.in})` },
+		{ id: 'near' as const, label: `Near (${filterCounts.near})` },
+		{ id: 'above' as const, label: `Above (${filterCounts.above})` },
+		{ id: 'below' as const, label: `Below (${filterCounts.below})` },
+		{ id: 'empty' as const, label: `Empty (${filterCounts.empty})` },
+	]
+	return (
+		<section className="overview-lab__panel overview-lab__enter overview-lab__enter--4 overflow-hidden">
+			<div className="px-3 py-2.5 sm:px-4">
+				<div className="overview-lab__filter-row">
+					{filters.map((filter) => (
+						<button
+							key={filter.id}
+							type="button"
+							className={`overview-lab__filter${lpFilter === filter.id ? ' overview-lab__filter--on' : ''}`}
+							aria-pressed={lpFilter === filter.id}
+							onClick={() => onFilter(filter.id)}
+						>
+							{filter.label}
+						</button>
+					))}
+					{filterCounts.unknown > 0 ? (
+						<button
+							type="button"
+							className={`overview-lab__filter${lpFilter === 'unknown' ? ' overview-lab__filter--on' : ''}`}
+							aria-pressed={lpFilter === 'unknown'}
+							onClick={() => onFilter('unknown')}
+						>
+							Unknown ({filterCounts.unknown})
+						</button>
+					) : null}
+				</div>
+			</div>
+			<FilterShareBar counts={filterCounts} />
+			{rows.length === 0 ? (
+				<p className="px-4 py-6 text-sm text-slate-500">No positions in this filter.</p>
+			) : (
+				<table className="overview-lab__lp-table">
+					<thead>
+						<tr>
+							<th>Pair</th>
+							<th>Protocol</th>
+							<th>Status</th>
+							<th className="num">Value</th>
+							<th className="num">Unclaimed</th>
+						</tr>
+					</thead>
+					<tbody>
+						{rows.map((row) => {
+							const expanded = row.isCascade && openIds[row.id] === true
+							return (
+								<Fragment key={row.id}>
+									<tr>
+										<td>
+											<span className="flex min-w-0 items-center gap-1.5">
+												{row.isCascade && row.members.length > 1 ? (
+													<button
+														type="button"
+														className="w-4 shrink-0 text-left text-xs text-slate-400"
+														aria-expanded={expanded}
+														aria-label={expanded ? 'Collapse cascade' : 'Expand cascade'}
+														onClick={() =>
+															setOpenIds((current) => ({ ...current, [row.id]: !current[row.id] }))
+														}
+													>
+														{expanded ? '▾' : '▸'}
+													</button>
+												) : (
+													<span className="inline-block w-4 shrink-0" />
+												)}
+												<button
+													type="button"
+													className="truncate text-left text-sm font-medium text-slate-200 hover:text-sky-300"
+													onClick={() => onOpen(row.hrefId)}
+												>
+													{row.label}
+												</button>
+											</span>
+										</td>
+										<td className="text-xs text-slate-400">
+											<span className="inline-flex items-center gap-1.5">
+												<ProtocolIcon protocol={row.protocol} size={13} />
+												{protocolLabel(row.protocol)}
+											</span>
+										</td>
+										<td>
+											<StatusPill band={row.band} />
+										</td>
+										<td className="num overview-lab__money tabular-nums text-sm text-slate-200">
+											{row.valuePartial ? (
+												<MetricValueWithPartial value={money(row.value, hideAmounts)} partial />
+											) : (
+												money(row.value, hideAmounts)
+											)}
+										</td>
+										<td className="num overview-lab__money tabular-nums text-xs text-slate-400">
+											{row.unclaimedPartial ? (
+												<MetricValueWithPartial value={money(row.unclaimed, hideAmounts)} partial />
+											) : (
+												money(row.unclaimed, hideAmounts)
+											)}
+										</td>
+									</tr>
+									{expanded
+										? row.members.map((member) => (
+												<tr key={`${row.id}:${member.id}`} className="child">
+													<td className="pl-8 text-sm text-slate-300">
+														<button
+															type="button"
+															className="hover:text-sky-300"
+															onClick={() => onOpen(member.id)}
+														>
+															{member.tokenA}/{member.tokenB}
+														</button>
+													</td>
+													<td className="text-xs text-slate-500">{protocolLabel(member.protocol)}</td>
+													<td>
+														<StatusPill band={lpBand(member)} />
+													</td>
+													<td className="num overview-lab__money tabular-nums text-sm text-slate-300">
+														{money(positionValueUsdOrNull(member), hideAmounts)}
+													</td>
+													<td className="num overview-lab__money tabular-nums text-xs text-slate-500">
+														{money(unclaimedIncomeUsdOrNull(member), hideAmounts)}
+													</td>
+												</tr>
+											))
+										: null}
+								</Fragment>
+							)
+						})}
+					</tbody>
+				</table>
+			)}
+		</section>
+	)
 }
 
 function useAuroraActive(): boolean {
@@ -246,11 +440,6 @@ export function OverviewLabPage() {
 
 	const exposureChart = collapseExposureForChart(kpis.exposure)
 	const exposureSum = exposureChart.rows.reduce((s, r) => s + r.usd, 0)
-	const debtParts = useMemo(
-		() => overviewDebtParts([lendingSnapshot, naviSnapshot, currentSnapshot], openPositions),
-		[lendingSnapshot, naviSnapshot, currentSnapshot, openPositions],
-	)
-	const debtBreakdown = `Debt (lending ${money(debtParts.lendingUSD, hideAmounts)} + Multiplier Vault ${money(debtParts.multiplyUSD, hideAmounts)})`
 
 	const filterCounts = useMemo(() => countLpFilters(openPositions), [openPositions])
 
@@ -338,9 +527,7 @@ export function OverviewLabPage() {
 				}
 			}
 		}
-		return rows
-			.sort((a, b) => (b.value ?? -Infinity) - (a.value ?? -Infinity))
-			.slice(0, 6)
+		return rows.sort((a, b) => (b.value ?? -Infinity) - (a.value ?? -Infinity))
 	}, [openPositions, lpFilter])
 
 	/** Lending totals — sum only present snapshots; null when none loaded and not loading. */
@@ -387,22 +574,26 @@ export function OverviewLabPage() {
 		return px != null && Number.isFinite(px) && px > 0 ? px : null
 	}, [tokenBalances])
 	const attention = useMemo(() => {
-		return mergeAttentionItems(
-			buildCurrentMarketAttentionItems(riskRows),
-			buildLendingAttentionItems([
-				{ snap: lendingSnapshot, label: 'AlphaLend', protocol: 'AlphaLend' },
-				{ snap: naviSnapshot, label: 'Navi', protocol: 'Navi' },
-			]),
-			buildRangeExceptionItems(openPositions),
+		return orderOverviewAttention(
+			mergeAttentionItems(
+				buildCurrentMarketAttentionItems(riskRows),
+				buildLendingAttentionItems([
+					{ snap: lendingSnapshot, label: 'AlphaLend', protocol: 'AlphaLend' },
+					{ snap: naviSnapshot, label: 'Navi', protocol: 'Navi' },
+				]),
+				buildRangeExceptionItems(openPositions),
+			),
 		)
 	}, [riskRows, openPositions, lendingSnapshot, naviSnapshot, addrEpoch])
+	const debtParts = useMemo(
+		() => overviewDebtParts([lendingSnapshot, naviSnapshot, currentSnapshot], riskPositions),
+		[lendingSnapshot, naviSnapshot, currentSnapshot, riskPositions],
+	)
+	const totalDebt = overviewTotalDebt(lendingDebt, debtParts.multiplyUSD)
+	const staleLine = staleAttentionLabel(sources)
 
 	const goLending = () => {
 		setActiveTab('lending')
-		navigate('/home')
-	}
-	const goLp = () => {
-		setActiveTab('lp')
 		navigate('/home')
 	}
 
@@ -448,7 +639,16 @@ export function OverviewLabPage() {
 				</div>
 			) : null}
 
-			<OverviewRiskStrip rows={riskRows} suiPriceUsd={suiPriceUsd} />
+			<OverviewRiskStrip
+				rows={riskRows}
+				suiPriceUsd={suiPriceUsd}
+				summary={{
+					supplied: money(lendingSupplied, hideAmounts),
+					borrowed: money(lendingDebt, hideAmounts),
+					vault: money(debtParts.multiplyUSD, hideAmounts),
+					lowestText: lowestHf ? `${formatHealthFactor(lowestHf.hf)} ${lowestHf.label}` : null,
+				}}
+			/>
 
 			{/* Hero: Net Worth + history chart | KPIs → Value Change → Range */}
 			<div className="overview-lab__hero-row grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
@@ -762,30 +962,33 @@ export function OverviewLabPage() {
 						</div>
 					</div>
 
-					<div className="overview-lab__attention-panel overview-lab__panel overview-lab__panel--quiet flex min-h-0 flex-1 flex-col p-3">
+					<div className="overview-lab__attention-panel overview-lab__panel overview-lab__panel--quiet p-3">
 						<p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-slate-500">
 							Attention
 						</p>
-						{attention.length === 0 ? (
-							<p className="text-xs text-slate-500">No issues</p>
-						) : (
-							<ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
-								{attention.map((item) => (
-									<li
-										key={item.id}
-										className={`overview-lab__attn-item overview-lab__attn-item--${item.severity} text-sm text-slate-200`}
-									>
-										{item.title}
-									</li>
-								))}
-							</ul>
-						)}
-						<p className="mt-2 text-[10px] text-slate-500">Only exceptions.</p>
+						{attention.length === 0 ? <p className="text-xs text-slate-500">No issues</p> : null}
+						<ul className="space-y-1">
+							{attention.map((item) => (
+								<li key={item.id} className={`overview-lab__attn-pill overview-lab__attn-pill--${item.severity}`}>
+									{item.title}
+								</li>
+							))}
+							<li className="overview-lab__attn-pill overview-lab__attn-pill--info">{staleLine}</li>
+						</ul>
 					</div>
 				</div>
 			</div>
 
-			{/* Second row: LP by Protocol · Token exposure · Lending */}
+			<OverviewPositions
+				rows={lpDisplay}
+				filterCounts={filterCounts}
+				lpFilter={lpFilter}
+				onFilter={setLpFilter}
+				hideAmounts={hideAmounts}
+				onOpen={(id) => navigate(`/lp/position/${encodeURIComponent(id)}`)}
+			/>
+
+			{/* Bottom row: LP by protocol · Token exposure · Lending */}
 			<div className="overview-lab__enter overview-lab__enter--3 grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
 				<section className="overview-lab__panel overview-lab__panel--quiet min-w-0 space-y-2.5 p-4">
 					<p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
@@ -851,18 +1054,6 @@ export function OverviewLabPage() {
 						</Tooltip>
 					</div>
 					<p className="text-[10px] text-slate-500">Gross assets · % of priced</p>
-					{exposureChart.unpricedHoldings.length > 0 ? (
-						<details className="text-[10px] text-amber-300/80">
-							<summary className="cursor-pointer">
-								Unpriced holdings ({exposureChart.unpricedHoldings.length})
-							</summary>
-							<ul className="mt-1 space-y-0.5 pl-3">
-								{exposureChart.unpricedHoldings.map((label, index) => (
-									<li key={`${label}-${index}`}>{label}</li>
-								))}
-							</ul>
-						</details>
-					) : null}
 					{exposureChart.rows.length === 0 ? (
 						<p className="text-xs text-slate-500">No priced underlyings.</p>
 					) : (
@@ -908,18 +1099,22 @@ export function OverviewLabPage() {
 							})}
 						</ul>
 					)}
-					{exposureChart.debtUSD > 0 ? (
-						<p className="text-[11px] text-slate-500">
-							{debtBreakdown}{' '}
-							<span className="overview-lab__money tabular-nums text-rose-300/90">
-								{money(exposureChart.debtUSD, hideAmounts)}
-							</span>
-						</p>
-					) : null}
 					{exposureChart.unknownUSD > 0.5 ? (
 						<p className="text-[11px] text-amber-300/80">
 							Unknown {money(exposureChart.unknownUSD, hideAmounts)}
 						</p>
+					) : null}
+					{exposureChart.unpricedHoldings.length > 0 ? (
+						<details className="text-[10px] text-slate-500">
+							<summary className="cursor-pointer">
+								Unpriced holdings ({exposureChart.unpricedHoldings.length}) · UNVERIFIED
+							</summary>
+							<ul className="mt-1 space-y-0.5 pl-3">
+								{exposureChart.unpricedHoldings.map((label, index) => (
+									<li key={`${label}-${index}`}>{label}</li>
+								))}
+							</ul>
+						</details>
 					) : null}
 				</section>
 
@@ -952,6 +1147,18 @@ export function OverviewLabPage() {
 							</dd>
 						</div>
 						<div className="flex items-baseline justify-between gap-3">
+							<dt className="text-[11px] text-slate-500">Vault</dt>
+							<dd className="overview-lab__money tabular-nums text-rose-300/90">
+								{money(debtParts.multiplyUSD, hideAmounts)}
+							</dd>
+						</div>
+						<div className="flex items-baseline justify-between gap-3">
+							<dt className="text-[11px] text-slate-500">Total debt</dt>
+							<dd className="overview-lab__money tabular-nums text-rose-300/90">
+								{money(totalDebt, hideAmounts)}
+							</dd>
+						</div>
+						<div className="flex items-baseline justify-between gap-3">
 							<dt className="text-[11px] text-slate-500">Net</dt>
 							<dd className="overview-lab__money tabular-nums text-slate-100">
 								{lendingPartial ? (
@@ -963,7 +1170,7 @@ export function OverviewLabPage() {
 						</div>
 						<div className="flex items-baseline justify-between gap-3">
 							<dt className="text-[11px] text-slate-500">Lowest HF</dt>
-							<dd className="tabular-nums text-slate-200">
+							<dd className={`tabular-nums ${lowestHf ? healthFactorColorClass(lowestHf.hf, CURRENT_LENDING_HF_THRESHOLDS) : 'text-slate-200'}`}>
 								{lowestHf ? (
 									<Tooltip tip="Lowest health factor across Current lending positions on every watched wallet. Multiplier vaults are excluded.">
 										<span className="cursor-help">
@@ -982,142 +1189,6 @@ export function OverviewLabPage() {
 				</section>
 			</div>
 
-			{/* Positions */}
-			<section className="overview-lab__panel overview-lab__enter overview-lab__enter--4 overflow-hidden">
-				<div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/60 px-3 py-2.5 sm:px-4">
-					<div className="overview-lab__filter-row">
-						{(
-							[
-								{ id: 'all' as const, label: `All (${filterCounts.all})` },
-								{ id: 'in' as const, label: `In (${filterCounts.in})` },
-								{ id: 'near' as const, label: `Near (${filterCounts.near})` },
-								{ id: 'above' as const, label: `Above (${filterCounts.above})` },
-								{ id: 'below' as const, label: `Below (${filterCounts.below})` },
-								{ id: 'empty' as const, label: `Empty (${filterCounts.empty})` },
-							] as const
-						).map((f) => (
-							<button
-								key={f.id}
-								type="button"
-								className={`overview-lab__filter${lpFilter === f.id ? ' overview-lab__filter--on' : ''}`}
-								aria-pressed={lpFilter === f.id}
-								onClick={() => setLpFilter(f.id)}
-							>
-								{f.label}
-							</button>
-						))}
-						{filterCounts.unknown > 0 ? (
-							<button
-								type="button"
-								className={`overview-lab__filter${lpFilter === 'unknown' ? ' overview-lab__filter--on' : ''}`}
-								aria-pressed={lpFilter === 'unknown'}
-								onClick={() => setLpFilter('unknown')}
-							>
-								Unknown ({filterCounts.unknown})
-							</button>
-						) : null}
-					</div>
-					<button
-						type="button"
-						className="text-xs font-medium text-sky-400 hover:text-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/45"
-						onClick={goLp}
-					>
-						View All
-					</button>
-				</div>
-
-				{/* LP list column header */}
-				<div className="overview-lab__lp-head hidden sm:flex items-center justify-end gap-3 border-b border-slate-800/40 px-4 py-1 text-[10px] font-medium uppercase tracking-wider text-slate-600">
-					<span className="w-24 text-right">Value</span>
-					<span className="w-20 text-right">Unclaimed</span>
-					<span className="w-32 text-right">Range</span>
-				</div>
-
-				{lpDisplay.length === 0 ? (
-					<p className="px-4 py-6 text-sm text-slate-500">No positions in this filter.</p>
-				) : (
-					<ul className="divide-y divide-slate-800/50">
-						{lpDisplay.map((row) => {
-							/** Build cascade range union or use single member. */
-							let rangeBar: React.ReactNode
-							if (row.isCascade && row.members.length > 1) {
-								const ticks = row.members.flatMap((m) => [
-									Math.min(m.tickLower, m.tickUpper),
-									Math.max(m.tickLower, m.tickUpper),
-								])
-								const cascadeTickLower = Math.min(...ticks.filter((_, i) => i % 2 === 0))
-								const cascadeTickUpper = Math.max(...ticks.filter((_, i) => i % 2 === 1))
-								const tone = rangeBarToneForCascade(row.members)
-								const headMember =
-									row.members.find((m) => !isEmptyLpPosition(m)) ?? row.members[0]!
-								const cascadeRangePos: OpenPosition = {
-									...headMember,
-									id: `${row.id}:range`,
-									tickLower: cascadeTickLower,
-									tickUpper: cascadeTickUpper,
-									status: tone === 'out' ? 'out_of_range' : 'in_range',
-									priceRangeOverride: undefined,
-								}
-								rangeBar = <PositionRangeBar p={cascadeRangePos} tone={tone} />
-							} else {
-								rangeBar = <PositionRangeBar p={row.members[0]!} />
-							}
-
-							return (
-								<li key={row.id}>
-									<button
-										type="button"
-										className="flex w-full flex-col gap-2 px-3 py-2.5 text-left transition hover:bg-slate-800/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-500/45 sm:flex-row sm:items-center sm:justify-between sm:px-4"
-										onClick={() =>
-											navigate(`/lp/position/${encodeURIComponent(row.hrefId)}`)
-										}
-									>
-										<div className="flex min-w-0 items-center gap-2">
-											<ProtocolIcon protocol={row.protocol} size={13} />
-											<span className="truncate text-sm font-medium text-slate-200">
-												{row.label}
-											</span>
-											<span className="hidden text-[11px] text-slate-500 sm:inline">
-												{protocolLabel(row.protocol)}
-											</span>
-											<StatusPill band={row.band} />
-										</div>
-										<div className="flex flex-wrap items-center gap-3 sm:justify-end">
-											<span
-												className="overview-lab__money tabular-nums text-sm text-slate-200"
-												aria-hidden={hideAmounts}
-											>
-												{row.valuePartial ? (
-													<MetricValueWithPartial
-														value={money(row.value, hideAmounts)}
-														partial
-													/>
-												) : (
-													money(row.value, hideAmounts)
-												)}
-											</span>
-											<span
-												className="overview-lab__money tabular-nums text-xs text-slate-500"
-												aria-hidden={hideAmounts}
-											>
-												{row.unclaimedPartial ? (
-													<MetricValueWithPartial
-														value={money(row.unclaimed, hideAmounts)}
-														partial
-													/>
-												) : (
-													money(row.unclaimed, hideAmounts)
-												)}
-											</span>
-											<div className="hidden w-32 sm:block">{rangeBar}</div>
-										</div>
-									</button>
-								</li>
-							)
-						})}
-					</ul>
-				)}
-			</section>
 
 			</PageShell>
 		</div>

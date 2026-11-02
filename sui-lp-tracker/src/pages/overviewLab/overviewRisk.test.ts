@@ -266,6 +266,7 @@ describe('buildOverviewRiskRows', () => {
 		expect(riskRowFigures(slush, 0.872)).toMatchObject({
 			primaryText: '1.184',
 			status: 'Warning',
+			suiLiqText: '—',
 			toLiqText: '—',
 		})
 		const withLiq = buildOverviewRiskRows(null, [], [
@@ -288,7 +289,11 @@ describe('buildOverviewRiskRows', () => {
 				}),
 			},
 		])
-		expect(riskRowFigures(withLiq[0]!, 0.872).toLiqText).toBe('-16.3%')
+		expect(riskRowFigures(withLiq[0]!, 0.872)).toMatchObject({
+			suiLiqText: '$0.730',
+			toLiqText: '16.3%',
+		})
+		expect(riskRowFigures(withLiq[0]!, 0.872).toLiqText.startsWith('-')).toBe(false)
 		const rateRow = buildOverviewRiskRows(null, [
 			{
 				id: 'rate',
@@ -304,9 +309,11 @@ describe('buildOverviewRiskRows', () => {
 			} as OpenPosition,
 		])[0]!
 		expect(riskRowFigures(rateRow, 0.872)).toMatchObject({
-			primaryText: '1.0002',
+			primaryText: '1.0002 rate',
+			suiLiqText: '0.8825',
 			status: 'OK',
-			toLiqText: '-11.8%',
+			toLiqText: '11.8%',
 		})
+		expect(riskRowFigures(rateRow, 0.872).toLiqText.includes('-')).toBe(false)
 	})
 })

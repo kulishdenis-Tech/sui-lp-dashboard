@@ -5,15 +5,25 @@ import {
 	type OverviewRiskRow,
 } from '@/pages/overviewLab/overviewRisk'
 
+export interface RiskSummaryLine {
+	supplied: string
+	borrowed: string
+	vault: string
+	lowestText: string | null
+}
+
 /** Isolated Current markets with debt, then each Multiplier vault. */
 export function OverviewRiskStrip({
 	rows,
 	suiPriceUsd,
+	summary,
 }: {
 	rows: readonly OverviewRiskRow[]
 	suiPriceUsd: number | null
+	summary: RiskSummaryLine
 }) {
 	const lowest = lowestCurrentHealthFactor(rows)
+	const lowestText = summary.lowestText ?? (lowest ? `${formatHealthFactor(lowest.hf)} ${lowest.label}` : null)
 	return (
 		<section aria-label="Lending risk" className="overview-lab__panel overview-lab__panel--quiet px-3 py-2.5">
 			<p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-slate-500">Risk</p>
@@ -28,7 +38,10 @@ export function OverviewRiskStrip({
 								<th>Protocol</th>
 								<th>Position</th>
 								<th className="num">HF</th>
-								<th className="num">To liq %</th>
+								<th className="num">SUI liq</th>
+								<th className="num" title="SUI drop to liquidation">
+									SUI drop to liq
+								</th>
 								<th>Status</th>
 							</tr>
 						</thead>
@@ -48,6 +61,7 @@ export function OverviewRiskStrip({
 										<td className={`num tabular-nums font-semibold ${figures.primaryClass}`} title={hfTitle}>
 											{figures.primaryText}
 										</td>
+										<td className={`num tabular-nums ${figures.statusClass}`}>{figures.suiLiqText}</td>
 										<td className={`num tabular-nums ${figures.statusClass}`}>{figures.toLiqText}</td>
 										<td className={figures.statusClass}>{figures.status}</td>
 									</tr>
@@ -57,14 +71,20 @@ export function OverviewRiskStrip({
 					</table>
 				</div>
 			)}
-			{lowest ? (
-				<p className="mt-1.5 text-[11px] text-slate-500">
-					Lowest HF{' '}
-					<span className="tabular-nums text-slate-200">{formatHealthFactor(lowest.hf)}</span>
-					<span className="text-slate-400"> · {lowest.label}</span>
-					<span> · Current lending, all wallets</span>
-				</p>
-			) : null}
+			<p className="mt-1.5 text-[11px] text-slate-500">
+				Supplied <span className="overview-lab__money tabular-nums text-slate-300">{summary.supplied}</span>
+				{' · '}
+				Borrowed <span className="overview-lab__money tabular-nums text-slate-300">{summary.borrowed}</span>
+				{' · '}
+				Vault <span className="overview-lab__money tabular-nums text-slate-300">{summary.vault}</span>
+				{lowestText ? (
+					<>
+						{' · '}
+						Lowest HF <span className="tabular-nums text-slate-200">{lowestText}</span>
+					</>
+				) : null}
+				<span> (Current lending, all wallets)</span>
+			</p>
 		</section>
 	)
 }
