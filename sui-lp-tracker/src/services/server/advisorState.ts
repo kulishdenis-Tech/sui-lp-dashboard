@@ -143,6 +143,11 @@ function errMsg(e: unknown): string {
 	return e instanceof Error ? e.message : String(e)
 }
 
+function advisorCacheSavedAtOrUndefined(): number | undefined {
+	const t = getAdvisorCacheSavedAtMs()
+	return t != null ? t : undefined
+}
+
 function isSuiAsset(s: SupplyPosition): boolean {
 	if (s.asset.toUpperCase() === 'SUI') return true
 	try {
@@ -219,7 +224,7 @@ function mapLpPosition(p: OpenPosition, staleSourceIds: ReadonlySet<string>): Ad
 		p.currentMultiply?.readStale === true ||
 		(sourceId != null && staleSourceIds.has(sourceId))
 	const resolvedLastSuccessAtMs = readStale
-		? p.lastSuccessAtMs ?? getAdvisorCacheSavedAtMs() ?? Date.now()
+		? p.lastSuccessAtMs ?? advisorCacheSavedAtOrUndefined()
 		: undefined
 	const range = clmmRangeFromOpenPosition({
 		tickLower: p.tickLower,
@@ -249,17 +254,19 @@ function mapLpPosition(p: OpenPosition, staleSourceIds: ReadonlySet<string>): Ad
 		...(readStale
 			? {
 					readStale: true,
-					lastSuccessAtMs: resolvedLastSuccessAtMs,
+					...(resolvedLastSuccessAtMs != null ? { lastSuccessAtMs: resolvedLastSuccessAtMs } : {}),
 				}
 			: {}),
 	}
 }
 
-function stampOpenPositionsStale(positions: OpenPosition[], savedAtMs: number): OpenPosition[] {
+function stampOpenPositionsStale(positions: OpenPosition[], savedAtMs?: number): OpenPosition[] {
 	return positions.map((p) => ({
 		...p,
 		readStale: true,
-		lastSuccessAtMs: p.lastSuccessAtMs ?? savedAtMs,
+		...(p.lastSuccessAtMs != null || savedAtMs != null
+			? { lastSuccessAtMs: p.lastSuccessAtMs ?? savedAtMs }
+			: {}),
 		currentMultiply: p.currentMultiply
 			? { ...p.currentMultiply, readStale: true }
 			: p.currentMultiply,
@@ -274,12 +281,12 @@ function attachCurrentMetricsMeta(
 	if (!stale) {
 		return { ...snap, metricsLive: true, readStale: false }
 	}
-	const at = lastSuccessAtMs ?? getAdvisorCacheSavedAtMs() ?? Date.now()
+	const at = lastSuccessAtMs ?? advisorCacheSavedAtOrUndefined()
 	return {
 		...snap,
 		readStale: true,
 		metricsLive: false,
-		lastSuccessAtMs: at,
+		...(at != null ? { lastSuccessAtMs: at } : {}),
 	}
 }
 
@@ -402,7 +409,7 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 
 	if (raced.kind === 'timeout') {
 		errors.push(`advisor: deadline ${deadlineMs}ms exceeded`)
-		const cacheAt = getAdvisorCacheSavedAtMs() ?? nowMs
+		const cacheAt = advisorCacheSavedAtOrUndefined()
 		openLpRows = stampOpenPositionsStale(getCachedAdvisorLpPositions(), cacheAt)
 		currentSnap = attachCurrentMetricsMeta(getCachedAdvisorCurrent(), true, cacheAt)
 	} else {
@@ -412,7 +419,7 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 			currentLive = true
 		} else {
 			errors.push(`current: ${errMsg(currentResult.reason)}`)
-			const cacheAt = getAdvisorCacheSavedAtMs() ?? nowMs
+			const cacheAt = advisorCacheSavedAtOrUndefined()
 			currentSnap = attachCurrentMetricsMeta(getCachedAdvisorCurrent(), true, cacheAt)
 		}
 
@@ -426,32 +433,23 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 			if (lp.positions.length > 0) {
 				openLpRows = lp.positions
 			} else if (lp.incomplete || lp.statuses.some((s) => !s.ok)) {
-				const cacheAt = getAdvisorCacheSavedAtMs() ?? nowMs
+				const cacheAt = advisorCacheSavedAtOrUndefined()
 				openLpRows = stampOpenPositionsStale(getCachedAdvisorLpPositions(), cacheAt)
 			} else {
 				openLpRows = lp.positions
 			}
 		} else {
 			errors.push(`lp: ${errMsg(lpResult.reason)}`)
-			const cacheAt = getAdvisorCacheSavedAtMs() ?? nowMs
+			const cacheAt = advisorCacheSavedAtOrUndefined()
 			openLpRows = stampOpenPositionsStale(getCachedAdvisorLpPositions(), cacheAt)
 		}
 	}
 
 	if (currentLive && !currentSnap.readStale) {
 		currentSnap = attachCurrentMetricsMeta(currentSnap, false)
-	} else if (
-		errors.some((e) => e.startsWith('current:') || e.startsWith('lp:') || e.startsWith('advisor:'))
-	) {
-		const cacheAt = getAdvisorCacheSavedAtMs() ?? nowMs
+	} else if (errors.some((e) => e.startsWith('current:'))) {
+		const cacheAt = advisorCacheSavedAtOrUndefined()
 		currentSnap = attachCurrentMetricsMeta(currentSnap, true, cacheAt)
-		openLpRows = openLpRows.length
-			? openLpRows.map((p) => ({
-					...p,
-					readStale: p.readStale ?? true,
-					lastSuccessAtMs: p.lastSuccessAtMs ?? cacheAt,
-				}))
-			: stampOpenPositionsStale(getCachedAdvisorLpPositions(), cacheAt)
 	}
 
 	if (
@@ -495,10 +493,11 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 				? {
 						readStale: true,
 						metricsLive: false,
-						lastSuccessAtMs:
-							currentSnap.lastSuccessAtMs ??
-							getAdvisorCacheSavedAtMs() ??
-							nowMs,
+						...(() => {
+							const at =
+								currentSnap.lastSuccessAtMs ?? advisorCacheSavedAtOrUndefined()
+							return at != null ? { lastSuccessAtMs: at } : {}
+						})(),
 					}
 				: { metricsLive: true }),
 		},

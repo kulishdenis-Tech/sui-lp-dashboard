@@ -170,6 +170,7 @@ async function okxSignedRequestOnce(
 }
 
 /** Retry on HTTP 429 (free-tier rate limit) with short backoff. */
+let lastOkx429LogAt = 0
 async function okxSignedRequest(
 	method: 'GET' | 'POST',
 	pathWithQuery: string,
@@ -181,11 +182,18 @@ async function okxSignedRequest(
 		last = await okxSignedRequestOnce(method, pathWithQuery, bodyStr)
 		if (!last) return null
 		if (last.status !== 429) return last
-		const backoffMs = 400 * (attempt + 1) * (attempt + 1)
-		if (import.meta.env.DEV || typeof window === 'undefined') {
+		const backoffMs = 800 * (attempt + 1) * (attempt + 1)
+		const now = Date.now()
+		if (now - lastOkx429LogAt > 30_000) {
+			lastOkx429LogAt = now
 			// eslint-disable-next-line no-console
-			console.warn('[OKX] 429 backoff', { attempt: attempt + 1, backoffMs, path: pathWithQuery.split('?')[0] })
+			console.warn('[OKX] 429 backoff', {
+				attempt: attempt + 1,
+				backoffMs,
+				path: pathWithQuery.split('?')[0],
+			})
 		}
+		if (attempt >= 1) return last
 		await sleep(backoffMs)
 	}
 	return last
@@ -262,6 +270,23 @@ export type OkxPriceInfo = {
 	change24h: number | null
 }
 
+const OKX_PRICE_INFO_TTL_MS = (() => {
+	const raw =
+		typeof process !== 'undefined' ? process.env.OKX_PRICE_INFO_CACHE_MS : undefined
+	const n = raw != null && raw !== '' ? Number.parseInt(String(raw), 10) : Number.NaN
+	return Number.isFinite(n) && n >= 5_000 && n <= 600_000 ? n : 60_000
+})()
+
+const priceInfoCache = new Map<string, { info: OkxPriceInfo; expiresAt: number }>()
+
+export function _resetOkxPriceInfoCacheForTests(): void {
+	priceInfoCache.clear()
+}
+
+function priceInfoCacheKey(coinType: string): string {
+	return normalizeCoinTypeForMatch(coinType)
+}
+
 /**
  * Підпис змінюється щоразу (timestamp) — кожен POST окремо.
  * Retries: мережа / таймаут / HTTP ≠ 2xx / code ≠ 0.
@@ -304,7 +329,20 @@ export async function okxPriceInfoByCoinType(
 	const out = new Map<string, OkxPriceInfo>()
 	if (!isOkxDexConfigured() || coinTypes.length === 0) return out
 
-	const bodyTemplate: PriceInfoBody = coinTypes.map((tokenContractAddress) => ({
+	const unique = [...new Set(coinTypes.map((c) => c.trim()).filter(Boolean))]
+	const now = Date.now()
+	const needFetch: string[] = []
+	for (const ct of unique) {
+		const hit = priceInfoCache.get(priceInfoCacheKey(ct))
+		if (hit && hit.expiresAt > now) {
+			out.set(ct, hit.info)
+			continue
+		}
+		needFetch.push(ct)
+	}
+	if (needFetch.length === 0) return out
+
+	const bodyTemplate: PriceInfoBody = needFetch.map((tokenContractAddress) => ({
 		chainIndex: CHAIN_SUI,
 		tokenContractAddress,
 	}))
@@ -355,7 +393,16 @@ export async function okxPriceInfoByCoinType(
 				)
 			}
 			out.set(ct, { price: p, change5m, change1h, change24h })
+			priceInfoCache.set(priceInfoCacheKey(ct), {
+				info: { price: p, change5m, change1h, change24h },
+				expiresAt: now + OKX_PRICE_INFO_TTL_MS,
+			})
 		}
+	}
+	for (const ct of unique) {
+		if (out.has(ct)) continue
+		const hit = priceInfoCache.get(priceInfoCacheKey(ct))
+		if (hit) out.set(ct, hit.info)
 	}
 	return out
 }

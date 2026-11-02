@@ -77,7 +77,7 @@ export function computeNetWorth(
 	return {
 		walletAssetsUSD,
 		openLpUSD,
-		...(hasUnknownPosition && { openLpPartial: true }),
+		...(hasUnknownPosition ? { openLpPartial: true as const } : {}),
 		outstandingBorrowUSD,
 		netLendingUSD,
 		totalNetUSD,

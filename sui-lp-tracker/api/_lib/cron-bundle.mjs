@@ -1687,7 +1687,7 @@ function isGrpcTransportFailure(err) {
 }
 function resetPortfolioJsonRpcFallbackReason() {
 }
-async function invokeGrpcOnEndpoint(endpointIndex, endpoints, urls, prop, args, receiver, opts) {
+async function invokeGrpcOnEndpoint(endpointIndex, endpoints, _urls, prop, args, receiver, opts) {
   const { url, client } = endpoints[endpointIndex];
   const fn = Reflect.get(client, prop, receiver);
   if (typeof fn !== "function") {
@@ -1699,7 +1699,7 @@ async function invokeGrpcOnEndpoint(endpointIndex, endpoints, urls, prop, args, 
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
       const out = await runWithTimeout(
-        () => fn.apply(client, args)
+        () => Promise.resolve(fn.apply(client, args))
       );
       markGrpcEndpointSuccess(endpointIndex, url);
       recordPortfolioReadRpcSource(grpcUrlToRpcSource(url));
@@ -2497,6 +2497,7 @@ async function okxSignedRequestOnce(method, pathWithQuery, bodyStr = "") {
     clearTimeout(t);
   }
 }
+var lastOkx429LogAt = 0;
 async function okxSignedRequest(method, pathWithQuery, bodyStr = "") {
   const maxAttempts = 1 + okxFetchExtraRetries();
   let last = null;
@@ -2504,10 +2505,17 @@ async function okxSignedRequest(method, pathWithQuery, bodyStr = "") {
     last = await okxSignedRequestOnce(method, pathWithQuery, bodyStr);
     if (!last) return null;
     if (last.status !== 429) return last;
-    const backoffMs = 400 * (attempt + 1) * (attempt + 1);
-    if (import.meta.env.DEV || typeof window === "undefined") {
-      console.warn("[OKX] 429 backoff", { attempt: attempt + 1, backoffMs, path: pathWithQuery.split("?")[0] });
+    const backoffMs = 800 * (attempt + 1) * (attempt + 1);
+    const now2 = Date.now();
+    if (now2 - lastOkx429LogAt > 3e4) {
+      lastOkx429LogAt = now2;
+      console.warn("[OKX] 429 backoff", {
+        attempt: attempt + 1,
+        backoffMs,
+        path: pathWithQuery.split("?")[0]
+      });
     }
+    if (attempt >= 1) return last;
     await sleep(backoffMs);
   }
   return last;
@@ -2526,6 +2534,15 @@ function parseChangePct(s) {
   if (s == null || s === "") return null;
   const n2 = parseFloat(String(s).trim());
   return Number.isFinite(n2) ? n2 : null;
+}
+var OKX_PRICE_INFO_TTL_MS = (() => {
+  const raw = typeof process !== "undefined" ? process.env.OKX_PRICE_INFO_CACHE_MS : void 0;
+  const n2 = raw != null && raw !== "" ? Number.parseInt(String(raw), 10) : Number.NaN;
+  return Number.isFinite(n2) && n2 >= 5e3 && n2 <= 6e5 ? n2 : 6e4;
+})();
+var priceInfoCache = /* @__PURE__ */ new Map();
+function priceInfoCacheKey(coinType) {
+  return normalizeCoinTypeForMatch(coinType);
 }
 async function postPriceInfoChunk(bodyStr) {
   const extra = okxFetchExtraRetries();
@@ -2553,7 +2570,19 @@ async function postPriceInfoChunk(bodyStr) {
 async function okxPriceInfoByCoinType(coinTypes) {
   const out = /* @__PURE__ */ new Map();
   if (!isOkxDexConfigured() || coinTypes.length === 0) return out;
-  const bodyTemplate = coinTypes.map((tokenContractAddress) => ({
+  const unique = [...new Set(coinTypes.map((c) => c.trim()).filter(Boolean))];
+  const now2 = Date.now();
+  const needFetch = [];
+  for (const ct of unique) {
+    const hit = priceInfoCache.get(priceInfoCacheKey(ct));
+    if (hit && hit.expiresAt > now2) {
+      out.set(ct, hit.info);
+      continue;
+    }
+    needFetch.push(ct);
+  }
+  if (needFetch.length === 0) return out;
+  const bodyTemplate = needFetch.map((tokenContractAddress) => ({
     chainIndex: CHAIN_SUI,
     tokenContractAddress
   }));
@@ -2594,7 +2623,16 @@ async function okxPriceInfoByCoinType(coinTypes) {
         );
       }
       out.set(ct, { price: p, change5m, change1h, change24h });
+      priceInfoCache.set(priceInfoCacheKey(ct), {
+        info: { price: p, change5m, change1h, change24h },
+        expiresAt: now2 + OKX_PRICE_INFO_TTL_MS
+      });
     }
+  }
+  for (const ct of unique) {
+    if (out.has(ct)) continue;
+    const hit = priceInfoCache.get(priceInfoCacheKey(ct));
+    if (hit) out.set(ct, hit.info);
   }
   return out;
 }
@@ -4478,7 +4516,21 @@ async function inspectOverview(marketType, marketId, obligationId, sender) {
   if (res.error) throw new Error(`Current overview: ${res.error}`);
   const raw = res.results?.[0]?.returnValues?.[0]?.[0];
   if (!raw) throw new Error("Current overview: empty return");
-  return overviewSchema.parse(Uint8Array.from(raw));
+  return parseCurrentObligationOverviewReturn(raw);
+}
+function parseCurrentObligationOverviewReturn(raw) {
+  const bytes = raw instanceof Uint8Array ? raw : Uint8Array.from(raw);
+  const parsed = overviewSchema.parse(bytes);
+  return {
+    emode_group_id: parsed.emode_group_id,
+    deposits: Array.isArray(parsed.deposits) ? parsed.deposits : [],
+    borrows: Array.isArray(parsed.borrows) ? parsed.borrows : []
+  };
+}
+function parseRatesVectorReturn(raw) {
+  const bytes = raw instanceof Uint8Array ? raw : Uint8Array.from(raw);
+  const vec = bcs2.vector(decimalSchema);
+  return vec.parse(bytes);
 }
 async function inspectRates(marketType, marketId, assets, sender) {
   const out = /* @__PURE__ */ new Map();
@@ -4494,11 +4546,10 @@ async function inspectRates(marketType, marketId, assets, sender) {
   }
   const res = await client.devInspectTransactionBlock({ sender, transactionBlock: tx });
   if (res.error) throw new Error(`Current rates: ${res.error}`);
-  const vec = bcs2.vector(decimalSchema);
   for (let i = 0; i < assets.length; i++) {
     const raw = res.results?.[i]?.returnValues?.[0]?.[0];
     if (!raw) continue;
-    const parsed = vec.parse(Uint8Array.from(raw));
+    const parsed = parseRatesVectorReturn(raw);
     out.set(typeKey(assets[i]), {
       exchange: BigInt(parsed[0]?.value ?? 0),
       borrowIndex: BigInt(parsed[1]?.value ?? 0)
@@ -5190,7 +5241,7 @@ async function getCurrentPositions(walletAddress, options) {
           readAtMs: Date.now()
         }));
       });
-      const [depositMiningResults, borrowMiningResults, mined] = await Promise.all([
+      const [miningBundle, mined] = await Promise.all([
         currentAdvisorAccum(
           "mining",
           () => Promise.all([Promise.all(depositMiningReads), Promise.all(borrowMiningReads)])
@@ -5211,6 +5262,7 @@ async function getCurrentPositions(walletAddress, options) {
           }))
         )
       ]);
+      const [depositMiningResults, borrowMiningResults] = miningBundle;
       for (let i = 0; i < overview.deposits.length; i++) {
         const dep = overview.deposits[i];
         const mining = depositMiningResults[i];

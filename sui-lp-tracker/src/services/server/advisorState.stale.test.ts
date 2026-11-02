@@ -124,8 +124,23 @@ describe('buildAdvisorState STALE / deadline', () => {
 		recordAdvisorSnapshotSuccess([], { ...EMPTY_CURRENT_SNAP, healthFactor: 1.2, netValueUSD: 1 }, Date.now() - 1000)
 		loadAllPortfolioLpSources.mockResolvedValue({
 			loads: [],
-			statuses: [],
-			positions: [],
+			statuses: [{ id: 'bluefin', ok: true, count: 1 }],
+			positions: [
+				{
+					id: 'bf-1',
+					protocol: 'bluefin',
+					poolId: '0x1',
+					pair: 'SUI/USDC',
+					tokenA: 'SUI',
+					tokenB: 'USDC',
+					tokenAAmount: 1,
+					tokenBAmount: 1,
+					currentValueUSD: 100,
+					tickLower: 0,
+					tickUpper: 0,
+					status: 'in_range',
+				} as OpenPosition,
+			],
 			incomplete: false,
 		})
 		vi.mocked(getCurrentPositions).mockRejectedValue(new Error('rpc down'))
@@ -134,5 +149,6 @@ describe('buildAdvisorState STALE / deadline', () => {
 		expect(state.current.metricsLive).toBe(false)
 		expect(state.current.readStale).toBe(true)
 		expect(state.current.lastSuccessAtMs).toBeDefined()
+		expect(state.lpPositions.every((p) => !p.readStale)).toBe(true)
 	})
 })

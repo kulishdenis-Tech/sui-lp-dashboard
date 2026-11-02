@@ -23,7 +23,6 @@ import {
 	withGrpcCallTimeout,
 	PORTFOLIO_GRPC_CALL_RETRIES,
 	_resetGrpcEndpointHealthForTests,
-	getLastPublicNodeGrpcFailureReason,
 	hasGrpcEndpointWinner,
 } from '@/services/grpcEndpointHealth'
 import {
@@ -73,7 +72,7 @@ type GrpcEndpointClient = { url: string; client: JsonRpcCompatClient }
 async function invokeGrpcOnEndpoint(
 	endpointIndex: number,
 	endpoints: GrpcEndpointClient[],
-	urls: string[],
+	_urls: string[],
 	prop: string | symbol,
 	args: unknown[],
 	receiver: unknown,
@@ -90,7 +89,7 @@ async function invokeGrpcOnEndpoint(
 	for (let attempt = 0; attempt < attempts; attempt++) {
 		try {
 			const out = await runWithTimeout(() =>
-				(fn as (...a: unknown[]) => unknown).apply(client, args),
+				Promise.resolve((fn as (...a: unknown[]) => unknown).apply(client, args)),
 			)
 			markGrpcEndpointSuccess(endpointIndex, url)
 			recordPortfolioReadRpcSource(grpcUrlToRpcSource(url))

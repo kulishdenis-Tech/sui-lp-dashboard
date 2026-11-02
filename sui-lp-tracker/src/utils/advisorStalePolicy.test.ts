@@ -41,7 +41,7 @@ describe('advisorStalePolicy', () => {
 })
 
 describe('markLendingSnapshotStale', () => {
-	it('marks HF metrics not live with lastSuccessAtMs', () => {
+	it('marks HF metrics not live with lastSuccessAtMs when known', () => {
 		const base = {
 			supplies: [],
 			borrows: [],
@@ -57,6 +57,22 @@ describe('markLendingSnapshotStale', () => {
 		expect(stale.metricsLive).toBe(false)
 		expect(stale.lastSuccessAtMs).toBe(123)
 		expect(markLendingSnapshotLive(stale).metricsLive).toBe(true)
+	})
+
+	it('STALE without timestamp when no cache time', () => {
+		const base = {
+			supplies: [],
+			borrows: [],
+			totalSuppliedUSD: 0,
+			totalBorrowedUSD: 0,
+			netValueUSD: 0,
+			healthFactor: null,
+			rewardsToClaim: [],
+			protocol: 'Current',
+		}
+		const stale = markLendingSnapshotStale(base)
+		expect(stale.readStale).toBe(true)
+		expect(stale.lastSuccessAtMs).toBeUndefined()
 	})
 })
 

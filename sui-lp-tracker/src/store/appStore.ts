@@ -597,7 +597,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 					const keep =
 						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
 					if (keep) lendingLoadDegraded = true
-					const lastAt = get().lendingDataUpdatedAtMs ?? Date.now()
+					const lastAt = get().lendingDataUpdatedAtMs ?? undefined
 					set({
 						lendingSnapshot: keep
 							? markLendingSnapshotStale(prev, lastAt)
@@ -623,7 +623,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 					const keep =
 						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
 					if (keep) lendingLoadDegraded = true
-					const lastAt = get().lendingDataUpdatedAtMs ?? Date.now()
+					const lastAt = get().lendingDataUpdatedAtMs ?? undefined
 					set({ naviSnapshot: keep ? markLendingSnapshotStale(prev, lastAt) : EMPTY_NAVI_SNAP })
 					onLendingAllDone()
 				}
@@ -642,7 +642,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 					const keep =
 						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
 					if (keep) lendingLoadDegraded = true
-					const lastAt = get().lendingDataUpdatedAtMs ?? Date.now()
+					const lastAt = get().lendingDataUpdatedAtMs ?? undefined
 					set({
 						currentSnapshot: keep
 							? markLendingSnapshotStale(prev, lastAt)

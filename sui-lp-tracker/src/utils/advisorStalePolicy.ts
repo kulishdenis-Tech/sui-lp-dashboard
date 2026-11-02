@@ -10,9 +10,16 @@ export function markLendingSnapshotLive(snap: LendingSnapshot): LendingSnapshot 
 /** Cached lending row: HF / liq / P0 must not treat as live. */
 export function markLendingSnapshotStale(
 	snap: LendingSnapshot,
-	lastSuccessAtMs: number,
+	lastSuccessAtMs?: number,
 ): LendingSnapshot {
-	return { ...snap, readStale: true, metricsLive: false, lastSuccessAtMs }
+	return {
+		...snap,
+		readStale: true,
+		metricsLive: false,
+		...(lastSuccessAtMs != null && Number.isFinite(lastSuccessAtMs)
+			? { lastSuccessAtMs }
+			: {}),
+	}
 }
 
 export function resolveAdvisorStateDeadlineMs(): number {

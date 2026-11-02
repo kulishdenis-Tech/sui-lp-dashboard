@@ -284,7 +284,44 @@ async function inspectOverview(marketType: string, marketId: string, obligationI
 	if (res.error) throw new Error(`Current overview: ${res.error}`)
 	const raw = res.results?.[0]?.returnValues?.[0]?.[0]
 	if (!raw) throw new Error('Current overview: empty return')
-	return overviewSchema.parse(Uint8Array.from(raw))
+	return parseCurrentObligationOverviewReturn(raw)
+}
+
+/** DevInspect / gRPC simulate: first return value is BCS `ObligationDetail`. */
+export function parseCurrentObligationOverviewReturn(raw: number[] | Uint8Array) {
+	const bytes = raw instanceof Uint8Array ? raw : Uint8Array.from(raw)
+	const parsed = overviewSchema.parse(bytes)
+	return {
+		emode_group_id: parsed.emode_group_id,
+		deposits: Array.isArray(parsed.deposits) ? parsed.deposits : [],
+		borrows: Array.isArray(parsed.borrows) ? parsed.borrows : [],
+	}
+}
+
+/** Test helper: same BCS schema as live devInspect (gRPC `number[]`). */
+export function encodeCurrentObligationOverviewForTest(
+	input: Parameters<typeof overviewSchema.serialize>[0],
+): number[] {
+	return Array.from(overviewSchema.serialize(input).toBytes())
+}
+
+function parseRatesVectorReturn(raw: number[] | Uint8Array): ReturnType<typeof decimalSchema.parse>[] {
+	const bytes = raw instanceof Uint8Array ? raw : Uint8Array.from(raw)
+	const vec = bcs.vector(decimalSchema)
+	return vec.parse(bytes)
+}
+
+/** Test helper for rates devInspect return (vector of two decimals). */
+export function encodeCurrentRatesVectorForTest(
+	decimals: Array<{ value: string | number | bigint }>,
+): number[] {
+	const vec = bcs.vector(decimalSchema)
+	return Array.from(vec.serialize(decimals as never).toBytes())
+}
+
+/** Exported for tests (gRPC devInspect returns `number[]` bytes). */
+export function parseCurrentRatesVectorReturn(raw: number[] | Uint8Array) {
+	return parseRatesVectorReturn(raw)
 }
 
 async function inspectRates(
@@ -306,11 +343,10 @@ async function inspectRates(
 	}
 	const res = await client.devInspectTransactionBlock({ sender, transactionBlock: tx })
 	if (res.error) throw new Error(`Current rates: ${res.error}`)
-	const vec = bcs.vector(decimalSchema)
 	for (let i = 0; i < assets.length; i++) {
 		const raw = res.results?.[i]?.returnValues?.[0]?.[0]
 		if (!raw) continue
-		const parsed = vec.parse(Uint8Array.from(raw))
+		const parsed = parseRatesVectorReturn(raw)
 		out.set(typeKey(assets[i]!), {
 			exchange: BigInt(parsed[0]?.value ?? 0),
 			borrowIndex: BigInt(parsed[1]?.value ?? 0),
@@ -1231,7 +1267,7 @@ export async function getCurrentPositions(
 			}))
 		})
 
-		const [depositMiningResults, borrowMiningResults, mined] = await Promise.all([
+		const [miningBundle, mined] = await Promise.all([
 			currentAdvisorAccum('mining', () =>
 				Promise.all([Promise.all(depositMiningReads), Promise.all(borrowMiningReads)]),
 			),
@@ -1250,6 +1286,7 @@ export async function getCurrentPositions(
 				})),
 			),
 		])
+		const [depositMiningResults, borrowMiningResults] = miningBundle
 
 		for (let i = 0; i < overview.deposits.length; i++) {
 			const dep = overview.deposits[i]!
