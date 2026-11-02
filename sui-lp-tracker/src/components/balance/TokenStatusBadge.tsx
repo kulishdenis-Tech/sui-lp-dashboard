@@ -5,7 +5,7 @@ export function TokenStatusBadge({ t }: { t: ClassifiedTokenBalance }) {
 	if (t.classification.status !== 'unverified') return null
 	return (
 		<TooltipIconButton
-			tip="Not in Suiet allowlist — verify on Suiscan."
+			tip="Not on the verified list — verify on Suiscan."
 			aria-label="Unverified token"
 			className="align-middle"
 		/>

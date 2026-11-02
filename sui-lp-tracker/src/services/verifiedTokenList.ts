@@ -6,12 +6,9 @@ import { GECKO_NETWORK } from '@/utils/constants'
 import { GT_HEADER } from '@/services/spotPrice/http'
 
 /**
- * Suiet's GitHub/jsDelivr coin list returns 404. Allowlist is hardcoded coins,
- * GeckoTerminal pools, and Aftermath. An optional `VITE_SUIET_COIN_LIST_URL`
- * is still tried when set.
+ * Allowlist is hardcoded coins, GeckoTerminal pools, and Aftermath.
+ * The public Suiet coin list is not fetched.
  */
-const DEFAULT_LIST_URLS = [] as const
-
 const LS_VERIFIED = 'suiet_verified_coins'
 const LS_BLOCK = 'suiet_blocklist_coins'
 const LS_TS = (k: string) => `${k}_at`
@@ -91,15 +88,6 @@ function writeV2Cache(coins: SuietCoin[]) {
 	} catch {
 		/* 5MB — якщо впаде, пропускаємо */
 	}
-}
-
-function parseCoinArray(j: unknown): SuietCoin[] {
-	if (Array.isArray(j)) return j as SuietCoin[]
-	if (j && typeof j === 'object' && 'coins' in (j as Record<string, unknown>)) {
-		const c = (j as { coins: unknown }).coins
-		if (Array.isArray(c)) return c as SuietCoin[]
-	}
-	return []
 }
 
 function stripGeckoTokenId(id: string): string | null {
@@ -193,37 +181,11 @@ async function fetchAftermathWhitelisted(
 }
 
 async function fetchSuietList(): Promise<SuietCoin[]> {
-	const envUrl: string | undefined = import.meta.env.VITE_SUIET_COIN_LIST_URL
-	const URLS = envUrl
-		? [envUrl, ...DEFAULT_LIST_URLS]
-		: [...DEFAULT_LIST_URLS]
-
-	for (const url of URLS) {
-		try {
-			const ctrl = typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
-				? AbortSignal.timeout(8000)
-				: undefined
-			const res = await fetch(url, { signal: ctrl })
-			if (!res.ok) continue
-			const json = (await res.json()) as { coins?: SuietCoin[] } | SuietCoin[]
-			const arr = Array.isArray(json) ? json : json.coins ?? parseCoinArray(json)
-			if (Array.isArray(arr) && arr.length) {
-				return arr.map((c) => ({
-					...c,
-					iconUrl: c.iconUrl ?? '',
-					tags: c.tags ?? ['native'],
-					decimals: c.decimals ?? 9,
-				}))
-			}
-		} catch {
-			/* */
-		}
-	}
 	return []
 }
 
 /**
- * Агрегований allowlist: hardcoded → Aftermath (ціна) → Gecko пули → Suiet JSON.
+ * Агрегований allowlist: hardcoded → Aftermath (ціна) → Gecko пули.
  * Кеш 6h у `sui_verified_tokens_v2`.
  */
 export async function getVerifiedCoinList(): Promise<Map<string, SuietCoin>> {

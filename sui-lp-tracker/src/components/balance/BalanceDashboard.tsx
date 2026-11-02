@@ -211,7 +211,7 @@ export function BalanceDashboard() {
 			</div>
 			{classifyError ? (
 				<p className="mb-2 text-xs text-amber-200/80">
-					Classification (Suiet list / blocklist): {classifyError} — showing without allowlist.
+					Classification failed: {classifyError} — showing without an allowlist.
 				</p>
 			) : null}
 			{isLoading && tokenBalances.length === 0 ? (

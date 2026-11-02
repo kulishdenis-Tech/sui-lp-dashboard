@@ -15,8 +15,6 @@ interface ImportMetaEnv {
 	readonly VITE_LOCAL_UNCLAIMED?: string
 	/** Optional — free CoinGecko Demo key: https://www.coingecko.com/en/api */
 	readonly VITE_COINGECKO_API_KEY?: string
-	/** Власне JSON (allowlist) у форматі Suiet, якщо репо GitHub недоступне */
-	readonly VITE_SUIET_COIN_LIST_URL?: string
 	/** Таймаут однієї спроби OKX (документація; проксі `/api/okx` використовує 30s). */
 	readonly VITE_OKX_TIMEOUT_MS?: string
 	/** Додаткові спроби після невдачі (0–5; за замовч. 2 → усього 3 POST). */
