@@ -2,7 +2,11 @@
  * Attention panel — only computable facts (no rebalance advice).
  * Priority: action needed → stale sources → informational portfolio updates.
  */
-import { formatHealthFactor } from '@/config/lendingHealthFactorThresholds'
+import {
+	formatHealthFactor,
+	lendingHealthFactorThresholds,
+} from '@/config/lendingHealthFactorThresholds'
+import type { OverviewRiskRow } from '@/pages/overviewLab/overviewRisk'
 import type { LendingSnapshot, OpenPosition } from '@/types'
 import { getAutoWithdrawRule } from '@/pages/autopilot/autoWithdrawStore'
 import {
@@ -129,25 +133,91 @@ export function buildLpAttentionItems(positions: OpenPosition[]): AttentionItem[
 }
 
 export function buildLendingAttentionItems(
-	snaps: Array<{ snap: LendingSnapshot | null; label: string }>,
+	snaps: Array<{ snap: LendingSnapshot | null; label: string; protocol?: string }>,
 ): AttentionItem[] {
 	const items: AttentionItem[] = []
-	for (const { snap, label } of snaps) {
+	for (const { snap, label, protocol } of snaps) {
 		if (!snap) continue
 		const debt = snap.totalBorrowedUSD
 		if (!(debt > 0)) continue
 		const hf = snap.healthFactor
 		if (hf == null || !Number.isFinite(hf) || hf <= 0) continue
-		if (hf < 1.05) {
-			items.push({
-				id: `lend-hf-${label}`,
-				severity: hf < 1 ? 'critical' : 'warn',
-				kind: 'action',
-				title: `Low health · ${label}`,
-				detail: `Lowest health factor ${formatHealthFactor(hf)} (${label}). Debt ${debt.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}.`,
-				href: '/home',
-			})
+		const thresholds = lendingHealthFactorThresholds(protocol ?? snap.protocol ?? '')
+		if (hf >= thresholds.safeMin) continue
+		const p0 = hf < thresholds.warningMin
+		items.push({
+			id: `lend-hf-${label}`,
+			severity: p0 ? 'critical' : 'warn',
+			kind: 'action',
+			title: `${label} HF ${formatHealthFactor(hf)} · below ${thresholds.safeMin.toFixed(2)}`,
+			detail: p0
+				? `P0 · health factor is under ${thresholds.warningMin.toFixed(2)}.`
+				: `Warning · health factor is under ${thresholds.safeMin.toFixed(2)}.`,
+			href: '/home',
+		})
+	}
+	return items
+}
+
+/** Current isolated markets on every watch wallet. Multiplier rows are ignored. */
+export function buildCurrentMarketAttentionItems(rows: readonly OverviewRiskRow[]): AttentionItem[] {
+	return buildLendingAttentionItems(
+		rows
+			.filter((row) => row.kind === 'current_market' && !row.stableLoop)
+			.map((row) => ({
+				snap: {
+					totalBorrowedUSD: 1,
+					healthFactor: row.healthFactor,
+					protocol: 'Current',
+					supplies: [],
+					borrows: [],
+					totalSuppliedUSD: 0,
+					netValueUSD: 0,
+					rewardsToClaim: [],
+				} as LendingSnapshot,
+				label:
+					row.walletLabel && row.walletLabel !== '—'
+						? `${row.walletLabel} · ${row.positionLabel}`
+						: row.positionLabel,
+				protocol: 'Current',
+			})),
+	)
+}
+
+/** Compact range exceptions for the Attention panel. One line per kind, not per LP. */
+export function buildRangeExceptionItems(positions: OpenPosition[]): AttentionItem[] {
+	let aboveN = 0
+	let belowN = 0
+	let nearN = 0
+	for (const p of positions) {
+		const edge = classifyPositionRangeEdge(p)
+		if (edge.kind === 'near_edge') nearN += 1
+		else if (edge.kind === 'out_of_range') {
+			if (edge.side === 'Above') aboveN += 1
+			else belowN += 1
 		}
+	}
+	const items: AttentionItem[] = []
+	if (belowN + aboveN > 0) {
+		const parts: string[] = []
+		if (belowN) parts.push(`${belowN} below`)
+		if (aboveN) parts.push(`${aboveN} above`)
+		items.push({
+			id: 'oor-summary',
+			severity: 'warn',
+			kind: 'update',
+			title: `Out of range · ${parts.join(' · ')}`,
+			detail: 'Each LP is counted on its own.',
+		})
+	}
+	if (nearN > 0) {
+		items.push({
+			id: 'near-summary',
+			severity: 'warn',
+			kind: 'update',
+			title: `Near edge · ${nearN} ${nearN === 1 ? 'LP' : 'LPs'} within ${NEAR_EDGE_PCT}% of a bound`,
+			detail: 'Still inside the range.',
+		})
 	}
 	return items
 }

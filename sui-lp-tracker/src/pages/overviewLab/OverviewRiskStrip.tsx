@@ -1,93 +1,70 @@
+import { formatHealthFactor } from '@/config/lendingHealthFactorThresholds'
 import {
-	CURRENT_LENDING_HF_THRESHOLDS,
-	formatHealthFactor,
-	healthFactorColorClass,
-} from '@/config/lendingHealthFactorThresholds'
-import { formatUSDAdaptive } from '@/utils/formatting'
-import { stableLoopColorClass, type OverviewRiskRow } from '@/pages/overviewLab/overviewRisk'
-
-function healthClass(row: OverviewRiskRow): string {
-	const hf = row.healthFactor
-	if (hf == null) return 'text-slate-400'
-	if (hf <= 0) return row.verified ? 'text-red-400' : 'text-slate-400'
-	return healthFactorColorClass(hf, CURRENT_LENDING_HF_THRESHOLDS)
-}
-
-function priceText(row: OverviewRiskRow, hideAmounts: boolean): string {
-	if (hideAmounts) return '••••'
-	if (row.suiLiquidationPriceUSD == null) return '—'
-	return formatUSDAdaptive(row.suiLiquidationPriceUSD)
-}
+	lowestCurrentHealthFactor,
+	riskRowFigures,
+	type OverviewRiskRow,
+} from '@/pages/overviewLab/overviewRisk'
 
 /** Isolated Current markets with debt, then each Multiplier vault. */
 export function OverviewRiskStrip({
 	rows,
-	hideAmounts,
+	suiPriceUsd,
 }: {
 	rows: readonly OverviewRiskRow[]
-	hideAmounts: boolean
+	suiPriceUsd: number | null
 }) {
-	if (rows.length === 0) return null
+	const lowest = lowestCurrentHealthFactor(rows)
 	return (
-		<section
-			aria-label="Lending risk"
-			className="overview-lab__panel overview-lab__panel--quiet px-3 py-2.5"
-		>
+		<section aria-label="Lending risk" className="overview-lab__panel overview-lab__panel--quiet px-3 py-2.5">
 			<p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-slate-500">Risk</p>
-			<ul className="flex flex-col gap-1.5">
-				{rows.map((row) => {
-					if (row.stableLoop) {
-						const rate =
-							row.pegRate != null && Number.isFinite(row.pegRate) ? row.pegRate.toFixed(4) : '—'
-						const distance =
-							row.pegDistancePct != null && Number.isFinite(row.pegDistancePct)
-								? `${row.pegDistancePct.toFixed(1)}% to 0.8825`
-								: '—'
-						return (
-							<li key={row.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
-								<span className="font-medium text-slate-200">{row.title}</span>
-								<span className={`tabular-nums font-semibold ${stableLoopColorClass(row.pegAlert)}`}>
-									USDSUI/USDC {rate}
-								</span>
-								<span className={`text-xs tabular-nums ${stableLoopColorClass(row.pegAlert)}`}>
-									{distance}
-								</span>
-							</li>
-						)
-					}
-					const hfText =
-						row.healthFactor != null && Number.isFinite(row.healthFactor)
-							? formatHealthFactor(row.healthFactor)
-							: '—'
-					const estimate =
-						row.verified
-							? null
-							: 'Spot estimate: liquidation LTV ÷ current LTV. Not a protocol health factor.'
-					return (
-						<li key={row.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
-							<span className="font-medium text-slate-200">{row.title}</span>
-							<span className={`tabular-nums font-semibold ${healthClass(row)}`} title={estimate ?? undefined}>
-								HF {hfText}
-								{row.verified ? null : (
-									<span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider text-amber-200/90">
-										UNVERIFIED
-									</span>
-								)}
-							</span>
-							{row.suiCollateral ? (
-								<span className="text-xs text-slate-400">
-									SUI liq {priceText(row, hideAmounts)}
-									{row.verified ? null : (
-										<span className="ml-1 text-[10px] font-semibold uppercase tracking-wider text-amber-200/80">
-											UNVERIFIED
-										</span>
-									)}
-								</span>
-							) : null}
-						</li>
-					)
-				})}
-			</ul>
+			{rows.length === 0 ? (
+				<p className="text-xs text-slate-500">No open lending positions.</p>
+			) : (
+				<div className="overview-lab__risk-scroll">
+					<table className="overview-lab__risk-table">
+						<thead>
+							<tr>
+								<th>Wallet</th>
+								<th>Protocol</th>
+								<th>Position</th>
+								<th className="num">HF</th>
+								<th className="num">To liq %</th>
+								<th>Status</th>
+							</tr>
+						</thead>
+						<tbody>
+							{rows.map((row) => {
+								const figures = riskRowFigures(row, suiPriceUsd)
+								const hfTitle = row.stableLoop
+									? 'USDSUI/USDC rate. Warning below 0.97, P0 below 0.93. Not a health factor.'
+									: row.verified
+										? undefined
+										: 'Spot estimate: liquidation LTV ÷ current LTV. Not a protocol health factor.'
+								return (
+									<tr key={row.id} className={`overview-lab__risk-row overview-lab__risk-row--${figures.tone}`}>
+										<td title={row.walletLabel}>{row.walletLabel}</td>
+										<td>{row.protocolLabel}</td>
+										<td title={row.positionLabel}>{row.positionLabel}</td>
+										<td className={`num tabular-nums font-semibold ${figures.primaryClass}`} title={hfTitle}>
+											{figures.primaryText}
+										</td>
+										<td className={`num tabular-nums ${figures.statusClass}`}>{figures.toLiqText}</td>
+										<td className={figures.statusClass}>{figures.status}</td>
+									</tr>
+								)
+							})}
+						</tbody>
+					</table>
+				</div>
+			)}
+			{lowest ? (
+				<p className="mt-1.5 text-[11px] text-slate-500">
+					Lowest HF{' '}
+					<span className="tabular-nums text-slate-200">{formatHealthFactor(lowest.hf)}</span>
+					<span className="text-slate-400"> · {lowest.label}</span>
+					<span> · Current lending, all wallets</span>
+				</p>
+			) : null}
 		</section>
 	)
 }

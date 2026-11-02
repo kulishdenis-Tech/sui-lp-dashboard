@@ -11,6 +11,7 @@ import {
 	computeCapitalAllocation,
 	computeFeesEarned,
 	computeLpRangeCounts,
+	countLpFilters,
 	computeProtocolAllocation,
 	computeTokenExposure,
 	computeValueChange,
@@ -134,6 +135,24 @@ describe('overviewMetrics', () => {
 		expect(range.outOfRange).toBe(1)
 		expect(range.inRangeLabel).toBe('1 of 2 active LPs in range · 1 empty')
 		expect(range.above + range.below).toBe(range.outOfRange)
+	})
+
+	it('counts each LP in All and keeps Empty outside it', () => {
+		const counts = countLpFilters([
+			pos({ id: 'in', priceRangeOverride: { min: 0.5, max: 1.5, current: 1 } }),
+			pos({ id: 'near', priceRangeOverride: { min: 0.5, max: 1.04, current: 1 } }),
+			pos({ id: 'above', status: 'out_of_range', priceRangeOverride: { min: 0.5, max: 0.8, current: 1.2 } }),
+			pos({ id: 'below-1', status: 'out_of_range', priceRangeOverride: { min: 1.2, max: 1.6, current: 1 } }),
+			pos({ id: 'below-2', status: 'out_of_range', priceRangeOverride: { min: 1.2, max: 1.6, current: 1 } }),
+			pos({ id: 'empty', liquidity: '0', lifecycleStatus: 'empty' }),
+			pos({
+				id: 'vault',
+				currentMultiply: { kind: 'current_multiply' },
+			} as Partial<OpenPosition> & { id: string }),
+		])
+		expect(counts).toMatchObject({ all: 5, in: 1, near: 1, above: 1, below: 2, empty: 1 })
+		expect(counts.all).toBe(counts.in + counts.near + counts.above + counts.below)
+		expect(counts).not.toHaveProperty('mixed')
 	})
 
 	it('formatSharePct shows <1% for tiny non-zero buckets', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { LendingSnapshot, OpenPosition } from '@/types'
 import { CURRENT_LENDING_HF_THRESHOLDS, healthFactorColorClass } from '@/config/lendingHealthFactorThresholds'
-import { buildOverviewRiskRows, stableLoopAlert, stableLoopColorClass, stableLoopDistancePct } from './overviewRisk'
+import { buildOverviewRiskRows, lowestCurrentHealthFactor, riskRowFigures, stableLoopAlert, stableLoopColorClass, stableLoopDistancePct } from './overviewRisk'
 
 function currentSnap(partial: Partial<LendingSnapshot>): LendingSnapshot {
 	return {
@@ -230,5 +230,83 @@ describe('buildOverviewRiskRows', () => {
 		expect(stableLoopColorClass(p0Row.pegAlert)).toBe('text-red-400')
 		expect(stableLoopAlert(0.97)).toBe('ok')
 		expect(stableLoopAlert(0.93)).toBe('warning')
+	})
+
+	it('takes the lowest Current HF across wallets and ignores a worse multiplier', () => {
+		const main = currentSnap({
+			borrows: [
+				{ asset: 'USDC', coinType: '0xusdc', currentDebtUSD: 10, healthFactor: 1.35, venue: 'Main' },
+			] as LendingSnapshot['borrows'],
+		})
+		const second = currentSnap({
+			borrows: [
+				{ asset: 'USDC', coinType: '0xusdc', currentDebtUSD: 4, healthFactor: 1.184, venue: 'Main' },
+			] as LendingSnapshot['borrows'],
+		})
+		const vault = {
+			id: 'loop',
+			pair: 'USDSUI/USDC',
+			tokenA: 'USDSUI',
+			tokenB: 'USDC',
+			currentMultiply: {
+				kind: 'current_multiply',
+				collateral: { symbol: 'USDSUI', priceUsd: 0.9 },
+				debt: { symbol: 'USDC', priceUsd: 1 },
+				risk: { currentLtv: 0.95, liquidationLtv: 0.8, liquidationPriceCollateralUsd: 0.8825, protocolRisk: null },
+			},
+		} as OpenPosition
+		const rows = buildOverviewRiskRows(null, [vault], [
+			{ walletId: 'slush', label: 'Slush', current: second },
+			{ walletId: 'okx', label: 'OKX', current: main },
+		], { loop: 'okx' })
+		expect(lowestCurrentHealthFactor(rows)).toEqual({ hf: 1.184, label: 'Slush' })
+		const loop = rows.find((row) => row.kind === 'multiply')
+		expect(loop?.healthFactor).toBeLessThan(1.184)
+		const slush = rows.find((row) => row.walletLabel === 'Slush')!
+		expect(riskRowFigures(slush, 0.872)).toMatchObject({
+			primaryText: '1.184',
+			status: 'Warning',
+			toLiqText: '—',
+		})
+		const withLiq = buildOverviewRiskRows(null, [], [
+			{
+				walletId: 'slush',
+				label: 'Slush',
+				current: currentSnap({
+					borrows: [
+						{ asset: 'USDC', coinType: '0xusdc', currentDebtUSD: 10, healthFactor: 1.184, venue: 'Main' },
+					] as LendingSnapshot['borrows'],
+					supplies: [
+						{
+							asset: 'SUI',
+							coinType: '0x2::sui::SUI',
+							currentValueUSD: 20,
+							liquidationPriceUSD: 0.73,
+							venue: 'Main',
+						},
+					] as LendingSnapshot['supplies'],
+				}),
+			},
+		])
+		expect(riskRowFigures(withLiq[0]!, 0.872).toLiqText).toBe('-16.3%')
+		const rateRow = buildOverviewRiskRows(null, [
+			{
+				id: 'rate',
+				pair: 'USDSUI/USDC',
+				tokenA: 'USDSUI',
+				tokenB: 'USDC',
+				currentMultiply: {
+					kind: 'current_multiply',
+					collateral: { symbol: 'USDSUI', priceUsd: 1.0002 },
+					debt: { symbol: 'USDC', priceUsd: 1 },
+					risk: { currentLtv: 0.78, liquidationLtv: 0.882, protocolRisk: null },
+				},
+			} as OpenPosition,
+		])[0]!
+		expect(riskRowFigures(rateRow, 0.872)).toMatchObject({
+			primaryText: '1.0002',
+			status: 'OK',
+			toLiqText: '-11.8%',
+		})
 	})
 })

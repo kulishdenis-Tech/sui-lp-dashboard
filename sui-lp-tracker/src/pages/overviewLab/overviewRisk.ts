@@ -1,3 +1,8 @@
+import {
+	CURRENT_LENDING_HF_THRESHOLDS,
+	formatHealthFactor,
+	healthFactorColorClass,
+} from '@/config/lendingHealthFactorThresholds'
 import type { LendingSnapshot, OpenPosition } from '@/types'
 import { isCurrentMultiplyVaultPosition } from '@/utils/currentMultiplyVault'
 import { isNativeSuiCoinType } from '@/utils/suiCoinType'
@@ -21,6 +26,10 @@ export interface OverviewWalletBook {
 export interface OverviewRiskRow {
 	id: string
 	kind: OverviewRiskKind
+	/** Wallet nickname, or an em dash when the row is not tied to a watch wallet. */
+	walletLabel: string
+	protocolLabel: string
+	positionLabel: string
 	title: string
 	/**
 	 * Protocol HF for an isolated Current market, or liqLTV / currentLTV for a
@@ -125,6 +134,119 @@ export function stableLoopColorClass(alert: StableLoopAlert | null | undefined):
 	return 'text-slate-400'
 }
 
+export type RiskTone = 'ok' | 'warning' | 'p0' | 'muted'
+
+/** Signed percent from the mark down to liquidation. Negative means cushion remains. */
+export function toLiquidationPct(mark: number, liquidation: number): number | null {
+	if (!Number.isFinite(mark) || !Number.isFinite(liquidation) || !(mark > 0) || !(liquidation > 0)) {
+		return null
+	}
+	return ((liquidation - mark) / mark) * 100
+}
+
+export function formatToLiquidationPct(pct: number | null): string {
+	if (pct == null || !Number.isFinite(pct)) return '—'
+	return `${pct.toFixed(1)}%`
+}
+
+/** Current lending only. A multiplier vault HF is not a candidate. */
+export function lowestCurrentHealthFactor(
+	rows: readonly OverviewRiskRow[],
+): { hf: number; label: string } | null {
+	let best: { hf: number; label: string } | null = null
+	for (const row of rows) {
+		if (row.kind !== 'current_market' || row.stableLoop) continue
+		const hf = row.healthFactor
+		if (hf == null || !Number.isFinite(hf) || !(hf > 0)) continue
+		const label = row.walletLabel && row.walletLabel !== '—' ? row.walletLabel : row.title
+		if (!best || hf < best.hf) best = { hf, label }
+	}
+	return best
+}
+
+export function currentHealthTone(hf: number | null): RiskTone {
+	if (hf == null || !Number.isFinite(hf) || !(hf > 0)) return 'muted'
+	if (hf < CURRENT_LENDING_HF_THRESHOLDS.warningMin) return 'p0'
+	if (hf < CURRENT_LENDING_HF_THRESHOLDS.safeMin) return 'warning'
+	return 'ok'
+}
+
+function toneStatus(tone: RiskTone): string {
+	if (tone === 'p0') return 'P0'
+	if (tone === 'warning') return 'Warning'
+	if (tone === 'ok') return 'OK'
+	return '—'
+}
+
+function toneClass(tone: RiskTone): string {
+	if (tone === 'p0') return 'text-red-400'
+	if (tone === 'warning') return 'text-yellow-400'
+	if (tone === 'ok') return 'text-emerald-400'
+	return 'text-slate-400'
+}
+
+export interface RiskRowFigures {
+	primaryText: string
+	primaryClass: string
+	toLiqText: string
+	status: string
+	statusClass: string
+	tone: RiskTone
+}
+
+/** HF column shows a protocol HF, or the USDSUI/USDC rate for that loop. */
+export function riskRowFigures(row: OverviewRiskRow, suiPriceUsd: number | null): RiskRowFigures {
+	if (row.stableLoop) {
+		const tone: RiskTone =
+			row.pegAlert === 'p0' ? 'p0' : row.pegAlert === 'warning' ? 'warning' : row.pegAlert === 'ok' ? 'ok' : 'muted'
+		const rate = row.pegRate
+		const toLiq =
+			rate != null && Number.isFinite(rate) ? toLiquidationPct(rate, USDSUI_USDC_LIQUIDATION_RATE) : null
+		return {
+			primaryText: rate != null && Number.isFinite(rate) ? rate.toFixed(4) : '—',
+			primaryClass: stableLoopColorClass(row.pegAlert),
+			toLiqText: formatToLiquidationPct(toLiq),
+			status: toneStatus(tone),
+			statusClass: toneClass(tone),
+			tone,
+		}
+	}
+	if (row.kind === 'multiply' || !row.verified) {
+		const hf = row.healthFactor
+		const toLiq =
+			row.suiCollateral &&
+			row.suiLiquidationPriceUSD != null &&
+			suiPriceUsd != null
+				? toLiquidationPct(suiPriceUsd, row.suiLiquidationPriceUSD)
+				: null
+		return {
+			primaryText: hf != null && Number.isFinite(hf) ? formatHealthFactor(hf) : '—',
+			primaryClass: 'text-slate-300',
+			toLiqText: formatToLiquidationPct(toLiq),
+			status: 'Estimate',
+			statusClass: 'text-slate-400',
+			tone: 'muted',
+		}
+	}
+	const tone = currentHealthTone(row.healthFactor)
+	const hf = row.healthFactor
+	const toLiq =
+		row.suiCollateral && row.suiLiquidationPriceUSD != null && suiPriceUsd != null
+			? toLiquidationPct(suiPriceUsd, row.suiLiquidationPriceUSD)
+			: null
+	return {
+		primaryText: hf != null && Number.isFinite(hf) ? formatHealthFactor(hf) : '—',
+		primaryClass:
+			hf != null && Number.isFinite(hf)
+				? healthFactorColorClass(hf, CURRENT_LENDING_HF_THRESHOLDS)
+				: 'text-slate-400',
+		toLiqText: formatToLiquidationPct(toLiq),
+		status: toneStatus(tone),
+		statusClass: toneClass(tone),
+		tone,
+	}
+}
+
 function lendingRowsFromSnapshot(
 	current: LendingSnapshot,
 	wallet?: { walletId: string; label: string },
@@ -151,6 +273,9 @@ function lendingRowsFromSnapshot(
 		rows.push({
 			id: wallet ? `current:${wallet.walletId}:${venue}` : `current:${venue}`,
 			kind: 'current_market',
+			walletLabel: wallet?.label ?? '—',
+			protocolLabel: 'Current',
+			positionLabel: venue,
 			title,
 			healthFactor: factors.length > 0 ? Math.min(...factors) : null,
 			verified: true,
@@ -197,6 +322,9 @@ export function buildOverviewRiskRows(
 		rows.push({
 			id: `multiply:${position.id}`,
 			kind: 'multiply',
+			walletLabel: book?.label ?? '—',
+			protocolLabel: 'Multiplier',
+			positionLabel: pair,
 			title: book ? `Multiplier · ${book.label} · ${pair}` : `Multiplier · ${pair}`,
 			healthFactor: multiplyHealthFactor(risk?.currentLtv, risk?.liquidationLtv),
 			verified: false,

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCurrentAccount } from '@mysten/dapp-kit-react'
 import { useShallow } from 'zustand/react/shallow'
@@ -13,6 +13,7 @@ import { usePortfolioHistory, type TimeRange } from '@/hooks/usePortfolioHistory
 import { getEffectiveWalletAddress } from '@/utils/walletAddress'
 import { formatHealthFactor } from '@/config/lendingHealthFactorThresholds'
 import { formatUSD, formatUSDAdaptive } from '@/utils/formatting'
+import { isNativeSuiCoinType } from '@/utils/suiCoinType'
 import { coverageIsPartial, aggregateOpenMetrics } from '@/utils/aggregateOpenMetrics'
 import { isEmptyLpPosition } from '@/utils/lpLifecycle'
 import { isCetusVaultPosition } from '@/utils/cetusVault'
@@ -20,12 +21,6 @@ import { isCurrentMultiplyVaultPosition } from '@/utils/currentMultiplyVault'
 import { positionValueUsdOrNull, unclaimedIncomeUsdOrNull } from '@/utils/positionDerivedMetrics'
 import { rangeBarToneForCascade } from '@/utils/rangeBarTone'
 import type { OpenPosition } from '@/types'
-import {
-	getAutoWithdrawRule,
-	getAutoWithdrawRulesVersion,
-	subscribeAutoWithdrawRules,
-} from '@/pages/autopilot/autoWithdrawStore'
-import { useAutoWithdrawServerSync } from '@/pages/autopilot/useAutoWithdrawServerSync'
 import { groupRememberedCascades } from '@/pages/autopilot/groupRememberedCascades'
 import {
 	buildOverviewKpis,
@@ -33,6 +28,7 @@ import {
 	classifyCascadeBand,
 	collapseExposureForChart,
 	computeProtocolAllocation,
+	countLpFilters,
 	analyzeValueChangeForRange,
 	formatSharePct,
 	overviewDebtParts,
@@ -45,12 +41,12 @@ import { labelAmountOrStale } from '@/pages/overviewLab/overviewSourceStatus'
 import { DataFreshnessHint } from '@/pages/overviewLab/DataFreshnessHint'
 import { OverviewRiskStrip } from '@/pages/overviewLab/OverviewRiskStrip'
 import {
+	buildCurrentMarketAttentionItems,
 	buildLendingAttentionItems,
-	buildLpAttentionItems,
-	buildSourceAttentionItems,
+	buildRangeExceptionItems,
 	mergeAttentionItems,
-	splitAttention,
 } from '@/pages/overviewLab/overviewAttention'
+import { lowestCurrentHealthFactor } from '@/pages/overviewLab/overviewRisk'
 import {
 	PortfolioChart,
 	type ChartMode,
@@ -135,8 +131,6 @@ export function OverviewLabPage() {
 
 	const manualViewAddress = useAppStore((s) => s.manualViewAddress)
 	const walletAddr = getEffectiveWalletAddress(manualViewAddress, account?.address ?? null)
-	useAutoWithdrawServerSync(walletAddr)
-	useSyncExternalStore(subscribeAutoWithdrawRules, getAutoWithdrawRulesVersion, () => 0)
 	const auroraOn = useAuroraActive()
 	const sources = useOverviewSources()
 
@@ -232,23 +226,6 @@ export function OverviewLabPage() {
 		],
 	)
 
-	const attention = useMemo(() => {
-		return mergeAttentionItems(
-			buildLpAttentionItems(openPositions),
-			buildLendingAttentionItems([
-				{ snap: lendingSnapshot, label: 'AlphaLend' },
-				{ snap: naviSnapshot, label: 'Navi' },
-				{ snap: currentSnapshot, label: 'Current' },
-			]),
-			buildSourceAttentionItems(sources),
-		)
-	}, [openPositions, lendingSnapshot, naviSnapshot, currentSnapshot, sources, addrEpoch])
-
-	const { action: actionItems, updates: updateItems } = useMemo(
-		() => splitAttention(attention),
-		[attention],
-	)
-
 	const chartableAll = useMemo(
 		() => allSnapshots.filter((s) => isChartableSnapshot(s)),
 		[allSnapshots],
@@ -275,27 +252,7 @@ export function OverviewLabPage() {
 	)
 	const debtBreakdown = `Debt (lending ${money(debtParts.lendingUSD, hideAmounts)} + Multiplier Vault ${money(debtParts.multiplyUSD, hideAmounts)})`
 
-	const filterCounts = useMemo(() => {
-		const c = { all: 0, in: 0, above: 0, below: 0, near: 0, empty: 0, unknown: 0 }
-		for (const p of openPositions) {
-			if (isCetusVaultPosition(p) || isCurrentMultiplyVaultPosition(p)) continue
-			const b = lpBand(p)
-			if (b === 'empty') {
-				c.empty += 1
-				continue
-			}
-			c.all += 1
-			if (b === 'unknown') {
-				c.unknown += 1
-				continue
-			}
-			if (b === 'in') c.in += 1
-			if (b === 'near') c.near += 1
-			if (b === 'above') c.above += 1
-			if (b === 'below') c.below += 1
-		}
-		return c
-	}, [openPositions])
+	const filterCounts = useMemo(() => countLpFilters(openPositions), [openPositions])
 
 	/** LP by Protocol computed from active positions. */
 	const protocolAlloc = useMemo(
@@ -404,18 +361,6 @@ export function OverviewLabPage() {
 	const lendingPartial =
 		!!lendingError || (anyLendingLoaded && lendingSnaps.some((s) => s == null))
 
-	const healthByProtocol = [
-		{ label: 'AlphaLend', hf: lendingSnapshot?.healthFactor },
-		{ label: 'Navi', hf: naviSnapshot?.healthFactor },
-		{ label: 'Current', hf: currentSnapshot?.healthFactor },
-	].filter((x) => x.hf != null && Number.isFinite(x.hf) && (x.hf as number) > 0) as Array<{
-		label: string
-		hf: number
-	}>
-	const lowestHf =
-		(lendingDebt ?? 0) > 0 && healthByProtocol.length > 0
-			? healthByProtocol.reduce((a, b) => (a.hf <= b.hf ? a : b))
-			: null
 	const { books: watchBooks, extraMultiply, multiplyOwner } = useWatchWalletRiskBooks(
 		walletAddr,
 		currentSnapshot,
@@ -431,6 +376,26 @@ export function OverviewLabPage() {
 		() => buildOverviewRiskRows(currentSnapshot, riskPositions, watchBooks, multiplyOwner),
 		[currentSnapshot, riskPositions, watchBooks, multiplyOwner],
 	)
+	const lowestHf = useMemo(() => lowestCurrentHealthFactor(riskRows), [riskRows])
+	const currentDebtWithoutHf = riskRows.some(
+		(row) => row.kind === 'current_market' && !(row.healthFactor != null && row.healthFactor > 0),
+	)
+	const suiPriceUsd = useMemo(() => {
+		const native = tokenBalances.find((token) => isNativeSuiCoinType(token.coinType))
+		const sui = native ?? tokenBalances.find((token) => token.symbol.trim().toUpperCase() === 'SUI')
+		const px = sui?.priceUSD ?? sui?.priceUSDC ?? null
+		return px != null && Number.isFinite(px) && px > 0 ? px : null
+	}, [tokenBalances])
+	const attention = useMemo(() => {
+		return mergeAttentionItems(
+			buildCurrentMarketAttentionItems(riskRows),
+			buildLendingAttentionItems([
+				{ snap: lendingSnapshot, label: 'AlphaLend', protocol: 'AlphaLend' },
+				{ snap: naviSnapshot, label: 'Navi', protocol: 'Navi' },
+			]),
+			buildRangeExceptionItems(openPositions),
+		)
+	}, [riskRows, openPositions, lendingSnapshot, naviSnapshot, addrEpoch])
 
 	const goLending = () => {
 		setActiveTab('lending')
@@ -453,10 +418,6 @@ export function OverviewLabPage() {
 			</PageShell>
 		)
 	}
-
-	/** Total for range bar proportional segments. */
-	const rangeTotalActive = kpis.range.active
-	const rangeBarTotal = rangeTotalActive + kpis.range.unknownRange
 
 	return (
 		<div
@@ -487,7 +448,7 @@ export function OverviewLabPage() {
 				</div>
 			) : null}
 
-			<OverviewRiskStrip rows={riskRows} hideAmounts={hideAmounts} />
+			<OverviewRiskStrip rows={riskRows} suiPriceUsd={suiPriceUsd} />
 
 			{/* Hero: Net Worth + history chart | KPIs → Value Change → Range */}
 			<div className="overview-lab__hero-row grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
@@ -801,123 +762,30 @@ export function OverviewLabPage() {
 						</div>
 					</div>
 
-					{/* Horizontal Range Status — compact counters + proportional bar */}
-					<div className="overview-lab__range-panel overview-lab__panel overview-lab__panel--quiet p-3 flex-1 flex flex-col">
-						<p className="mb-1 text-[11px] font-medium uppercase tracking-wider text-slate-500">
-							Range Status
+					<div className="overview-lab__attention-panel overview-lab__panel overview-lab__panel--quiet flex min-h-0 flex-1 flex-col p-3">
+						<p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-slate-500">
+							Attention
 						</p>
-						<p className="mb-2 text-xs text-slate-400">{kpis.range.inRangeLabel}</p>
-
-						{/* Proportional bar */}
-						{rangeBarTotal > 0 ? (
-							<div className="overview-lab__range-bar mb-2 flex h-2 w-full overflow-hidden rounded-full bg-slate-800/60">
-								{kpis.range.inRange > 0 ? (
-									<span
-										className="overview-lab__range-bar__seg bg-emerald-400/80"
-										style={{ width: `${(kpis.range.inRange / rangeBarTotal) * 100}%` }}
-									/>
-								) : null}
-								{kpis.range.nearEdge > 0 ? (
-									<span
-										className="overview-lab__range-bar__seg bg-amber-400/80"
-										style={{ width: `${(kpis.range.nearEdge / rangeBarTotal) * 100}%` }}
-									/>
-								) : null}
-								{kpis.range.above > 0 ? (
-									<span
-										className="overview-lab__range-bar__seg bg-sky-400/70"
-										style={{ width: `${(kpis.range.above / rangeBarTotal) * 100}%` }}
-									/>
-								) : null}
-								{kpis.range.below > 0 ? (
-									<span
-										className="overview-lab__range-bar__seg bg-violet-400/70"
-										style={{ width: `${(kpis.range.below / rangeBarTotal) * 100}%` }}
-									/>
-								) : null}
-								{kpis.range.unknownRange > 0 ? (
-									<span
-										className="overview-lab__range-bar__seg bg-slate-500/60"
-										style={{ width: `${(kpis.range.unknownRange / rangeBarTotal) * 100}%` }}
-									/>
-								) : null}
-							</div>
-						) : null}
-
-						{/* Clickable counters */}
-						<div className="overview-lab__range-counters flex flex-wrap gap-1.5">
-							<button
-								type="button"
-								onClick={() => setLpFilter('in')}
-								className={`overview-lab__range-counter overview-lab__range-counter--mint ${lpFilter === 'in' ? 'overview-lab__range-counter--active' : ''}`}
-							>
-								<strong>{kpis.range.inRange}</strong>
-								<span> In</span>
-							</button>
-							<button
-								type="button"
-								onClick={() => setLpFilter('near')}
-								className={`overview-lab__range-counter overview-lab__range-counter--amber ${lpFilter === 'near' ? 'overview-lab__range-counter--active' : ''}`}
-							>
-								<strong>{kpis.range.nearEdge}</strong>
-								<span> Near</span>
-							</button>
-							<button
-								type="button"
-								onClick={() => setLpFilter('above')}
-								className={`overview-lab__range-counter overview-lab__range-counter--cyan ${lpFilter === 'above' ? 'overview-lab__range-counter--active' : ''}`}
-							>
-								<strong>{kpis.range.above}</strong>
-								<span> Above</span>
-							</button>
-							<button
-								type="button"
-								onClick={() => setLpFilter('below')}
-								className={`overview-lab__range-counter overview-lab__range-counter--violet ${lpFilter === 'below' ? 'overview-lab__range-counter--active' : ''}`}
-							>
-								<strong>{kpis.range.below}</strong>
-								<span> Below</span>
-							</button>
-							{kpis.range.empty > 0 ? (
-								<button
-									type="button"
-									onClick={() => setLpFilter('empty')}
-									className={`overview-lab__range-counter ${lpFilter === 'empty' ? 'overview-lab__range-counter--active' : ''}`}
-								>
-									<strong>{kpis.range.empty}</strong>
-									<span> Empty</span>
-								</button>
-							) : null}
-							{kpis.range.unknownRange > 0 ? (
-								<button
-									type="button"
-									onClick={() => setLpFilter('unknown')}
-									className={`overview-lab__range-counter ${lpFilter === 'unknown' ? 'overview-lab__range-counter--active' : ''}`}
-								>
-									<strong>{kpis.range.unknownRange}</strong>
-									<span> Unknown</span>
-								</button>
-							) : null}
-						</div>
-
-						{openPositions.some((p) => {
-							const r = getAutoWithdrawRule(p.id)
-							return (
-								r?.enabled &&
-								r.status !== 'disabled' &&
-								r.status !== 'completed' &&
-								lpBand(p) === 'below'
-							)
-						}) ? (
-							<p className="mt-2 text-[11px] text-sky-300/90">
-								Below range · Watching active on one or more LPs
-							</p>
-						) : null}
+						{attention.length === 0 ? (
+							<p className="text-xs text-slate-500">No issues</p>
+						) : (
+							<ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
+								{attention.map((item) => (
+									<li
+										key={item.id}
+										className={`overview-lab__attn-item overview-lab__attn-item--${item.severity} text-sm text-slate-200`}
+									>
+										{item.title}
+									</li>
+								))}
+							</ul>
+						)}
+						<p className="mt-2 text-[10px] text-slate-500">Only exceptions.</p>
 					</div>
 				</div>
 			</div>
 
-			{/* Second row: LP by Protocol · Exposure · Attention */}
+			{/* Second row: LP by Protocol · Token exposure · Lending */}
 			<div className="overview-lab__enter overview-lab__enter--3 grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
 				<section className="overview-lab__panel overview-lab__panel--quiet min-w-0 space-y-2.5 p-4">
 					<p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
@@ -1055,87 +923,63 @@ export function OverviewLabPage() {
 					) : null}
 				</section>
 
-				<aside className="overview-lab__panel overview-lab__panel--quiet space-y-3 p-4 md:col-span-2 xl:col-span-1">
-					<p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
-						Attention
-					</p>
-					{actionItems.length === 0 && updateItems.length === 0 ? (
-						<p className="text-xs text-slate-500">No alerts.</p>
-					) : (
-						<div className="max-h-52 space-y-3 overflow-y-auto pr-1">
-							{actionItems.length > 0 ? (
-								<div>
-									<p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-rose-300/80">
-										Action needed
-									</p>
-									<ul className="space-y-2">
-										{actionItems.slice(0, 5).map((a) => (
-											<li
-												key={a.id}
-												className={`overview-lab__attn-item overview-lab__attn-item--${a.severity}`}
-											>
-												{a.href ? (
-													<button
-														type="button"
-														className="text-left text-sm font-medium text-slate-200 hover:text-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/45"
-														onClick={() => {
-															if (a.href?.startsWith('/lp/position/')) navigate(a.href)
-															else goLending()
-														}}
-													>
-														{a.title}
-													</button>
-												) : (
-													<p className="text-sm font-medium text-slate-200">{a.title}</p>
-												)}
-												<p className="mt-0.5 text-[11px] text-slate-500">{a.detail}</p>
-											</li>
-										))}
-									</ul>
-								</div>
-							) : null}
-							{updateItems.length > 0 ? (
-								<div>
-									<p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-										Portfolio updates
-									</p>
-									<ul className="space-y-2">
-										{updateItems.slice(0, 5).map((a) => (
-											<li
-												key={a.id}
-												className={`overview-lab__attn-item overview-lab__attn-item--${a.severity}`}
-											>
-												{a.href ? (
-													<button
-														type="button"
-														className="text-left text-sm font-medium text-slate-200 hover:text-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/45"
-														onClick={() => {
-															if (a.href?.startsWith('/lp/position/')) navigate(a.href)
-														}}
-													>
-														{a.title}
-													</button>
-												) : (
-													<p className="text-sm font-medium text-slate-200">{a.title}</p>
-												)}
-												<p className="mt-0.5 text-[11px] text-slate-500">{a.detail}</p>
-											</li>
-										))}
-									</ul>
-								</div>
-							) : null}
+				<section className="overview-lab__panel overview-lab__panel--quiet min-w-0 space-y-2.5 p-4">
+					<div className="flex items-center justify-between gap-2">
+						<p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">Lending</p>
+						<button
+							type="button"
+							className="text-xs font-medium text-sky-400 hover:text-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/45"
+							onClick={goLending}
+						>
+							View All
+						</button>
+					</div>
+					<dl className="space-y-1.5 text-sm">
+						<div className="flex items-baseline justify-between gap-3">
+							<dt className="text-[11px] text-slate-500">Supplied</dt>
+							<dd className="overview-lab__money tabular-nums text-slate-200">
+								{lendingPartial ? (
+									<MetricValueWithPartial value={money(lendingSupplied, hideAmounts)} partial />
+								) : (
+									money(lendingSupplied, hideAmounts)
+								)}
+							</dd>
 						</div>
-					)}
-					{kpis.feesEarned.available && kpis.feesEarned.usd != null ? (
-						<p className="border-t border-slate-800/60 pt-2 text-[11px] text-slate-400">
-							Fees earned{' '}
-							<span className="overview-lab__money tabular-nums text-slate-200">
-								{money(kpis.feesEarned.usd, hideAmounts)}
-							</span>
-							<span className="text-slate-600"> · {kpis.feesEarned.periodLabel}</span>
-						</p>
-					) : null}
-				</aside>
+						<div className="flex items-baseline justify-between gap-3">
+							<dt className="text-[11px] text-slate-500">Borrowed</dt>
+							<dd className="overview-lab__money tabular-nums text-rose-300/90">
+								{money(lendingDebt, hideAmounts)}
+							</dd>
+						</div>
+						<div className="flex items-baseline justify-between gap-3">
+							<dt className="text-[11px] text-slate-500">Net</dt>
+							<dd className="overview-lab__money tabular-nums text-slate-100">
+								{lendingPartial ? (
+									<MetricValueWithPartial value={money(lendingNet, hideAmounts)} partial />
+								) : (
+									money(lendingNet, hideAmounts)
+								)}
+							</dd>
+						</div>
+						<div className="flex items-baseline justify-between gap-3">
+							<dt className="text-[11px] text-slate-500">Lowest HF</dt>
+							<dd className="tabular-nums text-slate-200">
+								{lowestHf ? (
+									<Tooltip tip="Lowest health factor across Current lending positions on every watched wallet. Multiplier vaults are excluded.">
+										<span className="cursor-help">
+											{formatHealthFactor(lowestHf.hf)}
+											<span className="ml-1 text-[11px] font-normal text-slate-400">{lowestHf.label}</span>
+										</span>
+									</Tooltip>
+								) : currentDebtWithoutHf ? (
+									<span className="text-slate-500">Unavailable</span>
+								) : (
+									'—'
+								)}
+							</dd>
+						</div>
+					</dl>
+				</section>
 			</div>
 
 			{/* Positions */}
@@ -1146,9 +990,10 @@ export function OverviewLabPage() {
 							[
 								{ id: 'all' as const, label: `All (${filterCounts.all})` },
 								{ id: 'in' as const, label: `In (${filterCounts.in})` },
+								{ id: 'near' as const, label: `Near (${filterCounts.near})` },
 								{ id: 'above' as const, label: `Above (${filterCounts.above})` },
 								{ id: 'below' as const, label: `Below (${filterCounts.below})` },
-								{ id: 'near' as const, label: `Near (${filterCounts.near})` },
+								{ id: 'empty' as const, label: `Empty (${filterCounts.empty})` },
 							] as const
 						).map((f) => (
 							<button
@@ -1161,16 +1006,6 @@ export function OverviewLabPage() {
 								{f.label}
 							</button>
 						))}
-						{filterCounts.empty > 0 ? (
-							<button
-								type="button"
-								className={`overview-lab__filter${lpFilter === 'empty' ? ' overview-lab__filter--on' : ''}`}
-								aria-pressed={lpFilter === 'empty'}
-								onClick={() => setLpFilter('empty')}
-							>
-								Empty ({filterCounts.empty})
-							</button>
-						) : null}
 						{filterCounts.unknown > 0 ? (
 							<button
 								type="button"
@@ -1284,80 +1119,6 @@ export function OverviewLabPage() {
 				)}
 			</section>
 
-			{/* Lending compact */}
-			<section className="overview-lab__panel overview-lab__panel--quiet flex flex-wrap items-end justify-between gap-3 p-4">
-				<div>
-					<p className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
-						Lending
-					</p>
-					<dl className="mt-2 flex flex-wrap gap-5 text-sm">
-						<div>
-							<dt className="text-[11px] text-slate-500">Supplied</dt>
-							<dd className="overview-lab__money tabular-nums text-slate-200">
-								{lendingPartial ? (
-									<MetricValueWithPartial
-										value={money(lendingSupplied, hideAmounts)}
-										partial
-									/>
-								) : (
-									money(lendingSupplied, hideAmounts)
-								)}
-							</dd>
-						</div>
-						<div>
-							<dt className="text-[11px] text-slate-500">Borrowed</dt>
-							<dd className="overview-lab__money tabular-nums text-rose-300/90">
-								{money(lendingDebt, hideAmounts)}
-							</dd>
-						</div>
-						<div>
-							<dt className="text-[11px] text-slate-500">{debtBreakdown}</dt>
-							<dd className="overview-lab__money tabular-nums text-rose-300/90">
-								{money(debtParts.lendingUSD + debtParts.multiplyUSD, hideAmounts)}
-							</dd>
-						</div>
-						<div>
-							<dt className="text-[11px] text-slate-500">Net</dt>
-							<dd className="overview-lab__money tabular-nums text-slate-100">
-								{lendingPartial ? (
-									<MetricValueWithPartial
-										value={money(lendingNet, hideAmounts)}
-										partial
-									/>
-								) : (
-									money(lendingNet, hideAmounts)
-								)}
-							</dd>
-						</div>
-						<div>
-							<dt className="text-[11px] text-slate-500">Lowest health factor</dt>
-							<dd className="tabular-nums text-slate-200">
-								{lowestHf ? (
-									<Tooltip tip={`Verified ${lowestHf.label} health factor. Not a single portfolio-wide HF across isolated markets.`}>
-										<span className="cursor-help">
-											{formatHealthFactor(lowestHf.hf)}
-											<span className="ml-1 text-[11px] font-normal text-slate-500">
-												{lowestHf.label}
-											</span>
-										</span>
-									</Tooltip>
-								) : (lendingDebt ?? 0) > 0 ? (
-									<span className="text-slate-500">Unavailable</span>
-								) : (
-									'—'
-								)}
-							</dd>
-						</div>
-					</dl>
-				</div>
-				<button
-					type="button"
-					className="text-xs font-medium text-sky-400 hover:text-sky-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/45"
-					onClick={goLending}
-				>
-					View All
-				</button>
-			</section>
 			</PageShell>
 		</div>
 	)

@@ -236,10 +236,10 @@ export function Header() {
 	)
 }
 
-function formatSuiInUsdc(n: number): string {
-	if (n >= 1) return n.toFixed(4)
-	if (n >= 0.0001) return n.toFixed(6)
-	return n.toFixed(8)
+function formatSuiUsd(n: number): string {
+	if (n >= 0.01) return `$${n.toFixed(4)}`
+	if (n >= 0.0001) return `$${n.toFixed(6)}`
+	return `$${n.toFixed(8)}`
 }
 
 /** Spot SUI quoted in USDC, from the same balance prices as the token table. */
@@ -249,18 +249,14 @@ function HeaderSuiUsdcQuote() {
 		if (native) return native
 		return s.tokenBalances.find((t) => t.symbol.trim().toUpperCase() === 'SUI') ?? null
 	})
-	const px = sui?.priceUSDC ?? sui?.priceUSD ?? null
-	const text = px != null && Number.isFinite(px) ? formatSuiInUsdc(px) : '—'
+	const px = sui?.priceUSD ?? sui?.priceUSDC ?? null
+	const text = px != null && Number.isFinite(px) ? formatSuiUsd(px) : '—'
 
 	return (
-		<div
-			className={appHeaderChip}
-			title="Current SUI price in USDC"
-			aria-label={`SUI price ${text} USDC`}
-		>
+		<div className={appHeaderChip} title="Current SUI price in USD" aria-label={`SUI price ${text}`}>
 			<TokenIconOkx coinType={NATIVE_SUI_COIN_TYPE} symbol="SUI" chainIconUrl={sui?.iconUrl} />
+			<span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">SUI</span>
 			<span className="font-mono tabular-nums text-slate-100">{text}</span>
-			<span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">USDC</span>
 		</div>
 	)
 }

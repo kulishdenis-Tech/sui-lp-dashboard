@@ -108,7 +108,44 @@ export type CascadeBand =
 	| 'empty'
 	| 'unknown'
 
-/** Classify a single LP for filters / pills — shared with Range Status counters. */
+export type LpFilterCounts = {
+	/** In + Near + Above + Below. Empty and unknown stay outside. */
+	all: number
+	in: number
+	near: number
+	above: number
+	below: number
+	empty: number
+	unknown: number
+}
+
+/**
+ * One count per LP. Cascade groups are not a row in this total, and MIXED is not a bucket.
+ * Vaults are omitted. Empty is its own filter.
+ */
+export function countLpFilters(positions: readonly OpenPosition[]): LpFilterCounts {
+	const counts: LpFilterCounts = { all: 0, in: 0, near: 0, above: 0, below: 0, empty: 0, unknown: 0 }
+	for (const p of positions) {
+		if (isCetusVaultPosition(p) || isCurrentMultiplyVaultPosition(p)) continue
+		const band = classifyLpBand(p)
+		if (band === 'empty') {
+			counts.empty += 1
+			continue
+		}
+		if (band === 'in') counts.in += 1
+		else if (band === 'near') counts.near += 1
+		else if (band === 'above') counts.above += 1
+		else if (band === 'below') counts.below += 1
+		else {
+			counts.unknown += 1
+			continue
+		}
+		counts.all += 1
+	}
+	return counts
+}
+
+/** Classify a single LP for filters / pills. */
 export function classifyLpBand(p: OpenPosition): CascadeBand {
 	// Vaults / Current Multiply are not CLMM ranges — exclude from In Range / Empty / OOR.
 	if (isCetusVaultPosition(p) || isCurrentMultiplyVaultPosition(p)) return 'unknown'

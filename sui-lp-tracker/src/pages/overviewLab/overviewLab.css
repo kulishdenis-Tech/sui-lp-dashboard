@@ -282,12 +282,63 @@
 		min-height: 4.75rem;
 		height: 100%;
 	}
-	.overview-lab__range-panel {
+	.overview-lab__range-panel,
+	.overview-lab__attention-panel {
 		display: flex;
 		flex-direction: column;
 		flex: 1 1 auto;
 		min-height: 0;
 	}
+}
+
+.overview-lab__risk-scroll {
+	width: 100%;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.overview-lab__risk-table {
+	width: 100%;
+	table-layout: fixed;
+	border-collapse: collapse;
+	font-size: 12px;
+}
+
+.overview-lab__risk-table th,
+.overview-lab__risk-table td {
+	padding: 0.28rem 0.35rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	text-align: left;
+}
+
+.overview-lab__risk-table th {
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: rgb(100 116 139);
+}
+
+.overview-lab__risk-table th.num,
+.overview-lab__risk-table td.num {
+	text-align: right;
+}
+
+.overview-lab__risk-table th:nth-child(1) { width: 18%; }
+.overview-lab__risk-table th:nth-child(2) { width: 16%; }
+.overview-lab__risk-table th:nth-child(3) { width: 18%; }
+.overview-lab__risk-table th:nth-child(4) { width: 14%; }
+.overview-lab__risk-table th:nth-child(5) { width: 16%; }
+.overview-lab__risk-table th:nth-child(6) { width: 18%; }
+
+.overview-lab__risk-row--warning td {
+	background: rgb(120 53 15 / 0.28);
+}
+
+.overview-lab__risk-row--p0 td {
+	background: rgb(127 29 29 / 0.28);
 }
 
 .overview-lab__filter-row {
