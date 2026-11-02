@@ -23,6 +23,13 @@ export function lendingHealthFactorThresholds(protocol: string): LendingHealthFa
 	return protocol === 'Current' ? CURRENT_LENDING_HF_THRESHOLDS : DEFAULT_LENDING_HF_THRESHOLDS
 }
 
+/** Three decimals inside 1.15–1.25, where rounding to two digits hides the band. Color stays on the exact value. */
+export function formatHealthFactor(hf: number): string {
+	if (!Number.isFinite(hf)) return '—'
+	if (hf >= 1.15 && hf <= 1.25) return hf.toFixed(3)
+	return hf.toFixed(2)
+}
+
 export function healthFactorColorClass(
 	hf: number,
 	thresholds: LendingHealthFactorThresholds = DEFAULT_LENDING_HF_THRESHOLDS,

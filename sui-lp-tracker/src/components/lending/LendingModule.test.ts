@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	CURRENT_LENDING_HF_THRESHOLDS,
 	DEFAULT_LENDING_HF_THRESHOLDS,
+	formatHealthFactor,
 	healthFactorColorClass,
 	isHealthFactorP0Alert,
 	lendingHealthFactorThresholds,
@@ -79,5 +80,16 @@ describe('Liquidation price proximity thresholds', () => {
 
 	it('applies slate for safe range (>25% above liquidation)', () => {
 		expect(supplyLiqPriceClass(1.25, 1.0)).toBe('text-slate-300')
+	})
+})
+
+describe('formatHealthFactor', () => {
+	it('shows three decimals only inside 1.15–1.25', () => {
+		expect(formatHealthFactor(1.208)).toBe('1.208')
+		expect(formatHealthFactor(1.15)).toBe('1.150')
+		expect(formatHealthFactor(1.25)).toBe('1.250')
+		expect(formatHealthFactor(1.149)).toBe('1.15')
+		expect(formatHealthFactor(1.251)).toBe('1.25')
+		expect(healthFactorColorClass(1.208, CURRENT_LENDING_HF_THRESHOLDS)).toBe('text-emerald-400')
 	})
 })

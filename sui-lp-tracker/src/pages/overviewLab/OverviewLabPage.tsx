@@ -11,6 +11,7 @@ import { useAppStore } from '@/store/appStore'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
 import { usePortfolioHistory, type TimeRange } from '@/hooks/usePortfolioHistory'
 import { getEffectiveWalletAddress } from '@/utils/walletAddress'
+import { formatHealthFactor } from '@/config/lendingHealthFactorThresholds'
 import { formatUSD, formatUSDAdaptive } from '@/utils/formatting'
 import { coverageIsPartial, aggregateOpenMetrics } from '@/utils/aggregateOpenMetrics'
 import { isEmptyLpPosition } from '@/utils/lpLifecycle'
@@ -1334,7 +1335,7 @@ export function OverviewLabPage() {
 								{lowestHf ? (
 									<Tooltip tip={`Verified ${lowestHf.label} health factor. Not a single portfolio-wide HF across isolated markets.`}>
 										<span className="cursor-help">
-											{lowestHf.hf.toFixed(2)}
+											{formatHealthFactor(lowestHf.hf)}
 											<span className="ml-1 text-[11px] font-normal text-slate-500">
 												{lowestHf.label}
 											</span>

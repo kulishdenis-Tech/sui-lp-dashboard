@@ -1,4 +1,8 @@
-import { CURRENT_LENDING_HF_THRESHOLDS, healthFactorColorClass } from '@/config/lendingHealthFactorThresholds'
+import {
+	CURRENT_LENDING_HF_THRESHOLDS,
+	formatHealthFactor,
+	healthFactorColorClass,
+} from '@/config/lendingHealthFactorThresholds'
 import { formatUSDAdaptive } from '@/utils/formatting'
 import { stableLoopColorClass, type OverviewRiskRow } from '@/pages/overviewLab/overviewRisk'
 
@@ -53,7 +57,7 @@ export function OverviewRiskStrip({
 					}
 					const hfText =
 						row.healthFactor != null && Number.isFinite(row.healthFactor)
-							? row.healthFactor.toFixed(2)
+							? formatHealthFactor(row.healthFactor)
 							: '—'
 					const estimate =
 						row.verified

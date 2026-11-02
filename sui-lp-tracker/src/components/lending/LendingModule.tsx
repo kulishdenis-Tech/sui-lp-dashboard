@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useLendingPositions } from '@/hooks/useLendingPositions'
+import { formatHealthFactor } from '@/config/lendingHealthFactorThresholds'
 import { formatUSD, formatUSDAdaptive, formatPct } from '@/utils/formatting'
 import { SkeletonCard } from '@/components/ui/SkeletonCard'
 import { Tooltip, TooltipIconButton } from '@/components/ui/Tooltip'
@@ -703,7 +704,7 @@ function ProtocolSection({
 			? liquidationUSD / hf
 			: borrowedNominal
 	const limitUsedPct = liquidationUSD > 0 ? (borrowedForLimit / liquidationUSD) * 100 : 0
-	const hfText = hf == null ? '—' : Number.isFinite(hf) ? hf.toFixed(2) : '∞'
+	const hfText = hf == null ? '—' : Number.isFinite(hf) ? formatHealthFactor(hf) : '∞'
 	const netAprSource =
 		snapshot.protocol === 'AlphaLend'
 			? 'AlphaLend SDK'

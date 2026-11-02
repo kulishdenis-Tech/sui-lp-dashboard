@@ -2,6 +2,7 @@
  * Attention panel — only computable facts (no rebalance advice).
  * Priority: action needed → stale sources → informational portfolio updates.
  */
+import { formatHealthFactor } from '@/config/lendingHealthFactorThresholds'
 import type { LendingSnapshot, OpenPosition } from '@/types'
 import { getAutoWithdrawRule } from '@/pages/autopilot/autoWithdrawStore'
 import {
@@ -143,7 +144,7 @@ export function buildLendingAttentionItems(
 				severity: hf < 1 ? 'critical' : 'warn',
 				kind: 'action',
 				title: `Low health · ${label}`,
-				detail: `Lowest health factor ${hf.toFixed(2)} (${label}). Debt ${debt.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}.`,
+				detail: `Lowest health factor ${formatHealthFactor(hf)} (${label}). Debt ${debt.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}.`,
 				href: '/home',
 			})
 		}
