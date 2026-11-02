@@ -59,9 +59,6 @@ import { ValueChangeCardsRow } from '@/components/portfolioHistory/ValueChangeCa
 import { PortfolioHistoryMeta } from '@/components/portfolioHistory/PortfolioHistoryMeta'
 import { isChartableSnapshot } from '@/utils/snapshotCompleteness'
 import { livePortfolioParts } from '@/utils/portfolioSnapshotBuild'
-import { useOverviewSources } from '@/pages/overviewLab/useOverviewSources'
-import { labelAmountOrStale } from '@/pages/overviewLab/overviewSourceStatus'
-import { DataFreshnessHint } from '@/pages/overviewLab/DataFreshnessHint'
 import '@/pages/overviewLab/overviewLab.css'
 
 const RANGES: { id: TimeRange; label: string }[] = [
@@ -173,8 +170,6 @@ export function OverviewLabPage() {
 			setActiveTab: s.setActiveTab,
 		})),
 	)
-
-	const sources = useOverviewSources()
 
 	const {
 		snapshots,

@@ -70,7 +70,7 @@ export function formatUSDAdaptive(n: number | null | undefined): string {
 export function formatHoldingUsd(holding: {
 	humanBalance: number
 	priceUSD: number | null
-	valueUSD: number
+	valueUSD: number | null
 }): string {
 	const priced =
 		holding.priceUSD != null && Number.isFinite(holding.priceUSD) && holding.priceUSD > 0
