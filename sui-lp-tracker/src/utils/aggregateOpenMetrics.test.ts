@@ -60,7 +60,7 @@ describe('aggregateOpenMetrics', () => {
 		expect(agg.roiCoverage.covered).toBe(1)
 	})
 
-	it('keeps Earnings === Unclaimed when history is missing (claimed treated as 0)', () => {
+	it('counts an empty position in Unclaimed and not in Earnings when history is missing', () => {
 		const agg = aggregateOpenMetrics(
 			[
 				pos({
@@ -81,10 +81,35 @@ describe('aggregateOpenMetrics', () => {
 			],
 			{}, // no events → history not enriched
 		)
-		expect(agg.totalUnclaimedUsd).toBe(84.74)
+		expect(agg.totalUnclaimedUsd).toBe(86.74)
 		expect(agg.sumEarningsUsd).toBe(84.74)
 		expect(coverageIsPartial(agg.unclaimedCoverage)).toBe(false)
 		expect(coverageIsPartial(agg.earningsCoverage)).toBe(false)
+	})
+
+	it('includes unclaimed on an empty position and leaves its PnL out', () => {
+		const agg = aggregateOpenMetrics([
+			pos({
+				id: 'empty-deep',
+				liquidity: '0',
+				lifecycleStatus: 'empty',
+				currentValueUSD: 0,
+				unclaimedFeeUSD: 4.48,
+				unclaimedRewardUSD: 0,
+				pnlUSD: -1459,
+			}),
+			pos({
+				id: 'active',
+				unclaimedFeeUSD: 10,
+				unclaimedRewardUSD: 0,
+				currentValueUSD: 100,
+			}),
+		])
+		expect(agg.totalUnclaimedUsd).toBeCloseTo(14.48)
+		expect(agg.unclaimedCoverage).toEqual({ covered: 2, eligible: 2 })
+		expect(agg.emptyCount).toBe(1)
+		expect(agg.totalValueUsd).toBe(110)
+		expect(agg.pnlCoverage.eligible).toBe(1)
 	})
 
 	it('excludes unknown unclaimed from sum (no fake $0) and marks Partial', () => {

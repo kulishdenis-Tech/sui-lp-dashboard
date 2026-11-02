@@ -98,6 +98,15 @@ export function aggregateOpenMetrics(
 	const emptyCount = positions.length - activeCount
 
 	for (const p of positions) {
+		// Claimable fees stay on an empty NFT. The row shows them, so the total does too.
+		unclaimedCov.eligible += 1
+		const unclaimed = unclaimedIncomeUsdOrNull(p)
+		if (unclaimed != null) {
+			totalUnclaimed += unclaimed
+			unclaimedKnown += 1
+			unclaimedCov.covered += 1
+		}
+
 		if (isEmptyLpPosition(p)) continue
 		valueCov.eligible += 1
 		const val = positionValueUsdOrNull(p)
@@ -105,14 +114,6 @@ export function aggregateOpenMetrics(
 			totalValue += val
 			valueKnown += 1
 			valueCov.covered += 1
-		}
-
-		unclaimedCov.eligible += 1
-		const unclaimed = unclaimedIncomeUsdOrNull(p)
-		if (unclaimed != null) {
-			totalUnclaimed += unclaimed
-			unclaimedKnown += 1
-			unclaimedCov.covered += 1
 		}
 
 		const historyOk =
