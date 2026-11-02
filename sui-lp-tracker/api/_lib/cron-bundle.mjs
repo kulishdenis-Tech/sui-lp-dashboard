@@ -1559,24 +1559,39 @@ function grpcUrlToRpcSource(url) {
 }
 
 // src/services/grpcEndpointHealth.ts
+function readEnv(name) {
+  if (typeof process !== "undefined" && process.env) {
+    const v = process.env[name];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  try {
+    const meta = import.meta.env;
+    const v = meta?.[name];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  } catch {
+  }
+  return void 0;
+}
 var PORTFOLIO_GRPC_PROBE_TIMEOUT_MS = (() => {
-  const raw = Number(process.env.PORTFOLIO_GRPC_PROBE_TIMEOUT_MS ?? 4e3);
+  const raw = Number(readEnv("PORTFOLIO_GRPC_PROBE_TIMEOUT_MS") ?? 4e3);
   return Number.isFinite(raw) && raw >= 500 && raw <= 1e4 ? raw : 4e3;
 })();
 var PORTFOLIO_GRPC_CALL_TIMEOUT_MS = (() => {
-  const raw = Number(process.env.PORTFOLIO_GRPC_CALL_TIMEOUT_MS ?? process.env.PORTFOLIO_GRPC_ATTEMPT_TIMEOUT_MS ?? 15e3);
+  const raw = Number(
+    readEnv("PORTFOLIO_GRPC_CALL_TIMEOUT_MS") ?? readEnv("PORTFOLIO_GRPC_ATTEMPT_TIMEOUT_MS") ?? 15e3
+  );
   return Number.isFinite(raw) && raw >= 3e3 && raw <= 6e4 ? raw : 15e3;
 })();
 var PORTFOLIO_GRPC_CALL_RETRIES = (() => {
-  const raw = Number(process.env.PORTFOLIO_GRPC_CALL_RETRIES ?? 1);
+  const raw = Number(readEnv("PORTFOLIO_GRPC_CALL_RETRIES") ?? 1);
   return Number.isFinite(raw) && raw >= 0 && raw <= 3 ? raw : 1;
 })();
 var PORTFOLIO_GRPC_COOLDOWN_AFTER_FAILURES = (() => {
-  const raw = Number(process.env.PORTFOLIO_GRPC_COOLDOWN_AFTER_FAILURES ?? 3);
+  const raw = Number(readEnv("PORTFOLIO_GRPC_COOLDOWN_AFTER_FAILURES") ?? 3);
   return Number.isFinite(raw) && raw >= 1 && raw <= 10 ? raw : 3;
 })();
 var PORTFOLIO_GRPC_ENDPOINT_COOLDOWN_MS = (() => {
-  const raw = Number(process.env.PORTFOLIO_GRPC_ENDPOINT_COOLDOWN_MS ?? 5 * 6e4);
+  const raw = Number(readEnv("PORTFOLIO_GRPC_ENDPOINT_COOLDOWN_MS") ?? 5 * 6e4);
   return Number.isFinite(raw) && raw >= 1e4 ? raw : 5 * 6e4;
 })();
 var cooldownUntilByUrl = /* @__PURE__ */ new Map();
@@ -5774,7 +5789,7 @@ async function loadCashflowTokens(address, marketTypes, listed) {
   return { deposited, borrowed, claimedRewardsUSD, usedSpotPrice, historyFailed };
 }
 function currentAdvisorTimingEnabled() {
-  return process.env.VITEST !== "true" && process.env.SUI_LP_ADVISOR_DEV_TIMING === "1";
+  return typeof process !== "undefined" && process.env?.VITEST !== "true" && process.env?.SUI_LP_ADVISOR_DEV_TIMING === "1";
 }
 function logCurrentAdvisorStep(step, ms) {
   console.log(`[advisor-state] current/${step}: ${ms.toFixed(0)}ms`);
@@ -13161,8 +13176,15 @@ async function getAftermathFarmsPositions(walletAddress) {
 }
 
 // src/services/portfolioLpSources.ts
+function readEnv2(name) {
+  if (typeof process !== "undefined" && process.env) {
+    const v = process.env[name];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return void 0;
+}
 var LP_SOURCE_CONCURRENCY = (() => {
-  const n2 = Number(process.env.PORTFOLIO_LP_SOURCE_CONCURRENCY ?? 4);
+  const n2 = Number(readEnv2("PORTFOLIO_LP_SOURCE_CONCURRENCY") ?? 4);
   return Number.isFinite(n2) && n2 >= 1 && n2 <= 12 ? n2 : 6;
 })();
 var PORTFOLIO_LP_SOURCE_IDS = [
