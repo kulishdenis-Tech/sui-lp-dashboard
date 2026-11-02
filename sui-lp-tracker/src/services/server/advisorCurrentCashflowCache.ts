@@ -1,5 +1,6 @@
 import type { BorrowPosition, LendingCashflowUsd, SupplyPosition } from '@/types'
 import type { PortfolioReadRpcSource } from '@/services/portfolioReadRpcSource'
+import { advisorWalletCacheKey } from '@/services/server/advisorWalletCacheKey'
 
 export const ADVISOR_CURRENT_CASHFLOW_CACHE_MS = 15 * 60 * 1000
 
@@ -18,37 +19,42 @@ type CacheRow = {
 	payload: AdvisorCurrentCashflowPayload
 }
 
-let cache: CacheRow | null = null
+const cacheByWallet = new Map<string, CacheRow>()
 
 export function recordAdvisorCurrentCashflowCache(
+	wallet: string,
 	payload: AdvisorCurrentCashflowPayload,
 	savedAtMs = Date.now(),
 ): void {
-	cache = {
+	const key = advisorWalletCacheKey(wallet)
+	cacheByWallet.set(key, {
 		savedAtMs,
 		payload: {
 			...payload,
+			wallet: key,
 			supplies: payload.supplies.map((s) => ({ ...s })),
 			borrows: payload.borrows.map((b) => ({ ...b })),
 			cashflowUsd: payload.cashflowUsd ? { ...payload.cashflowUsd } : payload.cashflowUsd,
 		},
-	}
+	})
 }
 
-export function getAdvisorCurrentCashflowCache(): CacheRow | null {
-	return cache
+export function getAdvisorCurrentCashflowCache(wallet: string): CacheRow | null {
+	return cacheByWallet.get(advisorWalletCacheKey(wallet)) ?? null
 }
 
-export function getAdvisorCurrentCashflowCacheAgeMs(nowMs = Date.now()): number | null {
-	if (!cache) return null
-	return nowMs - cache.savedAtMs
+export function getAdvisorCurrentCashflowCacheAgeMs(wallet: string, nowMs = Date.now()): number | null {
+	const row = getAdvisorCurrentCashflowCache(wallet)
+	if (!row) return null
+	return nowMs - row.savedAtMs
 }
 
-export function isAdvisorCurrentCashflowCacheFresh(nowMs = Date.now()): boolean {
-	if (!cache) return false
-	return nowMs - cache.savedAtMs < ADVISOR_CURRENT_CASHFLOW_CACHE_MS
+export function isAdvisorCurrentCashflowCacheFresh(wallet: string, nowMs = Date.now()): boolean {
+	const row = getAdvisorCurrentCashflowCache(wallet)
+	if (!row) return false
+	return nowMs - row.savedAtMs < ADVISOR_CURRENT_CASHFLOW_CACHE_MS
 }
 
 export function _resetAdvisorCurrentCashflowCacheForTests(): void {
-	cache = null
+	cacheByWallet.clear()
 }

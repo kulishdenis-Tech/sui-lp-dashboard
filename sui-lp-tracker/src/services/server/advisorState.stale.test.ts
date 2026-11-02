@@ -35,7 +35,7 @@ vi.mock('@/services/portfolioSuiReadClient', async (importOriginal) => {
 })
 
 import { getCurrentPositions } from '@/services/currentService'
-import { buildAdvisorState } from '@/services/server/advisorState'
+import { buildAdvisorState, ADVISOR_STATE_WALLET } from '@/services/server/advisorState'
 
 describe('buildAdvisorState STALE / deadline', () => {
 	beforeEach(() => {
@@ -66,7 +66,7 @@ describe('buildAdvisorState STALE / deadline', () => {
 			tickUpper: 0,
 			status: 'in_range',
 		} as OpenPosition
-		recordAdvisorSnapshotSuccess([cachedPos], EMPTY_CURRENT_SNAP, savedAt)
+		recordAdvisorSnapshotSuccess(ADVISOR_STATE_WALLET, [cachedPos], EMPTY_CURRENT_SNAP, savedAt)
 
 		const hang = () =>
 			new Promise<never>(() => {
@@ -86,6 +86,7 @@ describe('buildAdvisorState STALE / deadline', () => {
 	it('moves STALE >30m into net.unverifiedUSD', async () => {
 		const savedAt = Date.now() - STALE_UNVERIFIED_AFTER_MS - 60_000
 		recordAdvisorSnapshotSuccess(
+			ADVISOR_STATE_WALLET,
 			[
 				{
 					id: 'old',
@@ -121,7 +122,12 @@ describe('buildAdvisorState STALE / deadline', () => {
 	})
 
 	it('marks Current HF STALE when current load fails', async () => {
-		recordAdvisorSnapshotSuccess([], { ...EMPTY_CURRENT_SNAP, healthFactor: 1.2, netValueUSD: 1 }, Date.now() - 1000)
+		recordAdvisorSnapshotSuccess(
+			ADVISOR_STATE_WALLET,
+			[],
+			{ ...EMPTY_CURRENT_SNAP, healthFactor: 1.2, netValueUSD: 1 },
+			Date.now() - 1000,
+		)
 		loadAllPortfolioLpSources.mockResolvedValue({
 			loads: [],
 			statuses: [{ id: 'bluefin', ok: true, count: 1 }],

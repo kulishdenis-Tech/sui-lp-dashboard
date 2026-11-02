@@ -50,6 +50,9 @@ function delay(ms: number): Promise<{ kind: 'timeout' }> {
 const ADVISOR_WALLET =
 	'0x925efc24d39e9a1726b22ff6a869ffe107820d036d91e5a1775353c38e0644b9'
 
+/** Normalized wallet key used in advisor state / cache (tests). */
+export const ADVISOR_STATE_WALLET = normalizeSuiAddress(ADVISOR_WALLET).toLowerCase()
+
 /** DeepBook DEEP mainnet coin type (see `hardcodedVerifiedCoins` / tokenDecimalsAudit). */
 const DEEP_COIN_TYPE =
 	'0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP'
@@ -149,8 +152,8 @@ function errMsg(e: unknown): string {
 	return e instanceof Error ? e.message : String(e)
 }
 
-function advisorCacheSavedAtOrUndefined(): number | undefined {
-	const t = getAdvisorCacheSavedAtMs()
+function advisorCacheSavedAtOrUndefined(wallet: string): number | undefined {
+	const t = getAdvisorCacheSavedAtMs(wallet)
 	return t != null ? t : undefined
 }
 
@@ -223,14 +226,18 @@ function suiLiquidationPrice(snap: LendingSnapshot): number | null {
 	return Math.min(...prices)
 }
 
-function mapLpPosition(p: OpenPosition, staleSourceIds: ReadonlySet<string>): AdvisorLpPosition {
+function mapLpPosition(
+	p: OpenPosition,
+	staleSourceIds: ReadonlySet<string>,
+	wallet: string,
+): AdvisorLpPosition {
 	const sourceId = inferPortfolioLpSourceId(p)
 	const readStale =
 		p.readStale === true ||
 		p.currentMultiply?.readStale === true ||
 		(sourceId != null && staleSourceIds.has(sourceId))
 	const resolvedLastSuccessAtMs = readStale
-		? p.lastSuccessAtMs ?? advisorCacheSavedAtOrUndefined()
+		? p.lastSuccessAtMs ?? advisorCacheSavedAtOrUndefined(wallet)
 		: undefined
 	const range = clmmRangeFromOpenPosition({
 		tickLower: p.tickLower,
@@ -282,12 +289,13 @@ function stampOpenPositionsStale(positions: OpenPosition[], savedAtMs?: number):
 function attachCurrentMetricsMeta(
 	snap: LendingSnapshot,
 	stale: boolean,
-	lastSuccessAtMs?: number,
+	lastSuccessAtMs: number | undefined,
+	wallet: string,
 ): LendingSnapshot {
 	if (!stale) {
 		return { ...snap, metricsLive: true, readStale: false }
 	}
-	const at = lastSuccessAtMs ?? advisorCacheSavedAtOrUndefined()
+	const at = lastSuccessAtMs ?? advisorCacheSavedAtOrUndefined(wallet)
 	return {
 		...snap,
 		readStale: true,
@@ -395,7 +403,7 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 	resetPortfolioReadRpcSource()
 	if (isSuiReadProfilingEnabled()) resetSuiReadProfile()
 	await ensurePortfolioReadTransportReady()
-	const wallet = normalizeSuiAddress(ADVISOR_WALLET).toLowerCase()
+	const wallet = ADVISOR_STATE_WALLET
 	const errors: string[] = []
 	const nowMs = Date.now()
 	const nowSec = Math.floor(nowMs / 1000)
@@ -415,9 +423,9 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 
 	if (raced.kind === 'timeout') {
 		errors.push(`advisor: deadline ${deadlineMs}ms exceeded`)
-		const cacheAt = advisorCacheSavedAtOrUndefined()
-		openLpRows = stampOpenPositionsStale(getCachedAdvisorLpPositions(), cacheAt)
-		currentSnap = attachCurrentMetricsMeta(getCachedAdvisorCurrent(), true, cacheAt)
+		const cacheAt = advisorCacheSavedAtOrUndefined(wallet)
+		openLpRows = stampOpenPositionsStale(getCachedAdvisorLpPositions(wallet), cacheAt)
+		currentSnap = attachCurrentMetricsMeta(getCachedAdvisorCurrent(wallet), true, cacheAt, wallet)
 	} else {
 		const [currentResult, lpResult] = raced.r
 		if (currentResult.status === 'fulfilled') {
@@ -425,8 +433,8 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 			currentLive = true
 		} else {
 			errors.push(`current: ${errMsg(currentResult.reason)}`)
-			const cacheAt = advisorCacheSavedAtOrUndefined()
-			currentSnap = attachCurrentMetricsMeta(getCachedAdvisorCurrent(), true, cacheAt)
+			const cacheAt = advisorCacheSavedAtOrUndefined(wallet)
+			currentSnap = attachCurrentMetricsMeta(getCachedAdvisorCurrent(wallet), true, cacheAt, wallet)
 		}
 
 		if (lpResult.status === 'fulfilled') {
@@ -439,23 +447,23 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 			if (lp.positions.length > 0) {
 				openLpRows = lp.positions
 			} else if (lp.incomplete || lp.statuses.some((s) => !s.ok)) {
-				const cacheAt = advisorCacheSavedAtOrUndefined()
-				openLpRows = stampOpenPositionsStale(getCachedAdvisorLpPositions(), cacheAt)
+				const cacheAt = advisorCacheSavedAtOrUndefined(wallet)
+				openLpRows = stampOpenPositionsStale(getCachedAdvisorLpPositions(wallet), cacheAt)
 			} else {
 				openLpRows = lp.positions
 			}
 		} else {
 			errors.push(`lp: ${errMsg(lpResult.reason)}`)
-			const cacheAt = advisorCacheSavedAtOrUndefined()
-			openLpRows = stampOpenPositionsStale(getCachedAdvisorLpPositions(), cacheAt)
+			const cacheAt = advisorCacheSavedAtOrUndefined(wallet)
+			openLpRows = stampOpenPositionsStale(getCachedAdvisorLpPositions(wallet), cacheAt)
 		}
 	}
 
 	if (currentLive && !currentSnap.readStale) {
-		currentSnap = attachCurrentMetricsMeta(currentSnap, false)
+		currentSnap = attachCurrentMetricsMeta(currentSnap, false, undefined, wallet)
 	} else if (errors.some((e) => e.startsWith('current:'))) {
-		const cacheAt = advisorCacheSavedAtOrUndefined()
-		currentSnap = attachCurrentMetricsMeta(currentSnap, true, cacheAt)
+		const cacheAt = advisorCacheSavedAtOrUndefined(wallet)
+		currentSnap = attachCurrentMetricsMeta(currentSnap, true, cacheAt, wallet)
 	}
 
 	if (
@@ -465,12 +473,12 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 		lpLive &&
 		!errors.some((e) => e.startsWith('lp:') || e.startsWith('current:'))
 	) {
-		recordAdvisorSnapshotSuccess(openLpRows, currentSnap, nowMs)
+		recordAdvisorSnapshotSuccess(wallet, openLpRows, currentSnap, nowMs)
 	}
 
 	const staleSourceIds = collectLpStaleSourceIds(errors, openLpRows)
 	let lpPositions: AdvisorLpPosition[] = await advisorTimed('lp-map', () =>
-		mapPool(openLpRows, LP_MAP_CONCURRENCY, async (p) => mapLpPosition(p, staleSourceIds)),
+		mapPool(openLpRows, LP_MAP_CONCURRENCY, async (p) => mapLpPosition(p, staleSourceIds, wallet)),
 	)
 
 	const [suiPx, deepPx] = await advisorTimed('prices', () =>
@@ -501,7 +509,7 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 						metricsLive: false,
 						...(() => {
 							const at =
-								currentSnap.lastSuccessAtMs ?? advisorCacheSavedAtOrUndefined()
+								currentSnap.lastSuccessAtMs ?? advisorCacheSavedAtOrUndefined(wallet)
 							return at != null ? { lastSuccessAtMs: at } : {}
 						})(),
 					}
@@ -531,6 +539,8 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 
 export async function buildAdvisorCurrentCashflow(options?: {
 	forceRefresh?: boolean
+	/** Override wallet (normalized); default advisor read wallet. */
+	wallet?: string
 }): Promise<
 	AdvisorCurrentCashflowPayload & {
 		readStale?: boolean
@@ -539,8 +549,9 @@ export async function buildAdvisorCurrentCashflow(options?: {
 		loadError?: string
 	}
 > {
-	const cached = getAdvisorCurrentCashflowCache()
-	if (cached && !options?.forceRefresh && isAdvisorCurrentCashflowCacheFresh()) {
+	const wallet = normalizeSuiAddress(options?.wallet ?? ADVISOR_WALLET).toLowerCase()
+	const cached = getAdvisorCurrentCashflowCache(wallet)
+	if (cached && !options?.forceRefresh && isAdvisorCurrentCashflowCacheFresh(wallet)) {
 		return {
 			...cached.payload,
 			lastSuccessAtMs: cached.savedAtMs,
@@ -551,7 +562,6 @@ export async function buildAdvisorCurrentCashflow(options?: {
 
 	resetPortfolioReadRpcSource()
 	await ensurePortfolioReadTransportReady()
-	const wallet = normalizeSuiAddress(ADVISOR_WALLET).toLowerCase()
 
 	try {
 		const snap = await getCurrentPositions(wallet, { skipCashflow: false })
@@ -566,7 +576,7 @@ export async function buildAdvisorCurrentCashflow(options?: {
 			supplies: snap.supplies,
 			borrows: snap.borrows,
 		}
-		recordAdvisorCurrentCashflowCache(payload, savedAtMs)
+		recordAdvisorCurrentCashflowCache(wallet, payload, savedAtMs)
 		return {
 			...payload,
 			lastSuccessAtMs: savedAtMs,
@@ -575,10 +585,11 @@ export async function buildAdvisorCurrentCashflow(options?: {
 		}
 	} catch (e) {
 		const msg = errMsg(e)
-		if (cached) {
+		const staleRow = getAdvisorCurrentCashflowCache(wallet)
+		if (staleRow) {
 			return {
-				...cached.payload,
-				lastSuccessAtMs: cached.savedAtMs,
+				...staleRow.payload,
+				lastSuccessAtMs: staleRow.savedAtMs,
 				readStale: true,
 				metricsLive: false,
 				loadError: msg,

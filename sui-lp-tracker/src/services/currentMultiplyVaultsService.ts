@@ -37,6 +37,7 @@ import {
 	multiplyRiskFromSpot,
 	parseRawIntegerAmount,
 } from '@/utils/currentMultiplyVault'
+import { advisorWalletCacheKey } from '@/services/server/advisorWalletCacheKey'
 import { Transaction } from '@mysten/sui/transactions'
 import { bcs } from '@mysten/sui/bcs'
 
@@ -151,6 +152,15 @@ export function _resetMultiplyReadStateForTests(): void {
 	multiplyInFlight.clear()
 	multiplyCacheByWallet.clear()
 	multiplyListCache = null
+}
+
+/** @internal Seed STALE fallback cache for a single wallet (tests). */
+export function _seedMultiplyCacheForTests(
+	walletAddress: string,
+	rows: OpenPosition[],
+	savedAtMs: number,
+): void {
+	multiplyCacheByWallet.set(advisorWalletCacheKey(walletAddress), { rows, savedAtMs })
 }
 
 function stampMultiplyStale(positions: OpenPosition[], savedAtMs: number): OpenPosition[] {
@@ -281,7 +291,7 @@ export async function getCurrentMultiplyVaultPositions(
 	walletAddress: string,
 	_opts?: { forceRefreshPrices?: boolean },
 ): Promise<OpenPosition[]> {
-	const key = walletAddress.toLowerCase()
+	const key = advisorWalletCacheKey(walletAddress)
 	const prev = multiplyInFlight.get(key)
 	if (prev) return prev
 
