@@ -81,6 +81,8 @@ const overviewSchema = bcs.struct('ObligationDetail', {
 export type CurrentMarketRow = {
 	marketType?: string
 	marketID?: string
+	/** Human market label from Current `/market/getMarketList` (same for all assets in the market). */
+	name?: string
 	token?: string
 	/** Liquidation LTV (0–1), API `liqLTV`. */
 	liqLTV?: number
@@ -210,7 +212,22 @@ function venueNameFromType(marketType: string): string {
 	if (name === 'AltCoinMarket') return 'AltCoin'
 	if (name === 'EthenaMarket') return 'Ethena'
 	if (name === 'MatrixGoldMarket') return 'Matrix Gold'
+	if (name === 'Market01') return 'sUSN Market'
 	return name.replace(/([a-z])([A-Z0-9])/g, '$1 $2')
+}
+
+/** Supply base APR from market list row or on-chain rates — `0` is valid; missing is not. */
+export function resolveCurrentSupplyBaseApr(
+	listSupplyApy: number | undefined,
+	chainSupplyApy: number | undefined,
+): { baseApr: number; baseKnown: boolean } {
+	if (typeof listSupplyApy === 'number' && Number.isFinite(listSupplyApy)) {
+		return { baseApr: listSupplyApy, baseKnown: true }
+	}
+	if (typeof chainSupplyApy === 'number' && Number.isFinite(chainSupplyApy)) {
+		return { baseApr: chainSupplyApy, baseKnown: true }
+	}
+	return { baseApr: Number.NaN, baseKnown: false }
 }
 
 /** Display label from Current list rows for this `marketObjectId` (not hardcoded Move type names). */
@@ -224,11 +241,6 @@ export function resolveCurrentVenueLabel(
 	const apiName = rows.find((r) => r.name?.trim())?.name?.trim()
 	const typeShort = marketType.split('::').pop() ?? ''
 	if (apiName && apiName !== typeShort) return apiName
-	const branded = rows.find((r) => {
-		const sym = r.tokenInfo?.symbol?.trim()
-		return sym && sym.length > 0
-	})
-	if (branded?.tokenInfo?.symbol) return `${branded.tokenInfo.symbol} Market`
 	return venueNameFromType(marketType)
 }
 
@@ -1233,7 +1245,10 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 			if (amount <= 0) continue
 			const price = Number(meta?.tokenInfo?.price ?? 0)
 			const usd = amount * (Number.isFinite(price) ? price : 0)
-			const baseApr = Number(own?.supplyAPY ?? chainApr.get(typeKey(dep.asset))?.supply ?? 0)
+			const { baseApr, baseKnown } = resolveCurrentSupplyBaseApr(
+				own?.supplyAPY,
+				chainApr.get(typeKey(dep.asset))?.supply,
+			)
 			const rewardKnown = mining.status === 'complete' || mining.status === 'empty'
 			const rewardApr = rewardKnown ? (mining.apr ?? 0) : 0
 			const symbol = meta?.tokenInfo?.symbol ?? dep.asset.split('::').pop() ?? '?'
@@ -1246,10 +1261,14 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 				currentAmount: amount,
 				earnedInterest: 0,
 				earnedInterestUSD: 0,
-				supplyAPR: (Number.isFinite(baseApr) ? baseApr : 0) + (rewardKnown ? rewardApr : 0),
+				supplyAPR: baseKnown
+					? baseApr + (rewardKnown ? rewardApr : 0)
+					: rewardKnown
+						? rewardApr
+						: Number.NaN,
 				supplyRewardAPR: rewardKnown ? rewardApr : undefined,
 				aprBreakdown: {
-					baseAPR: Number.isFinite(baseApr) ? baseApr : 0,
+					baseAPR: baseKnown ? baseApr : Number.NaN,
 					rewardAPR: rewardKnown ? rewardApr : Number.NaN,
 					rewards: mining.parts
 						.filter((p) => p.apr != null)
@@ -1287,12 +1306,27 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 			if (amount <= 0) continue
 			const price = Number(meta?.tokenInfo?.price ?? 0)
 			const usd = amount * (Number.isFinite(price) ? price : 0)
-			const baseApr = Number(own?.borrowAPY ?? chainApr.get(typeKey(bor.asset))?.borrow ?? 0)
+			const borrowListApy = own?.borrowAPY
+			const chainBorrow = chainApr.get(typeKey(bor.asset))?.borrow
+			const borrowBaseKnown =
+				(typeof borrowListApy === 'number' && Number.isFinite(borrowListApy)) ||
+				(typeof chainBorrow === 'number' && Number.isFinite(chainBorrow))
+			const baseApr = borrowBaseKnown
+				? Number(
+						typeof borrowListApy === 'number' && Number.isFinite(borrowListApy)
+							? borrowListApy
+							: chainBorrow,
+					)
+				: Number.NaN
 			const bwRaw = Number(own?.borrowWeight ?? 1)
 			const borrowWeight = Number.isFinite(bwRaw) && bwRaw > 0 ? bwRaw : 1
 			const rewardKnown = mining.status === 'complete' || mining.status === 'empty'
 			const rewardApr = rewardKnown ? (mining.apr ?? 0) : 0
-			const netCost = (Number.isFinite(baseApr) ? baseApr : 0) - (rewardKnown ? rewardApr : 0)
+			const netCost = borrowBaseKnown
+				? baseApr - (rewardKnown ? rewardApr : 0)
+				: rewardKnown
+					? -rewardApr
+					: Number.NaN
 			const symbol = meta?.tokenInfo?.symbol ?? bor.asset.split('::').pop() ?? '?'
 			const borrow: BorrowPosition = {
 				id: `current-borrow-${ob.obligationObject}-${typeKey(bor.asset)}`,
@@ -1307,7 +1341,7 @@ export async function getCurrentPositions(walletAddress: string): Promise<Lendin
 				borrowRewardAPR: rewardKnown ? rewardApr : undefined,
 				netBorrowCost: netCost,
 				aprBreakdown: {
-					baseAPR: Number.isFinite(baseApr) ? baseApr : 0,
+					baseAPR: borrowBaseKnown ? baseApr : Number.NaN,
 					rewardAPR: rewardKnown ? rewardApr : Number.NaN,
 					rewards: mining.parts
 						.filter((p) => p.apr != null)

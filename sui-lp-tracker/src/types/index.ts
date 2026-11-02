@@ -396,8 +396,13 @@ export interface SupplyPosition {
 	currentAmount: number
 	earnedInterest: number
 	earnedInterestUSD: number
+	/**
+	 * Total supply APR shown in the table (decimal fraction).
+	 * Current: base + reward when both known. AlphaLend SDK: interest + staking + rewards combined.
+	 * Do not add `supplyRewardAPR` again in UI when `aprBreakdown` is present.
+	 */
 	supplyAPR: number
-	/** Total reward APR on top of base interest (e.g. BLUE incentives). */
+	/** Reward component only (decimal fraction). Omit when rewards unknown. */
 	supplyRewardAPR?: number
 	/** Optional per-component breakdown for tooltip display. */
 	aprBreakdown?: {
