@@ -17,20 +17,17 @@ import {
 import { formatSupplyAprDisplay } from '@/components/lending/supplyAprDisplay'
 import { DataFreshnessHint } from '@/pages/overviewLab/DataFreshnessHint'
 import { computeDefiConcentration, currentAggregateReferenceSegment, type ConcentrationSegment } from '@/utils/defiConcentration'
+import {
+	healthFactorColorClass,
+	healthFactorStatTip,
+	lendingHealthFactorThresholds,
+} from '@/config/lendingHealthFactorThresholds'
 import type {
 	BorrowPosition,
 	LendingRewardToClaim,
 	LendingSnapshot,
 	SupplyPosition,
 } from '@/types'
-
-// ── Health Factor ──────────────────────────────────────────────────────────
-function hfColor(hf: number) {
-	if (hf <= 0) return 'text-slate-500'
-	if (hf >= 1.8) return 'text-emerald-400'
-	if (hf >= 1.2) return 'text-yellow-400'
-	return 'text-red-400'
-}
 
 // ── Borrow limit bar (Used / Safe / Liquidation) ──────────────────────────
 /** Half-width of a zone label as % of the bar (12px tabular, ~350px typical). */
@@ -597,8 +594,11 @@ function ProtocolSection({
 					<StatCard
 						label="Health Factor"
 						value={snapshot.healthFactor.toFixed(2)}
-						valueClass={hfColor(snapshot.healthFactor)}
-						tip="Liquidation threshold / total debt. Target ≥1.8, alert <1.2, liquidation risk below 1."
+						valueClass={healthFactorColorClass(
+							snapshot.healthFactor,
+							lendingHealthFactorThresholds(snapshot.protocol),
+						)}
+						tip={healthFactorStatTip(snapshot.protocol)}
 					/>
 				)}
 				{hasRewards && (
