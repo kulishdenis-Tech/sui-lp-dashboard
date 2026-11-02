@@ -1,23 +1,29 @@
 import type { OpenPosition } from '@/types'
+import { clmmTickBand } from '@/utils/clmmTickBounds'
 import { isEmptyLpPosition } from '@/utils/lpLifecycle'
 
 /** Visual tone for the CLMM price-range strip. */
 export type RangeBarTone = 'active' | 'empty' | 'out'
 
-/** CLMM half-open band: tick ∈ [lower, upper). */
-export function tickInClmmRange(tick: number, lower: number, upper: number): boolean {
-	if (!Number.isFinite(tick) || !Number.isFinite(lower) || !Number.isFinite(upper)) return false
-	const lo = Math.min(lower, upper)
-	const hi = Math.max(lower, upper)
-	return tick >= lo && tick < hi
+type RangeTick = Pick<OpenPosition, 'tickLower' | 'tickUpper' | 'currentTick' | 'status'> & {
+	protocol?: string
+	cetusSwapped?: boolean
 }
 
-function memberCoversTick(
-	m: Pick<OpenPosition, 'tickLower' | 'tickUpper' | 'currentTick' | 'status'>,
-	tick: number,
-): boolean {
-	// Prefer live tick math so Empty/Active share one pool price; fall back to status.
-	if (Number.isFinite(tick)) return tickInClmmRange(tick, m.tickLower, m.tickUpper)
+/** CLMM half-open band: tick ∈ [lower, upper). */
+export function tickInClmmRange(tick: number, lower: number, upper: number): boolean {
+	return clmmTickBand({ currentTick: tick, tickLower: lower, tickUpper: upper }) === 'in'
+}
+
+function memberCoversTick(m: RangeTick, tick: number): boolean {
+	const band = clmmTickBand({
+		protocol: m.protocol,
+		currentTick: tick,
+		tickLower: m.tickLower,
+		tickUpper: m.tickUpper,
+		cetusSwapped: m.cetusSwapped,
+	})
+	if (band) return band === 'in'
 	return m.status === 'in_range'
 }
 
@@ -28,10 +34,7 @@ function memberCoversTick(
  * - out of band → red
  */
 export function rangeBarToneForPosition(
-	p: Pick<
-		OpenPosition,
-		'liquidity' | 'lifecycleStatus' | 'status' | 'tickLower' | 'tickUpper' | 'currentTick'
-	>,
+	p: RangeTick & Pick<OpenPosition, 'liquidity' | 'lifecycleStatus'>,
 ): RangeBarTone {
 	const inBand = memberCoversTick(p, p.currentTick)
 	if (!inBand) return 'out'
@@ -46,15 +49,7 @@ export function rangeBarToneForPosition(
  */
 export function rangeBarToneForCascade(
 	members: Array<
-		Pick<
-			OpenPosition,
-			| 'liquidity'
-			| 'lifecycleStatus'
-			| 'status'
-			| 'tickLower'
-			| 'tickUpper'
-			| 'currentTick'
-		>
+		RangeTick & Pick<OpenPosition, 'liquidity' | 'lifecycleStatus'>
 	>,
 ): RangeBarTone {
 	if (members.length === 0) return 'out'

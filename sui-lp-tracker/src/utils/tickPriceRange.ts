@@ -1,5 +1,6 @@
 import { TickMath } from '@mmt-finance/clmm-sdk'
 import BN from 'bn.js'
+import { clmmTickBand } from '@/utils/clmmTickBounds'
 
 /**
  * MMT: price = B per 1 A (token A = coin a, B = coin b) — як у TickMath.sqrtPriceX64ToPrice.
@@ -31,6 +32,9 @@ export function clmmRangeFromOpenPosition(p: {
 	tokenADecimals: number
 	tokenBDecimals: number
 	status: 'in_range' | 'out_of_range'
+	protocol?: string
+	/** Stored ticks are negated; the band is still the raw Cetus interval. */
+	cetusSwapped?: boolean
 	/** Direct price override (B per A) — used for synthetic closed positions where sqrtPrice is unavailable. */
 	priceCurrentOverride?: number
 	/** Full range prices (B per A) — Cetus DLMM; skips TickMath. */
@@ -50,7 +54,7 @@ export function clmmRangeFromOpenPosition(p: {
 			priceMax: max,
 			priceCurrent: pCur,
 			position01,
-			inRange: p.status === 'in_range',
+			inRange: positionInRange(p),
 			priceLabel: `${p.tokenB} / ${p.tokenA}`,
 		}
 	}
@@ -87,20 +91,29 @@ export function clmmRangeFromOpenPosition(p: {
 	}
 	const span = max - min
 	const position01 = span > 0 ? (pCur - min) / span : 0.5
-	// When priceCurrentOverride is provided (closed position), derive inRange from price position.
-	// Otherwise honour the on-chain status flag.
-	const inRange =
-		p.priceCurrentOverride != null
-			? pCur >= min && pCur <= max
-			: p.status === 'in_range'
 	return {
 		priceMin: min,
 		priceMax: max,
 		priceCurrent: pCur,
 		position01,
-		inRange,
+		inRange: positionInRange(p),
 		priceLabel: `${p.tokenB} / ${p.tokenA}`,
 	}
+}
+
+/** DLMM keeps its status. CLMM ticks use the same band as Overview and the range bar. */
+function positionInRange(p: {
+	tickLower: number
+	tickUpper: number
+	currentTick: number
+	status: 'in_range' | 'out_of_range'
+	protocol?: string
+	cetusSwapped?: boolean
+	priceRangeOverride?: { min: number; max: number; current: number }
+}): boolean {
+	if (p.priceRangeOverride) return p.status === 'in_range'
+	const band = clmmTickBand(p)
+	return band != null ? band === 'in' : p.status === 'in_range'
 }
 
 /** Min/max абсолютна ціна vs поточна, % — (price/priceCurrent − 1) × 100 (ідикатор «відносно поточної» в тултіпі). */
