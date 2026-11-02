@@ -98,6 +98,7 @@ export function aggregateOpenMetrics(
 	const emptyCount = positions.length - activeCount
 
 	for (const p of positions) {
+		if (isEmptyLpPosition(p)) continue
 		valueCov.eligible += 1
 		const val = positionValueUsdOrNull(p)
 		if (val != null) {

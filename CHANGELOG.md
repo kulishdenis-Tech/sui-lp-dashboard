@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.2.1 — 2026-11-02
+
+- **`GET /api/advisor/state`** і **`GET /api/advisor/current-cashflow`:** query **`?wallet=`**; allowlist з **`WATCH_WALLETS`** (fallback — advisor + другий seed-гаманець); інше — **400**.
+- **LP з `liquidity = 0`:** окремий згорнутий блок **«Без ліквідності (N)»** з діапазоном і in/out of range; **не входять у net**; у advisor — **`lpEmpty`** (окремо від **`lpPositions`**).
+- **Шапка:** **`v1.2.1 · <git hash>`** (fallback `dev`), tooltip — дата білду / старту dev (`__BUILD_DATE__`).
+- **`/api/advisor/state`:** ціни SUI/DEEP стартують паралельно з load; відповідь вкладається в **`SUI_LP_ADVISOR_STATE_DEADLINE_MS`** (за замовч. 28 с) — без довгого OKX після дедлайну.
+
 ## v1.2.0 — 2026-11-02
 
 - **Portfolio reads (LP, Current, balances):** gRPC за замовчуванням (`sui-grpc.publicnode.com:443`), резерв Mysten gRPC, далі JSON-RPC (Suiet). Browser `suiClient` через `portfolioSuiReadClient`.

@@ -1,5 +1,9 @@
 /// <reference types="vite/client" />
 
+declare const __APP_VERSION__: string
+declare const __GIT_HASH__: string
+declare const __BUILD_DATE__: string
+
 // Polyfill: Buffer is injected globally in main.tsx for @alphafi/alphalend-sdk compatibility.
 declare var Buffer: typeof import('buffer').Buffer
 

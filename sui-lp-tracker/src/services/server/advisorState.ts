@@ -41,17 +41,15 @@ import {
 	resetSuiReadProfile,
 	type SuiReadProfileSnapshot,
 } from '@/services/suiReadProfiler'
+import { ADVISOR_DEFAULT_WALLET } from '@/services/server/advisorAllowedWallets'
+import { splitOpenLpActiveEmpty } from '@/utils/openLpActiveEmpty'
 
 function delay(ms: number): Promise<{ kind: 'timeout' }> {
 	return new Promise((resolve) => setTimeout(() => resolve({ kind: 'timeout' }), ms))
 }
 
-/** Hardcoded advisor wallet (read-only). */
-const ADVISOR_WALLET =
-	'0x925efc24d39e9a1726b22ff6a869ffe107820d036d91e5a1775353c38e0644b9'
-
 /** Normalized wallet key used in advisor state / cache (tests). */
-export const ADVISOR_STATE_WALLET = normalizeSuiAddress(ADVISOR_WALLET).toLowerCase()
+export const ADVISOR_STATE_WALLET = normalizeSuiAddress(ADVISOR_DEFAULT_WALLET).toLowerCase()
 
 /** DeepBook DEEP mainnet coin type (see `hardcodedVerifiedCoins` / tokenDecimalsAudit). */
 const DEEP_COIN_TYPE =
@@ -141,6 +139,8 @@ export type AdvisorState = {
 		metricsLive?: boolean
 	}
 	lpPositions: AdvisorLpPosition[]
+	/** Zero-liquidity NFT positions (excluded from `net`). */
+	lpEmpty: AdvisorLpPosition[]
 	net: AdvisorNetTotals
 	prices: { SUI: number | null; DEEP: number | null }
 	/** Present when SUI_LP_ADVISOR_PROFILE=1 */
@@ -398,16 +398,22 @@ async function softUsdPrice(
 	return null
 }
 
-export async function buildAdvisorState(): Promise<AdvisorState> {
+export async function buildAdvisorState(options?: { wallet?: string }): Promise<AdvisorState> {
 	return advisorTimed('total', async () => {
 	resetPortfolioReadRpcSource()
 	if (isSuiReadProfilingEnabled()) resetSuiReadProfile()
 	await ensurePortfolioReadTransportReady()
-	const wallet = ADVISOR_STATE_WALLET
+	const wallet = normalizeSuiAddress(options?.wallet ?? ADVISOR_DEFAULT_WALLET).toLowerCase()
 	const errors: string[] = []
 	const nowMs = Date.now()
 	const nowSec = Math.floor(nowMs / 1000)
 	const deadlineMs = resolveAdvisorStateDeadlineMs()
+	const deadlineAt = nowMs + deadlineMs
+
+	const pricesPromise = Promise.all([
+		softUsdPrice('SUI', NATIVE_SUI_COIN_TYPE, nowSec, errors),
+		softUsdPrice('DEEP', DEEP_COIN_TYPE, nowSec, errors),
+	])
 
 	const loadWork = Promise.allSettled([
 		advisorTimed('current', () => getCurrentPositions(wallet, { skipCashflow: true })),
@@ -477,16 +483,29 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 	}
 
 	const staleSourceIds = collectLpStaleSourceIds(errors, openLpRows)
-	let lpPositions: AdvisorLpPosition[] = await advisorTimed('lp-map', () =>
-		mapPool(openLpRows, LP_MAP_CONCURRENCY, async (p) => mapLpPosition(p, staleSourceIds, wallet)),
-	)
+	const { active: openLpActive, empty: openLpEmpty } = splitOpenLpActiveEmpty(openLpRows)
+	const mapAdvisorLp = (rows: OpenPosition[]) =>
+		mapPool(rows, LP_MAP_CONCURRENCY, async (p) => mapLpPosition(p, staleSourceIds, wallet))
 
-	const [suiPx, deepPx] = await advisorTimed('prices', () =>
-		Promise.all([
-			softUsdPrice('SUI', NATIVE_SUI_COIN_TYPE, nowSec, errors),
-			softUsdPrice('DEEP', DEEP_COIN_TYPE, nowSec, errors),
-		]),
-	)
+	let lpPositions: AdvisorLpPosition[] = await advisorTimed('lp-map', () => mapAdvisorLp(openLpActive))
+	const lpEmpty: AdvisorLpPosition[] = await advisorTimed('lp-empty-map', () => mapAdvisorLp(openLpEmpty))
+
+	const priceBudgetMs = deadlineAt - Date.now()
+	let suiPx: number | null = null
+	let deepPx: number | null = null
+	if (priceBudgetMs > 50) {
+		const priced = await Promise.race([
+			pricesPromise,
+			delay(priceBudgetMs).then(() => null),
+		])
+		if (priced) {
+			;[suiPx, deepPx] = priced
+		} else {
+			errors.push(`advisor: price fetch exceeded ${deadlineMs}ms budget`)
+		}
+	} else {
+		errors.push('advisor: skipped price fetch (deadline budget exhausted)')
+	}
 
 	const net = computeAdvisorNetTotals(lpPositions, currentSnap, nowMs)
 	const rpcReason = getPortfolioReadRpcSourceReason()
@@ -516,6 +535,7 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 				: { metricsLive: true }),
 		},
 		lpPositions,
+		lpEmpty,
 		net,
 		prices: { SUI: suiPx, DEEP: deepPx },
 	}
@@ -549,7 +569,7 @@ export async function buildAdvisorCurrentCashflow(options?: {
 		loadError?: string
 	}
 > {
-	const wallet = normalizeSuiAddress(options?.wallet ?? ADVISOR_WALLET).toLowerCase()
+	const wallet = normalizeSuiAddress(options?.wallet ?? ADVISOR_DEFAULT_WALLET).toLowerCase()
 	const cached = getAdvisorCurrentCashflowCache(wallet)
 	if (cached && !options?.forceRefresh && isAdvisorCurrentCashflowCacheFresh(wallet)) {
 		return {

@@ -26,7 +26,7 @@ vi.mock('@/services/currentService', async (importOriginal) => {
 import { getCurrentPositions } from '@/services/currentService'
 
 const WALLET_B =
-	'0x0000000000000000000000000000000000000000000000000000000000000002'
+	'0xff8a51f37daceef95619a7d31915868375329964bacea6c72811175d6a458da6'
 
 function snapWithResultUsd(resultUSD: number): LendingSnapshot {
 	return {

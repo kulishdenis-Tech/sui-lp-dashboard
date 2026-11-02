@@ -196,4 +196,13 @@ describe('computeNetWorth', () => {
 		expect(snap.verifiedTotalNetUSD).toBe(0)
 		expect(snap.unverifiedUSD).toBe(500)
 	})
+
+	it('excludes zero-liquidity open LP from total net', () => {
+		const empty = openPosition(999)
+		;(empty as OpenPosition).liquidity = '0'
+		;(empty as OpenPosition).lifecycleStatus = 'empty'
+		const snap = computeNetWorth([], [empty], null)
+		expect(snap.openLpUSD).toBe(0)
+		expect(snap.totalNetUSD).toBe(0)
+	})
 })
