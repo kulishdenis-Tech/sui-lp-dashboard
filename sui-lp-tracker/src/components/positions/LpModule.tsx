@@ -12,8 +12,6 @@ import { AftermathFarmsSection } from '@/components/positions/AftermathFarmsSect
 import { CetusVaultsSection } from '@/components/positions/CetusVaultsSection'
 import { VaultSummaryStrip } from '@/components/positions/VaultSummaryStrip'
 import { CurrentMultiplySummaryStrip } from '@/components/positions/CurrentMultiplySummaryStrip'
-import { EmptyLpPositionsSection } from '@/components/positions/EmptyLpPositionsSection'
-import { splitOpenLpActiveEmpty } from '@/utils/openLpActiveEmpty'
 import { SkeletonCard } from '@/components/ui/SkeletonCard'
 import { Spinner } from '@/components/ui/Spinner'
 import { isCetusVaultPosition } from '@/utils/cetusVault'
@@ -138,10 +136,6 @@ export function LpModule() {
 		() => open.filter((p) => p.protocol !== 'aftermath' && !isCetusVaultPosition(p)),
 		[open],
 	)
-	const { active: clmmActive, empty: clmmEmpty } = useMemo(
-		() => splitOpenLpActiveEmpty(clmmOpen),
-		[clmmOpen],
-	)
 
 	const vaultFiltered = useMemo(
 		() => (filter === 'all' || filter === 'cetus' ? vaultOpen : []),
@@ -157,11 +151,11 @@ export function LpModule() {
 	)
 
 	const positionsTabCount = useMemo(() => {
-		const clmmFiltered = clmmActive.filter((p) => filter === 'all' || p.protocol === filter)
+		const clmmFiltered = clmmOpen.filter((p) => filter === 'all' || p.protocol === filter)
 		const af =
 			filter === 'all' || filter === 'aftermath' ? aftermathOpen.length : 0
 		return clmmFiltered.length + af
-	}, [clmmActive, aftermathOpen, filter])
+	}, [clmmOpen, aftermathOpen, filter])
 
 	const closedFilteredCount = useMemo(
 		() =>
@@ -177,6 +171,7 @@ export function LpModule() {
 		return ''
 	}, [closed.length, closedFilteredCount])
 
+	const clmmFiltered = clmmOpen.filter((p) => filter === 'all' || p.protocol === filter)
 	const showClmmSection = filter !== 'aftermath'
 	const showSkeleton = isLoading && open.length === 0 && closed.length === 0 && !isLoadingClosed
 
@@ -254,23 +249,20 @@ export function LpModule() {
 						<>
 							<h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-slate-500">
 								Open positions
-								{clmmActive.length > 0
-									? ` (${clmmActive.filter((p) => filter === 'all' || p.protocol === filter).length})`
-									: ''}
+								{clmmFiltered.length > 0 ? ` (${clmmFiltered.length})` : ''}
 							</h2>
-							{clmmActive.length === 0 ? (
+							{clmmFiltered.length === 0 ? (
 								<p className="text-slate-500">No open LP positions.</p>
 							) : (
 								<>
-									<LpSummaryStrip positions={clmmActive} protocolFilter={filter} />
+									<LpSummaryStrip positions={clmmOpen} protocolFilter={filter} />
 									<OpenPositionsTable
-										allOpen={clmmActive}
+										allOpen={clmmOpen}
 										protocolFilter={filter}
 										openDigestByPosId={openDigestByPosId}
 									/>
 								</>
 							)}
-							<EmptyLpPositionsSection positions={clmmEmpty} protocolFilter={filter} />
 						</>
 					) : null}
 
