@@ -1,6 +1,11 @@
 import { TickMath } from '@mmt-finance/clmm-sdk'
 import { describe, expect, it } from 'vitest'
-import { clmmRangeFromOpenPosition, rangeEdgePercentVsPrice, rangePriceToVisualPercent } from './tickPriceRange'
+import {
+	clmmRangeFromOpenPosition,
+	onRangeEdgeLabel,
+	rangeEdgePercentVsPrice,
+	rangePriceToVisualPercent,
+} from './tickPriceRange'
 
 describe('clmmRangeFromOpenPosition', () => {
 	it('дає position01 біля 0.5 для центру range (tick 0 у [-100,100], SUI/USDC decimals)', () => {
@@ -60,6 +65,14 @@ describe('clmmRangeFromOpenPosition', () => {
 		expect(r!.priceCurrent).toBe(2)
 		expect(r!.position01).toBeCloseTo(0.5, 5)
 		expect(r!.inRange).toBe(true)
+	})
+})
+
+describe('onRangeEdgeLabel', () => {
+	it('marks a position closer than 0.5% to a bound', () => {
+		expect(onRangeEdgeLabel(-2, 0.4, true)).toBe('на межі')
+		expect(onRangeEdgeLabel(-0.5, 4, true)).toBeNull()
+		expect(onRangeEdgeLabel(-0.2, 0.2, false)).toBeNull()
 	})
 })
 

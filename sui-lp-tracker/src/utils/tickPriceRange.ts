@@ -116,6 +116,20 @@ function positionInRange(p: {
 	return band != null ? band === 'in' : p.status === 'in_range'
 }
 
+/** Closer than this percent of spot to either bound, the position is marked on the edge. */
+export const ON_EDGE_PCT = 0.5
+
+/** Visible label while still inside the band and nearer than {@link ON_EDGE_PCT} to a bound. */
+export function onRangeEdgeLabel(
+	pctMinVsCurrent: number,
+	pctMaxVsCurrent: number,
+	inRange: boolean,
+): string | null {
+	if (!inRange) return null
+	const nearest = Math.min(Math.abs(pctMinVsCurrent), Math.abs(pctMaxVsCurrent))
+	return nearest < ON_EDGE_PCT ? 'на межі' : null
+}
+
 /** Min/max абсолютна ціна vs поточна, % — (price/priceCurrent − 1) × 100 (ідикатор «відносно поточної» в тултіпі). */
 export function rangeEdgePctVsCurrent(
 	r: ClmmRangeDisplay,

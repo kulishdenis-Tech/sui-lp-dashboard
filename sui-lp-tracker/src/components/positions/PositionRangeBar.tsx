@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import {
 	clmmRangeFromOpenPosition,
+	onRangeEdgeLabel,
 	rangeEdgePctVsCurrent,
 	rangePriceToVisualPercent,
 } from '@/utils/tickPriceRange'
@@ -168,6 +169,16 @@ function ClmmPositionRangeBar({
 		],
 	)
 
+	const edgeLabel =
+		range && barTone !== 'out'
+			? onRangeEdgeLabel(
+					rangeEdgePctVsCurrent(range).pctMinVsCurrent,
+					rangeEdgePctVsCurrent(range).pctMaxVsCurrent,
+					true,
+				)
+			: null
+	const statusLabel = edgeLabel ? `${style.statusLabel} · ${edgeLabel}` : style.statusLabel
+
 	const tooltipContent = useMemo(() => {
 		if (!range) return null
 		const { pctMinVsCurrent, pctMaxVsCurrent } = rangeEdgePctVsCurrent(range)
@@ -177,7 +188,7 @@ function ClmmPositionRangeBar({
 					<p
 						className={`text-center text-[11px] font-semibold uppercase tracking-wide ${style.statusCls}`}
 					>
-						{style.statusLabel}
+						{statusLabel}
 					</p>
 					<p className="mt-0.5 text-center text-[10px] text-slate-500">
 						price in <span className="text-slate-400">{range.priceLabel}</span>
@@ -199,7 +210,7 @@ function ClmmPositionRangeBar({
 				</div>
 			</div>
 		)
-	}, [range, style.statusCls, style.statusLabel])
+	}, [range, style.statusCls, statusLabel])
 
 	if (!range) {
 		return (
@@ -212,9 +223,9 @@ function ClmmPositionRangeBar({
 	const thumbLeftPct = rangePriceToVisualPercent(range.priceMin, range.priceMax, range.priceCurrent)
 	const aria =
 		barTone === 'active'
-			? `In range. Current ${fmtNum(range.priceCurrent)} between min ${fmtNum(range.priceMin)} and max ${fmtNum(range.priceMax)}`
+			? `${statusLabel}. Current ${fmtNum(range.priceCurrent)} between min ${fmtNum(range.priceMin)} and max ${fmtNum(range.priceMax)}`
 			: barTone === 'empty'
-				? `Empty position band. Current ${fmtNum(range.priceCurrent)} between min ${fmtNum(range.priceMin)} and max ${fmtNum(range.priceMax)}`
+				? `${statusLabel}. Current ${fmtNum(range.priceCurrent)} between min ${fmtNum(range.priceMin)} and max ${fmtNum(range.priceMax)}`
 				: `Out of range. Current ${fmtNum(range.priceCurrent)}; band ${fmtNum(range.priceMin)}–${fmtNum(range.priceMax)}`
 
 	return (
@@ -262,6 +273,9 @@ function ClmmPositionRangeBar({
 					</div>
 				</div>
 			</Tooltip>
+			{edgeLabel ? (
+				<p className="mt-0.5 text-center text-[10px] font-medium text-amber-200">{edgeLabel}</p>
+			) : null}
 		</div>
 	)
 }
