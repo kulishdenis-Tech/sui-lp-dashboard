@@ -30,6 +30,12 @@ import {
 	recordAdvisorSnapshotSuccess,
 } from '@/services/server/advisorSnapshotCache'
 import {
+	getAdvisorCurrentCashflowCache,
+	isAdvisorCurrentCashflowCacheFresh,
+	recordAdvisorCurrentCashflowCache,
+	type AdvisorCurrentCashflowPayload,
+} from '@/services/server/advisorCurrentCashflowCache'
+import {
 	isSuiReadProfilingEnabled,
 	logSuiReadProfile,
 	resetSuiReadProfile,
@@ -523,27 +529,61 @@ export async function buildAdvisorState(): Promise<AdvisorState> {
 	})
 }
 
-export async function buildAdvisorCurrentCashflow(): Promise<{
-	timestamp: string
-	wallet: string
-	rpcSource: import('@/services/portfolioReadRpcSource').PortfolioReadRpcSource
-	rpcSourceReason?: string | null
-	cashflowUsd: import('@/types').LendingCashflowUsd | null | undefined
-	supplies: SupplyPosition[]
-	borrows: BorrowPosition[]
-}> {
+export async function buildAdvisorCurrentCashflow(options?: {
+	forceRefresh?: boolean
+}): Promise<
+	AdvisorCurrentCashflowPayload & {
+		readStale?: boolean
+		lastSuccessAtMs?: number
+		metricsLive?: boolean
+		loadError?: string
+	}
+> {
+	const cached = getAdvisorCurrentCashflowCache()
+	if (cached && !options?.forceRefresh && isAdvisorCurrentCashflowCacheFresh()) {
+		return {
+			...cached.payload,
+			lastSuccessAtMs: cached.savedAtMs,
+			readStale: false,
+			metricsLive: true,
+		}
+	}
+
 	resetPortfolioReadRpcSource()
 	await ensurePortfolioReadTransportReady()
 	const wallet = normalizeSuiAddress(ADVISOR_WALLET).toLowerCase()
-	const snap = await getCurrentPositions(wallet, { skipCashflow: false })
-	const rpcReason = getPortfolioReadRpcSourceReason()
-	return {
-		timestamp: new Date().toISOString(),
-		wallet,
-		rpcSource: getPortfolioReadRpcSource(),
-		...(rpcReason ? { rpcSourceReason: rpcReason } : {}),
-		cashflowUsd: snap.cashflowUsd ?? null,
-		supplies: snap.supplies,
-		borrows: snap.borrows,
+
+	try {
+		const snap = await getCurrentPositions(wallet, { skipCashflow: false })
+		const rpcReason = getPortfolioReadRpcSourceReason()
+		const savedAtMs = Date.now()
+		const payload: AdvisorCurrentCashflowPayload = {
+			timestamp: new Date(savedAtMs).toISOString(),
+			wallet,
+			rpcSource: getPortfolioReadRpcSource(),
+			...(rpcReason ? { rpcSourceReason: rpcReason } : {}),
+			cashflowUsd: snap.cashflowUsd ?? null,
+			supplies: snap.supplies,
+			borrows: snap.borrows,
+		}
+		recordAdvisorCurrentCashflowCache(payload, savedAtMs)
+		return {
+			...payload,
+			lastSuccessAtMs: savedAtMs,
+			readStale: false,
+			metricsLive: true,
+		}
+	} catch (e) {
+		const msg = errMsg(e)
+		if (cached) {
+			return {
+				...cached.payload,
+				lastSuccessAtMs: cached.savedAtMs,
+				readStale: true,
+				metricsLive: false,
+				loadError: msg,
+			}
+		}
+		throw e
 	}
 }

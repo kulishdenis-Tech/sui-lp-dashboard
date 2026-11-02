@@ -485,6 +485,10 @@ export interface LendingCashflowUsd {
 	borrowInterestUSD: number
 	/** Claimed liquidity-mining rewards, USD at the claim. */
 	claimedRewardsUSD: number
+	/** Pending claimable LM rewards at spot (included in resultUSD). */
+	unclaimedRewardsUSD: number
+	/** Supply interest − borrow interest + claimed rewards (excludes unclaimed). */
+	realizedUSD: number
 	/** Supply interest − borrow interest + claimed rewards + unclaimed rewards. */
 	resultUSD: number
 	/** A claimed reward fell back to the current spot price. */
