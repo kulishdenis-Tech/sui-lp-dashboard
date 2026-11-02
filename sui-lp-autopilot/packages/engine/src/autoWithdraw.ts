@@ -720,6 +720,29 @@ const IN_FLIGHT_ATTEMPT_PHASES = new Set([
 	'confirmed',
 ])
 
+/**
+ * A refusal or an unconfirmed withdraw did not empty the position.
+ * Keep the same cycle armed. Only a real zero-liquidity read may complete it.
+ */
+export function resumeWatchingAfterUnsuccessfulWithdraw(
+	rule: AutoWithdrawRule,
+	note: string,
+	now = Date.now(),
+): AutoWithdrawRule {
+	return {
+		...normalizeAutoWithdrawRule(rule),
+		enabled: true,
+		status: 'watching',
+		updatedAtMs: now,
+		activeAttempt: null,
+		pendingAcceptIntent: null,
+		dismissedUntilReentry: false,
+		reentrySeenSinceDismiss: false,
+		lastCheckError: null,
+		uiNote: note,
+	}
+}
+
 /** Stop before submit cancels planned approval; never invents a digest cancel. */
 export function disableBeforeSubmit(rule: AutoWithdrawRule): AutoWithdrawRule {
 	const attempt = rule.activeAttempt

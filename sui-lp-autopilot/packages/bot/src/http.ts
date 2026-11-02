@@ -438,13 +438,20 @@ export function startApi(opts?: {
 					}
 
 					// Allowlist user fields; keep attempt/observation/revision/checks server-owned.
+					const restartStuck =
+						!!existing &&
+						!!rule.enabled &&
+						(existing.status === 'outcome_unknown' ||
+							existing.status === 'needs_attention' ||
+							existing.status === 'confirming')
 					let nextStatus = existing?.status ?? 'watching'
 					if (!rule.enabled) {
 						nextStatus = existing?.status === 'completed' ? 'completed' : 'disabled'
 					} else if (
 						!existing ||
 						existing.status === 'disabled' ||
-						existing.status === 'completed'
+						existing.status === 'completed' ||
+						restartStuck
 					) {
 						nextStatus = 'watching'
 					}
@@ -454,18 +461,25 @@ export function startApi(opts?: {
 						enabled: !!rule.enabled,
 						status: nextStatus,
 						revision: existing?.revision ?? 1,
-						activeAttempt: existing?.activeAttempt ?? null,
+						activeAttempt: restartStuck ? null : (existing?.activeAttempt ?? null),
 						observationSource: existing?.observationSource ?? null,
 						observationFetchedAtMs: existing?.observationFetchedAtMs ?? null,
 						lastSuccessfulCheckAtMs: existing?.lastSuccessfulCheckAtMs ?? null,
-						lastCheckError: existing?.lastCheckError ?? null,
+						lastCheckError: restartStuck ? null : (existing?.lastCheckError ?? null),
 						lastTriggerReason: existing?.lastTriggerReason ?? null,
 						lastCheckedAtMs: existing?.lastCheckedAtMs ?? null,
 						executionPermission:
 							existing?.executionPermission ?? AW_DEFAULT_EXECUTION_PERMISSION,
-						dismissedUntilReentry: existing?.dismissedUntilReentry ?? false,
-						reentrySeenSinceDismiss: existing?.reentrySeenSinceDismiss ?? false,
-						pendingAcceptIntent: existing?.pendingAcceptIntent ?? null,
+						dismissedUntilReentry: restartStuck
+							? false
+							: (existing?.dismissedUntilReentry ?? false),
+						reentrySeenSinceDismiss: restartStuck
+							? false
+							: (existing?.reentrySeenSinceDismiss ?? false),
+						pendingAcceptIntent: restartStuck ? null : (existing?.pendingAcceptIntent ?? null),
+						uiNote: restartStuck
+							? 'Watching restarted. It stays on until liquidity is zero.'
+							: (existing?.uiNote ?? rule.uiNote ?? null),
 					})
 					/* Enable / create still requires on-chain ownership proof. */
 					await assertOwned({

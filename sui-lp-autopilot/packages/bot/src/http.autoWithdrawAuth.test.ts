@@ -122,6 +122,50 @@ describe('auto-withdraw HTTP auth', () => {
 		expect(reuse.status).toBe(401)
 	})
 
+	it('re-enable after Outcome Unknown restarts Watching and drops the stuck attempt', async () => {
+		_resetAuthForTests()
+		const kp = Ed25519Keypair.generate()
+		const owner = kp.toSuiAddress()
+		const seeded = store.upsertAutoWithdrawRule(
+			rule(owner, {
+				enabled: true,
+				status: 'outcome_unknown',
+				revision: 6,
+				activeAttempt: {
+					id: 'att-stuck',
+					startedAtMs: 1,
+					digest: 'MaybeDigest',
+					phase: 'unknown',
+				},
+				uiNote: 'stuck',
+			}),
+		)
+		const nonceRes = await fetch(`${base}/api/auth/nonce?address=${encodeURIComponent(owner)}`)
+		const issued = (await nonceRes.json()) as { nonce: string; message: string }
+		const { signature } = await kp.signPersonalMessage(new TextEncoder().encode(issued.message))
+		const verify = await fetch(`${base}/api/auth/verify`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ address: owner, nonce: issued.nonce, signature }),
+		})
+		const session = (await verify.json()) as { token: string }
+		const put = await fetch(`${base}/api/auto-withdraw`, {
+			method: 'PUT',
+			headers: {
+				'content-type': 'application/json',
+				authorization: `Bearer ${session.token}`,
+			},
+			body: JSON.stringify({
+				rule: { ...seeded, enabled: true, status: 'watching' },
+			}),
+		})
+		expect(put.ok).toBe(true)
+		const body = (await put.json()) as { rule: AutoWithdrawRule }
+		expect(body.rule.enabled).toBe(true)
+		expect(body.rule.status).toBe('watching')
+		expect(body.rule.activeAttempt).toBeNull()
+	})
+
 	it('foreign session cannot change another owner rule', async () => {
 		_resetAuthForTests()
 		const ownerKp = Ed25519Keypair.generate()

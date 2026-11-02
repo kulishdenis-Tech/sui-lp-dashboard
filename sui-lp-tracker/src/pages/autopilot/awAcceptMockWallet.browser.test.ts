@@ -148,7 +148,8 @@ async function runAcceptWalletApproval(input: {
 	if (outcome.kind === 'unknown') {
 		const next = {
 			...live!,
-			status: 'outcome_unknown' as const,
+			enabled: true,
+			status: 'confirming' as const,
 			activeAttempt: {
 				...live!.activeAttempt!,
 				digest: outcome.digest ?? null,
@@ -169,8 +170,13 @@ async function runAcceptWalletApproval(input: {
 			walletRequests,
 			submits: 1,
 			progress,
-			message: 'Withdrawal failed on-chain.',
-			rule: live,
+			message: 'Withdrawal failed on-chain. Watching stays on because liquidity was not removed.',
+			rule: {
+				...live!,
+				enabled: true,
+				status: 'watching',
+				activeAttempt: null,
+			},
 		}
 	}
 	progress.push('Completed')
@@ -244,6 +250,8 @@ describe('Accept mock wallet browser flow (no real txs)', () => {
 		expect(out.submits).toBe(0)
 		expect(executeFn).not.toHaveBeenCalled()
 		expect(out.message).toBe(walletRejectMessage())
+		expect(out.rule?.enabled).toBe(true)
+		expect(out.rule?.status).toBe('awaiting_approval')
 	})
 
 	it('expiry while waiting for wallet → zero submit', async () => {
@@ -291,7 +299,7 @@ describe('Accept mock wallet browser flow (no real txs)', () => {
 		expect(executeFn.mock.calls.length).toBe(1)
 	})
 
-	it('unknown outcome survives reload and does not invent a new Withdraw', async () => {
+	it('unconfirmed submit stays enabled and does not send a second withdraw for the same attempt', async () => {
 		executeFn.mockResolvedValueOnce({ kind: 'unknown', digest: '0xmaybe' })
 		const out = await runAcceptWalletApproval({
 			rule: rule(),
@@ -304,13 +312,15 @@ describe('Accept mock wallet browser flow (no real txs)', () => {
 			payloadsMatch: (a, b) => a === b,
 		})
 		expect(out.submits).toBe(1)
-		expect(out.rule?.status).toBe('outcome_unknown')
+		expect(out.rule?.enabled).toBe(true)
+		expect(out.rule?.status).toBe('confirming')
 		expect(out.rule?.activeAttempt?.phase).toBe('unknown')
 		expect(out.rule?.activeAttempt?.digest).toBe('0xmaybe')
 
 		const raw = persistUnknown(out.rule!)
 		const restored = restoreAfterReload(raw)
-		expect(restored.status).toBe('outcome_unknown')
+		expect(restored.enabled).toBe(true)
+		expect(restored.status).toBe('confirming')
 		expect(restored.activeAttempt?.digest).toBe('0xmaybe')
 
 		/* Reload must not start a second submit for the same attempt. */

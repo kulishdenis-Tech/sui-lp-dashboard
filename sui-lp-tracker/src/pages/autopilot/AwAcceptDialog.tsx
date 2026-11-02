@@ -416,7 +416,9 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 					clientOutcome: 'failed',
 					errorMessage: txOutcome.errorMessage ?? 'Withdrawal failed on-chain.',
 				})
-				setMessage(txOutcome.errorMessage ?? 'Withdrawal failed on-chain.')
+				setMessage(
+					'Withdrawal failed on-chain. Watching stays on because liquidity was not removed.',
+				)
 				setPhase('result')
 				setBusy(false)
 				return

@@ -191,7 +191,7 @@ describe('applyAwAttemptReport', () => {
 		expect(badRev.ok).toBe(false)
 	})
 
-	it('marks transport unknown without inventing completed', () => {
+	it('keeps Watching armed when transport outcome is unknown', () => {
 		const r = applyAwAttemptReport(rule(), {
 			attemptId: 'att-1',
 			positionId: POS,
@@ -205,9 +205,30 @@ describe('applyAwAttemptReport', () => {
 		})
 		expect(r.ok).toBe(true)
 		if (!r.ok) return
-		expect(r.rule.status).toBe('outcome_unknown')
+		expect(r.rule.enabled).toBe(true)
+		expect(r.rule.status).toBe('confirming')
 		expect(r.rule.activeAttempt?.phase).toBe('unknown')
 		expect(r.rule.status).not.toBe('completed')
+	})
+
+	it('keeps Watching armed when the chain reports failure', () => {
+		const r = applyAwAttemptReport(rule(), {
+			attemptId: 'att-1',
+			positionId: POS,
+			owner: OWNER,
+			network: 'mainnet',
+			cycleId: 'cyc-1',
+			revision: 3,
+			payloadSha256: 'hash-abc',
+			digest: '0xfail',
+			clientOutcome: 'failed',
+			errorMessage: 'Move abort',
+		})
+		expect(r.ok).toBe(true)
+		if (!r.ok) return
+		expect(r.rule.enabled).toBe(true)
+		expect(r.rule.status).toBe('watching')
+		expect(r.rule.activeAttempt).toBeNull()
 	})
 })
 
@@ -228,7 +249,19 @@ describe('applyAwAttemptReconcile', () => {
 		const pending = applyAwAttemptReconcile(base, { kind: 'pending', digest: '0xdigest' })
 		expect(pending.ok).toBe(true)
 		if (!pending.ok) return
-		expect(pending.rule.status).toBe('outcome_unknown')
+		expect(pending.rule.enabled).toBe(true)
+		expect(pending.rule.status).toBe('confirming')
+
+		const failed = applyAwAttemptReconcile(base, {
+			kind: 'failed',
+			digest: '0xdigest',
+			errorMessage: 'aborted',
+		})
+		expect(failed.ok).toBe(true)
+		if (!failed.ok) return
+		expect(failed.rule.enabled).toBe(true)
+		expect(failed.rule.status).toBe('watching')
+		expect(failed.rule.activeAttempt).toBeNull()
 
 		const done = applyAwAttemptReconcile(base, { kind: 'success', digest: '0xdigest' })
 		expect(done.ok).toBe(true)

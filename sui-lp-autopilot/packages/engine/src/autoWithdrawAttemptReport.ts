@@ -4,6 +4,7 @@
  */
 import {
 	normalizeAutoWithdrawRule,
+	resumeWatchingAfterUnsuccessfulWithdraw,
 	type AutoWithdrawAttempt,
 	type AutoWithdrawRule,
 } from './autoWithdraw.js'
@@ -139,13 +140,11 @@ export function applyAwAttemptReport(
 		case 'failed': {
 			return {
 				ok: true,
-				rule: normalizeAutoWithdrawRule({
-					...withAttempt(rule, { phase: 'aborted', digest }),
-					status: 'needs_attention',
-					enabled: false,
-					pendingAcceptIntent: null,
-					uiNote: input.errorMessage ?? 'Withdrawal failed on-chain.',
-				}),
+				rule: resumeWatchingAfterUnsuccessfulWithdraw(
+					rule,
+					input.errorMessage ??
+						'Withdrawal failed on-chain. Watching stays on because liquidity was not removed.',
+				),
 			}
 		}
 		case 'unknown': {
@@ -153,12 +152,11 @@ export function applyAwAttemptReport(
 				ok: true,
 				rule: normalizeAutoWithdrawRule({
 					...withAttempt(rule, { phase: 'unknown', digest }),
-					status: 'outcome_unknown',
-					enabled: false,
-					pendingAcceptIntent: null,
+					status: 'confirming',
+					enabled: true,
 					uiNote:
 						input.errorMessage ??
-						'Transaction status is not confirmed yet. Reconciling on-chain result.',
+						'Withdrawal is not confirmed. Watching stays on until liquidity is zero.',
 				}),
 			}
 		}
@@ -236,10 +234,9 @@ export function applyAwAttemptReconcile(
 					phase: 'unknown',
 					digest: chain.digest ?? attempt.digest,
 				}),
-				status: 'outcome_unknown',
-				enabled: false,
-				pendingAcceptIntent: null,
-				uiNote: 'Still reconciling on-chain result. No new withdraw will be sent.',
+				status: 'confirming',
+				enabled: true,
+				uiNote: 'Withdrawal is not confirmed. Watching stays on until liquidity is zero.',
 			}),
 		}
 	}
@@ -266,13 +263,11 @@ export function applyAwAttemptReconcile(
 	if (chain.kind === 'failed') {
 		return {
 			ok: true,
-			rule: normalizeAutoWithdrawRule({
-				...withAttempt(rule, { phase: 'aborted', digest: expected }),
-				status: 'needs_attention',
-				enabled: false,
-				pendingAcceptIntent: null,
-				uiNote: chain.errorMessage ?? 'Withdrawal failed on-chain.',
-			}),
+			rule: resumeWatchingAfterUnsuccessfulWithdraw(
+				rule,
+				chain.errorMessage ??
+					'Withdrawal failed on-chain. Watching stays on because liquidity was not removed.',
+			),
 		}
 	}
 

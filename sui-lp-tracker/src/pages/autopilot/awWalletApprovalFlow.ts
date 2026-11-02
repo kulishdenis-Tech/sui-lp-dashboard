@@ -165,7 +165,7 @@ export function assertPostWalletSubmitAllowed(input: {
 		return {
 			ok: false,
 			code: 'ALREADY_SUBMITTED',
-			message: 'The transaction status is not confirmed yet. We are checking it.',
+			message: 'The withdrawal was not confirmed. Watching stays on until liquidity is actually zero.',
 			submittedAmbiguous: true,
 		}
 	}
@@ -207,7 +207,7 @@ export function conditionGoneMessage(): string {
 }
 
 export function unknownOutcomeMessage(): string {
-	return 'The transaction status is not confirmed yet. We are checking it.'
+	return 'The withdrawal was not confirmed. Watching stays on until liquidity is actually zero.'
 }
 
 export function markRuleCompletedAfterWithdraw(rule: AutoWithdrawRule, digest: string): AutoWithdrawRule {

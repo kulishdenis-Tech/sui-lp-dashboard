@@ -267,6 +267,64 @@ describe('autoWithdrawMonitor', () => {
 		expect(r.lastCheckError).toMatch(/exact object read/i)
 	})
 
+	it('restores Watching when an unresolved attempt still has liquidity', async () => {
+		const s = store()
+		const owner = '0x' + '11'.repeat(32)
+		s.upsertAutoWithdrawRule(
+			baseRule({
+				owner,
+				enabled: true,
+				status: 'outcome_unknown',
+				revision: 4,
+				activeAttempt: {
+					id: 'att-stuck',
+					startedAtMs: 1,
+					digest: 'MaybeDigest',
+					phase: 'unknown',
+					payloadSha256: 'h',
+					cycleId: 'cycle-1',
+					revision: 4,
+				},
+			}),
+		)
+		await evaluateAutoWithdrawRules({
+			store: s,
+			listPositions: async () => [listed({ owner, liquidityRaw: '1000', markUsdcPerSui: 1.5 })],
+			now: () => Date.now(),
+		})
+		const r = s.getAutoWithdrawRule('0xpos1')!
+		expect(r.enabled).toBe(true)
+		expect(r.status).toBe('watching')
+		expect(r.activeAttempt).toBeNull()
+	})
+
+	it('completes an unresolved attempt only when liquidity is zero', async () => {
+		const s = store()
+		const owner = '0x' + '11'.repeat(32)
+		s.upsertAutoWithdrawRule(
+			baseRule({
+				owner,
+				enabled: true,
+				status: 'outcome_unknown',
+				revision: 4,
+				activeAttempt: {
+					id: 'att-stuck',
+					startedAtMs: 1,
+					digest: 'MaybeDigest',
+					phase: 'unknown',
+				},
+			}),
+		)
+		await evaluateAutoWithdrawRules({
+			store: s,
+			listPositions: async () => [listed({ owner, liquidityRaw: '0' })],
+			now: () => Date.now(),
+		})
+		const r = s.getAutoWithdrawRule('0xpos1')!
+		expect(r.enabled).toBe(false)
+		expect(r.status).toBe('completed')
+	})
+
 	it('exact empty read completes without Auto Withdraw attribution', async () => {
 		const s = store()
 		const owner = '0x' + '11'.repeat(32)

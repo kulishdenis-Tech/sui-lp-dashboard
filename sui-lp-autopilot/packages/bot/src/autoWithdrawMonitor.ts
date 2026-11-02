@@ -10,6 +10,7 @@ import {
 	AUTO_WITHDRAW_MAX_OBS_AGE_MS,
 	evaluateAutoWithdrawTrigger,
 	markPastBound,
+	resumeWatchingAfterUnsuccessfulWithdraw,
 	transitionToAwaitingApproval,
 	type AutoWithdrawPositionSnapshot,
 	type AutoWithdrawRule,
@@ -158,14 +159,32 @@ function toSnapshot(
 	}
 }
 
+const LIQUIDITY_STILL_THERE =
+	'Withdrawal was not confirmed and liquidity is still in the position. Watching stays on.'
+
+/** Stuck after a refusal or an unconfirmed submit. A positive liquidity read may resume it. */
+function unresolvedWithdraw(rule: AutoWithdrawRule): boolean {
+	return (
+		rule.status === 'outcome_unknown' ||
+		rule.status === 'needs_attention' ||
+		rule.status === 'confirming'
+	)
+}
+
+/** Digits only. Blank or malformed is unknown — never treat it as an emptied position. */
+function liquidityDigits(raw: string | null | undefined): 'zero' | 'positive' | 'unknown' {
+	if (raw == null || !/^\d+$/.test(raw)) return 'unknown'
+	return BigInt(raw) === 0n ? 'zero' : 'positive'
+}
+
 function monitorable(rule: AutoWithdrawRule): boolean {
 	if (!rule.enabled) return false
 	if (rule.status === 'completed' || rule.status === 'disabled') return false
-	if (rule.status === 'submitting' || rule.status === 'confirming') return false
-	if (rule.status === 'outcome_unknown' || rule.status === 'needs_attention') return false
-	if (rule.status === 'paused') return false
+	if (rule.status === 'paused' || rule.status === 'submitting') return false
+	// Confirming / Outcome Unknown stay in the loop so non-zero liquidity can restore Watching.
+	if (unresolvedWithdraw(rule)) return true
 	const phase = rule.activeAttempt?.phase
-	// Do not overwrite in-flight / reconciling attempts with a fresh Watching tick.
+	// Do not overwrite an in-flight wallet submit with a fresh Watching tick.
 	if (
 		phase === 'signed' ||
 		phase === 'submitted' ||
@@ -334,6 +353,20 @@ export async function evaluateAutoWithdrawRules(opts: MonitorOptions): Promise<{
 				}
 				const liq = exact.liquidityRaw ?? ''
 				const emptyLiq = liq === '' || liq === '0' || /^0+$/.test(liq)
+				if (!emptyLiq && unresolvedWithdraw(rule) && liquidityDigits(liq) === 'positive') {
+					const written = opts.store.casUpdateAutoWithdrawRule(rule.positionId, expected, (cur) =>
+						unresolvedWithdraw(cur)
+							? resumeWatchingAfterUnsuccessfulWithdraw(cur, LIQUIDITY_STILL_THERE, now)
+							: cur,
+					)
+					if (written) {
+						checked += 1
+						log(
+							`[auto-withdraw] watching restored pos=${rule.positionId.slice(0, 10)}… liquidity still present`,
+						)
+					} else skipped += 1
+					continue
+				}
 				if (emptyLiq) {
 					const written = opts.store.casUpdateAutoWithdrawRule(rule.positionId, expected, (cur) =>
 						applyManualEmptyCompletion(cur),
@@ -372,8 +405,25 @@ export async function evaluateAutoWithdrawRules(opts: MonitorOptions): Promise<{
 			}
 
 			const snap = toSnapshot(rule, pos, now, maxAge)
+			const liqState = liquidityDigits(snap.liquidityRaw)
+			if (unresolvedWithdraw(rule) && liqState === 'zero') {
+				const written = opts.store.casUpdateAutoWithdrawRule(rule.positionId, expected, (cur) =>
+					unresolvedWithdraw(cur) ? applyManualEmptyCompletion(cur) : cur,
+				)
+				if (written) {
+					checked += 1
+					log(
+						`[auto-withdraw] completed pos=${rule.positionId.slice(0, 10)}… liquidity is zero`,
+					)
+				} else skipped += 1
+				continue
+			}
+			const evalRule =
+				unresolvedWithdraw(rule) && liqState === 'positive'
+					? resumeWatchingAfterUnsuccessfulWithdraw(rule, LIQUIDITY_STILL_THERE, now)
+					: rule
 			const verdict = evaluateAutoWithdrawTrigger({
-				rule,
+				rule: evalRule,
 				snap,
 				expectedOwner: rule.owner,
 				now,
@@ -381,12 +431,27 @@ export async function evaluateAutoWithdrawRules(opts: MonitorOptions): Promise<{
 			})
 
 			const written = opts.store.casUpdateAutoWithdrawRule(rule.positionId, expected, (cur) => {
+				let base = cur
+				if (unresolvedWithdraw(cur)) {
+					const liveLiq = liquidityDigits(snap.liquidityRaw)
+					if (liveLiq === 'zero') return applyManualEmptyCompletion(cur)
+					if (liveLiq !== 'positive') {
+						return {
+							...cur,
+							enabled: true,
+							status: 'confirming',
+							updatedAtMs: now,
+							uiNote: 'Withdrawal is not confirmed. Watching stays on until liquidity is zero.',
+						}
+					}
+					base = resumeWatchingAfterUnsuccessfulWithdraw(cur, LIQUIDITY_STILL_THERE, now)
+				}
 				const dismissed =
-					cur.dismissedUntilReentry === true || cur.status === 'dismissed_until_reentry'
+					base.dismissedUntilReentry === true || base.status === 'dismissed_until_reentry'
 				const mark =
 					snap.markUsdcPerSui != null &&
 					markPastBound(
-						cur.direction,
+						base.direction,
 						snap.markUsdcPerSui,
 						snap.rangeLowerUsdcPerSui,
 						snap.rangeUpperUsdcPerSui,
@@ -394,16 +459,16 @@ export async function evaluateAutoWithdrawRules(opts: MonitorOptions): Promise<{
 				const inRange = snap.markUsdcPerSui != null && !mark
 
 				if (dismissed) {
-					if (verdict.ok && cur.reentrySeenSinceDismiss) {
+					if (verdict.ok && base.reentrySeenSinceDismiss) {
 						return {
-							...transitionToAwaitingApproval(cur, verdict.reason, now),
+							...transitionToAwaitingApproval(base, verdict.reason, now),
 							observationSource: snap.source ?? null,
 							observationFetchedAtMs: snap.fetchedAtMs ?? now,
 							revision: cur.revision,
 						}
 					}
 					return {
-						...applyDismissedMonitorTick(cur, {
+						...applyDismissedMonitorTick(base, {
 							markPast: mark,
 							inRange,
 							reason: verdict.reason,
@@ -417,19 +482,22 @@ export async function evaluateAutoWithdrawRules(opts: MonitorOptions): Promise<{
 
 				if (verdict.ok) {
 					return {
-						...transitionToAwaitingApproval(cur, verdict.reason, now),
+						...transitionToAwaitingApproval(base, verdict.reason, now),
 						observationSource: snap.source ?? null,
 						observationFetchedAtMs: snap.fetchedAtMs ?? now,
 						revision: cur.revision,
 					}
 				}
 				// Price back in range / not converted → Watching (clears prior Condition Met).
-				return applySuccessfulWatchingCheck(cur, {
-					reason: verdict.reason,
-					now,
-					source: snap.source,
-					fetchedAtMs: snap.fetchedAtMs,
-				})
+				return {
+					...applySuccessfulWatchingCheck(base, {
+						reason: verdict.reason,
+						now,
+						source: snap.source,
+						fetchedAtMs: snap.fetchedAtMs,
+					}),
+					revision: cur.revision,
+				}
 			})
 
 			if (!written) {
