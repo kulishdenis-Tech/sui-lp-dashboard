@@ -1,10 +1,9 @@
 ﻿param(
-	[Parameter(Mandatory = $true)]
-	[string]$Root
+	[string]$Root = (Split-Path -Parent $PSScriptRoot)
 )
 
 $ErrorActionPreference = 'Stop'
-$Root = (Resolve-Path $Root).Path
+$Root = (Resolve-Path -LiteralPath $Root).Path
 Set-Location $Root
 
 $Tracker = Join-Path $Root 'sui-lp-tracker'
