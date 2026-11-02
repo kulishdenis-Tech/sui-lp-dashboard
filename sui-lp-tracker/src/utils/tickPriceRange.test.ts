@@ -70,7 +70,7 @@ describe('clmmRangeFromOpenPosition', () => {
 
 describe('onRangeEdgeLabel', () => {
 	it('marks a position closer than 0.5% to a bound', () => {
-		expect(onRangeEdgeLabel(-2, 0.4, true)).toBe('на межі')
+		expect(onRangeEdgeLabel(-2, 0.4, true)).toBe('At edge')
 		expect(onRangeEdgeLabel(-0.5, 4, true)).toBeNull()
 		expect(onRangeEdgeLabel(-0.2, 0.2, false)).toBeNull()
 	})

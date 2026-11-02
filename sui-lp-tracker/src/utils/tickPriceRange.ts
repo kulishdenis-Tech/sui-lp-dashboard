@@ -127,7 +127,7 @@ export function onRangeEdgeLabel(
 ): string | null {
 	if (!inRange) return null
 	const nearest = Math.min(Math.abs(pctMinVsCurrent), Math.abs(pctMaxVsCurrent))
-	return nearest < ON_EDGE_PCT ? 'на межі' : null
+	return nearest < ON_EDGE_PCT ? 'At edge' : null
 }
 
 /** Min/max абсолютна ціна vs поточна, % — (price/priceCurrent − 1) × 100 (ідикатор «відносно поточної» в тултіпі). */
