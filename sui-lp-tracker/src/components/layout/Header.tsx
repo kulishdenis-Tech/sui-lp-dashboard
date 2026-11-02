@@ -12,6 +12,7 @@ import {
 	appHeaderActionCluster,
 	appHeaderSurface,
 } from '@/design/appPrimitives'
+import { appBuildDateTooltip, formatAppVersionLabel } from '@/config/appBuildInfo'
 
 export function Header() {
 	const { isConnected, address } = useWalletAuth()
@@ -69,6 +70,12 @@ export function Header() {
 							role="group"
 							aria-label="Portfolio refresh actions"
 						>
+							<span
+								className="shrink-0 text-xs tabular-nums text-slate-500"
+								title={appBuildDateTooltip()}
+							>
+								{formatAppVersionLabel()}
+							</span>
 							<button
 								type="button"
 								className={`${appBtnSecondaryCompact} ${appBtnDisabled} shrink-0`}

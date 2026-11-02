@@ -29,7 +29,7 @@ describe('multiply cache per wallet', () => {
 			tickLower: 0,
 			tickUpper: 0,
 			status: 'out_of_range',
-		} as OpenPosition
+		} as unknown as OpenPosition
 
 		_seedMultiplyCacheForTests(WALLET_A, [rowA], Date.now() - 60_000)
 

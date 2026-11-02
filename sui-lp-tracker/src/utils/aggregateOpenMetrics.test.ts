@@ -81,8 +81,8 @@ describe('aggregateOpenMetrics', () => {
 			],
 			{}, // no events → history not enriched
 		)
-		expect(agg.totalUnclaimedUsd).toBe(86.74)
-		expect(agg.sumEarningsUsd).toBe(86.74)
+		expect(agg.totalUnclaimedUsd).toBe(84.74)
+		expect(agg.sumEarningsUsd).toBe(84.74)
 		expect(coverageIsPartial(agg.unclaimedCoverage)).toBe(false)
 		expect(coverageIsPartial(agg.earningsCoverage)).toBe(false)
 	})

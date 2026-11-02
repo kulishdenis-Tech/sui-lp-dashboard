@@ -10,7 +10,8 @@ import { ClosedPositionsTable } from '@/components/positions/ClosedPositionsTabl
 import { ClosedSummaryStrip } from '@/components/positions/ClosedSummaryStrip'
 import { AftermathFarmsSection } from '@/components/positions/AftermathFarmsSection'
 import { SkeletonCard } from '@/components/ui/SkeletonCard'
-import { Spinner } from '@/components/ui/Spinner'
+import { EmptyLpPositionsSection } from '@/components/positions/EmptyLpPositionsSection'
+import { splitOpenLpActiveEmpty } from '@/utils/openLpActiveEmpty'
 
 type LpView = 'open' | 'closed'
 
@@ -39,6 +40,10 @@ export function LpModule() {
 		() => open.filter((p) => p.protocol !== 'aftermath'),
 		[open],
 	)
+	const { active: clmmActive, empty: clmmEmpty } = useMemo(
+		() => splitOpenLpActiveEmpty(clmmOpen),
+		[clmmOpen],
+	)
 
 	// Aftermath positions to show in the dedicated section (respects protocol filter).
 	const aftermathVisible = useMemo(
@@ -54,8 +59,8 @@ export function LpModule() {
 		if (view !== 'open') return open.length
 		const clmmFiltered =
 			filter === 'all' || filter === 'aftermath'
-				? clmmOpen.filter((p) => filter === 'all' || p.protocol === filter)
-				: clmmOpen.filter((p) => p.protocol === filter)
+				? clmmActive.filter((p) => filter === 'all' || p.protocol === filter)
+				: clmmActive.filter((p) => p.protocol === filter)
 		return clmmFiltered.length + aftermathVisible.length
 	}, [view, open.length, clmmOpen, aftermathVisible, filter])
 
@@ -122,16 +127,20 @@ export function LpModule() {
 					{showClmmSection ? (
 						<>
 							<h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-slate-500">
-								Open positions{clmmOpen.length > 0 ? ` (${clmmOpen.filter((p) => filter === 'all' || p.protocol === filter).length})` : ''}
+								Open positions
+								{clmmActive.length > 0
+									? ` (${clmmActive.filter((p) => filter === 'all' || p.protocol === filter).length})`
+									: ''}
 							</h2>
-							{clmmOpen.length === 0 ? (
+							{clmmActive.length === 0 ? (
 								<p className="text-slate-500">No open LP positions.</p>
 							) : (
 								<>
-									<LpSummaryStrip positions={clmmOpen} protocolFilter={filter} />
-									<OpenPositionsTable allOpen={clmmOpen} protocolFilter={filter} />
+									<LpSummaryStrip positions={clmmActive} protocolFilter={filter} />
+									<OpenPositionsTable allOpen={clmmActive} protocolFilter={filter} />
 								</>
 							)}
+							<EmptyLpPositionsSection positions={clmmEmpty} protocolFilter={filter} />
 						</>
 					) : null}
 

@@ -2,6 +2,7 @@ import type { LendingSnapshot, NetWorthSnapshot, OpenPosition, TokenBalance } fr
 import { positionValueUsdOrNull, liquidityUsdOrNull } from '@/utils/positionDerivedMetrics'
 import { finiteUsd } from '@/utils/finiteUsd'
 import { splitVerifiedUnverifiedUsd } from '@/utils/advisorStalePolicy'
+import { isEmptyLpPosition } from '@/utils/lpLifecycle'
 
 export type NetWorthLendingSegment = {
 	usd: number
@@ -30,6 +31,7 @@ export function computeNetWorth(
 	let hasUnknownPosition = false
 	const openLpUSD = finiteUsd(
 		openPositions.reduce((s, p) => {
+			if (isEmptyLpPosition(p)) return s
 			const value = positionValueUsdOrNull(p)
 			const liquidity = liquidityUsdOrNull(p)
 			if (value != null) return s + value
@@ -48,7 +50,9 @@ export function computeNetWorth(
 	const totalNetUSD = finiteUsd(walletAssetsUSD + openLpUSD + netLendingUSD)
 	const nowMs = Date.now()
 	const lpSplit = splitVerifiedUnverifiedUsd(
-		openPositions.map((p) => {
+		openPositions
+			.filter((p) => !isEmptyLpPosition(p))
+			.map((p) => {
 			const value = positionValueUsdOrNull(p)
 			const liquidity = liquidityUsdOrNull(p)
 			const usd = value ?? liquidity ?? 0

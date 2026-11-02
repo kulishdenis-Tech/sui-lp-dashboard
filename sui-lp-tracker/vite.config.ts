@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import https from 'node:https'
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
@@ -12,6 +14,25 @@ import { lpCandlesApiPlugin } from './vite-plugin-lp-candles'
 import { poolQuoteApiPlugin } from './vite-plugin-pool-quote'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+const pkg = JSON.parse(readFileSync(path.join(__dirname, 'package.json'), 'utf8')) as { version?: string }
+
+function gitShortHash(): string {
+	try {
+		return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+			encoding: 'utf8',
+			cwd: __dirname,
+		}).trim()
+	} catch {
+		return 'dev'
+	}
+}
+
+const appVersionDefines = {
+	__APP_VERSION__: JSON.stringify(pkg.version ?? '0.0.0'),
+	__GIT_HASH__: JSON.stringify(gitShortHash()),
+	__BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+}
 
 // https://vite.dev/config/
 const DEV_PORT = 5180
@@ -75,6 +96,7 @@ const extHttpsAgent = new https.Agent({
 /** Примітка CSP: вкладені графіки GeckoTerminal iframe з `PositionPoolChart` потребують `frame-src https://www.geckoterminal.com` (+ CDN за потреби у prod). */
 
 export default defineConfig({
+	define: appVersionDefines,
 	plugins: [
 		react(),
 		tailwindcss(),
