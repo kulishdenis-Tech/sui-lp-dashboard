@@ -1,7 +1,5 @@
-import { useMemo, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useLendingPositions } from '@/hooks/useLendingPositions'
-import { useAppStore } from '@/store/appStore'
-import { positionValueUsd } from '@/utils/positionDerivedMetrics'
 import { formatUSD, formatUSDAdaptive, formatPct } from '@/utils/formatting'
 import { SkeletonCard } from '@/components/ui/SkeletonCard'
 import { Tooltip, TooltipIconButton } from '@/components/ui/Tooltip'
@@ -12,23 +10,55 @@ import {
 	appTableHeadRow,
 	appTableHeadLabel,
 	appTableHeadCellDefault,
+	appTableHeadCellInner,
 	appTableTd,
 } from '@/design/appPrimitives'
-import { formatSupplyAprDisplay } from '@/components/lending/supplyAprDisplay'
-import { DataFreshnessHint } from '@/pages/overviewLab/DataFreshnessHint'
-import { computeDefiConcentration, currentAggregateReferenceSegment, type ConcentrationSegment } from '@/utils/defiConcentration'
-import {
-	healthFactorColorClass,
-	healthFactorStatTip,
-	lendingHealthFactorThresholds,
-} from '@/config/lendingHealthFactorThresholds'
+
+function LendingTh({
+	label,
+	align = 'left',
+	className = '',
+	tip,
+	tipAria,
+	invisible,
+}: {
+	label: string
+	align?: 'left' | 'right'
+	className?: string
+	tip?: string
+	tipAria?: string
+	invisible?: boolean
+}) {
+	return (
+		<th
+			className={`${appTableHeadCellDefault} ${align === 'right' ? 'text-right' : 'text-left'} ${className}`}
+			aria-hidden={invisible ? true : undefined}
+		>
+			<div className={`flex w-full ${align === 'right' ? 'justify-end' : 'justify-start'}`}>
+				<span className={`${appTableHeadCellInner}${invisible ? ' invisible' : ''}`}>
+					<span className={appTableHeadLabel}>{label}</span>
+					{tip && tipAria && !invisible ? (
+						<TooltipIconButton tip={tip} aria-label={tipAria} />
+					) : null}
+				</span>
+			</div>
+		</th>
+	)
+}
 import type {
 	BorrowPosition,
-	LendingCashflowUsd,
 	LendingRewardToClaim,
 	LendingSnapshot,
 	SupplyPosition,
 } from '@/types'
+
+// ── Health Factor ──────────────────────────────────────────────────────────
+function hfColor(hf: number) {
+	if (hf <= 0) return 'text-slate-500'
+	if (hf >= 2) return 'text-emerald-400'
+	if (hf >= 1.3) return 'text-yellow-400'
+	return 'text-red-400'
+}
 
 // ── Borrow limit bar (Used / Safe / Liquidation) ──────────────────────────
 /** Half-width of a zone label as % of the bar (12px tabular, ~350px typical). */
@@ -241,7 +271,25 @@ function TipIcon({ tip, label }: { tip: ReactNode; label: string }) {
 }
 
 // ── Shared table columns (Supplied / Borrowed alignment) ───────────────────
-function LendingPositionColgroup({ showLiqColumn }: { showLiqColumn: boolean }) {
+function LendingPositionColgroup({
+	showLiqColumn,
+	showNet,
+}: {
+	showLiqColumn: boolean
+	showNet: boolean
+}) {
+	if (showLiqColumn && showNet) {
+		return (
+			<colgroup>
+				<col style={{ width: '24%' }} />
+				<col style={{ width: '16%' }} />
+				<col style={{ width: '16%' }} />
+				<col style={{ width: '16%' }} />
+				<col style={{ width: '14%' }} />
+				<col style={{ width: '14%' }} />
+			</colgroup>
+		)
+	}
 	if (showLiqColumn) {
 		return (
 			<colgroup>
@@ -250,6 +298,17 @@ function LendingPositionColgroup({ showLiqColumn }: { showLiqColumn: boolean }) 
 				<col style={{ width: '20%' }} />
 				<col style={{ width: '14%' }} />
 				<col style={{ width: '14%' }} />
+			</colgroup>
+		)
+	}
+	if (showNet) {
+		return (
+			<colgroup>
+				<col style={{ width: '28%' }} />
+				<col style={{ width: '18%' }} />
+				<col style={{ width: '18%' }} />
+				<col style={{ width: '18%' }} />
+				<col style={{ width: '18%' }} />
 			</colgroup>
 		)
 	}
@@ -267,7 +326,6 @@ function LendingPositionColgroup({ showLiqColumn }: { showLiqColumn: boolean }) 
 function supplyLiqPriceClass(currentPrice: number, liqPrice: number): string {
 	if (liqPrice <= 0 || currentPrice <= 0) return 'text-slate-500'
 	const ratio = currentPrice / liqPrice
-	// Updated thresholds: 1.05 → critical (HF ~1.2), 1.25 → warning (HF ~1.8)
 	if (ratio < 1.05) return 'text-red-400'
 	if (ratio < 1.25) return 'text-yellow-400'
 	return 'text-slate-300'
@@ -282,20 +340,29 @@ function formatLiqPrice(n: number): string {
 function SupplyRow({
 	s,
 	showLiqPrice,
-	updatedAtMs,
-	metricsLiveStale,
+	showNet,
 }: {
 	s: SupplyPosition
 	showLiqPrice: boolean
-	updatedAtMs?: number | null
-	metricsLiveStale?: boolean
+	showNet: boolean
 }) {
 	const hasBreakdown = !!s.aprBreakdown
 	const currentPrice =
 		s.currentAmount > 0 && s.currentValueUSD > 0 ? s.currentValueUSD / s.currentAmount : 0
 	const liqPrice = s.liquidationPriceUSD
-	const aprDisplay = formatSupplyAprDisplay(s)
-	const aprText = aprDisplay.text
+	const aprText = (
+		<>
+			{formatPct(s.supplyAPR)}
+			{s.aprBreakdown?.rewardReadStatus === 'partial' || s.aprBreakdown?.rewardReadStatus === 'unavailable' ? (
+				<span className="text-amber-400" title="Reward rate is incomplete">*</span>
+			) : null}
+			{(s.supplyRewardAPR ?? 0) > 0 &&
+			s.aprBreakdown?.rewardReadStatus !== 'partial' &&
+			s.aprBreakdown?.rewardReadStatus !== 'unavailable' ? (
+				<span className="ml-1 text-xs text-sky-400">✦</span>
+			) : null}
+		</>
+	)
 	return (
 		<tr className="group">
 			<td className={`${appTableTd} pl-3`}>
@@ -306,15 +373,22 @@ function SupplyRow({
 						chainIconUrl={s.iconUrl ?? undefined}
 					/>
 					<span className="font-medium text-slate-200">{s.asset}</span>
+					{s.venue && <span className="text-xs text-slate-500">{s.venue}</span>}
 				</div>
 			</td>
 			<td className={`${appTableTd} text-right tabular-nums text-slate-300`}>
 				{s.currentAmount.toLocaleString(undefined, { maximumFractionDigits: 3 })}
 			</td>
 			<td className={`${appTableTd} text-right tabular-nums`}>
-				<div>{formatUSD(s.currentValueUSD)}</div>
-				<DataFreshnessHint updatedAtMs={updatedAtMs} className="justify-end" />
+				{formatUSD(s.currentValueUSD)}
 			</td>
+			{showNet && (
+				<td className={`${appTableTd} text-right tabular-nums text-slate-300`}>
+					{s.netDeposited != null
+						? `${s.netDeposited.toLocaleString(undefined, { maximumFractionDigits: 3 })} ${s.asset}`
+						: '—'}
+				</td>
+			)}
 			<td
 				className={`${appTableTd} text-right tabular-nums text-emerald-400${showLiqPrice ? '' : ' pr-3'}`}
 			>
@@ -347,9 +421,7 @@ function SupplyRow({
 							className="inline-flex cursor-help"
 						>
 							<span
-								className={`underline decoration-dashed decoration-slate-600 underline-offset-2 ${
-									metricsLiveStale ? 'text-slate-500' : supplyLiqPriceClass(currentPrice, liqPrice)
-								}`}
+								className={`underline decoration-dashed decoration-slate-600 underline-offset-2 ${supplyLiqPriceClass(currentPrice, liqPrice)}`}
 							>
 								{formatLiqPrice(liqPrice)}
 							</span>
@@ -364,14 +436,27 @@ function SupplyRow({
 }
 
 // ── Borrow row ─────────────────────────────────────────────────────────────
-function BorrowRow({ b, showLiqSpacer }: { b: BorrowPosition; showLiqSpacer: boolean }) {
+function BorrowRow({
+	b,
+	showLiqSpacer,
+	showNet,
+}: {
+	b: BorrowPosition
+	showLiqSpacer: boolean
+	showNet: boolean
+}) {
 	const hasBreakdown = !!b.aprBreakdown
 	const aprText = (
 		<>
 			{formatPct(b.borrowAPR)}
-			{b.borrowRewardAPR > 0 && (
+			{b.aprBreakdown?.rewardReadStatus === 'partial' || b.aprBreakdown?.rewardReadStatus === 'unavailable' ? (
+				<span className="text-amber-400" title="Reward rate is incomplete">*</span>
+			) : null}
+			{(b.borrowRewardAPR ?? 0) > 0 &&
+			b.aprBreakdown?.rewardReadStatus !== 'partial' &&
+			b.aprBreakdown?.rewardReadStatus !== 'unavailable' ? (
 				<span className="ml-1 text-xs text-sky-400">✦</span>
-			)}
+			) : null}
 		</>
 	)
 	return (
@@ -384,6 +469,7 @@ function BorrowRow({ b, showLiqSpacer }: { b: BorrowPosition; showLiqSpacer: boo
 						chainIconUrl={b.iconUrl ?? undefined}
 					/>
 					<span className="font-medium text-slate-200">{b.asset}</span>
+					{b.venue && <span className="text-xs text-slate-500">{b.venue}</span>}
 				</div>
 			</td>
 			<td className={`${appTableTd} text-right tabular-nums text-slate-300`}>
@@ -392,6 +478,13 @@ function BorrowRow({ b, showLiqSpacer }: { b: BorrowPosition; showLiqSpacer: boo
 			<td className={`${appTableTd} text-right tabular-nums`}>
 				{formatUSD(b.currentDebtUSD)}
 			</td>
+			{showNet && (
+				<td className={`${appTableTd} text-right tabular-nums text-slate-300`}>
+					{b.netBorrowed != null
+						? `${b.netBorrowed.toLocaleString(undefined, { maximumFractionDigits: 3 })} ${b.asset}`
+						: '—'}
+				</td>
+			)}
 			<td
 				className={`${appTableTd} text-right tabular-nums text-red-400${showLiqSpacer ? '' : ' pr-3'}`}
 			>
@@ -418,12 +511,31 @@ function BorrowRow({ b, showLiqSpacer }: { b: BorrowPosition; showLiqSpacer: boo
 	)
 }
 
-// ── Shared section sub-label ───────────────────────────────────────────────
-function SubLabel({ children }: { children: ReactNode }) {
+// ── Collapsible asset table under Supplied / Borrowed ─────────────────────
+function CollapsibleRows({ label, children }: { label: string; children: ReactNode }) {
+	const [open, setOpen] = useState(true)
 	return (
-		<p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
-			{children}
-		</p>
+		<div>
+			<button
+				type="button"
+				onClick={() => setOpen((v) => !v)}
+				aria-expanded={open}
+				className={`flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-slate-500 hover:text-slate-300 ${open ? 'mb-2' : ''}`}
+			>
+				<svg
+					className={`h-3 w-3 shrink-0 transition-transform duration-200 ${open ? '' : '-rotate-90'}`}
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					strokeWidth="2"
+					aria-hidden
+				>
+					<polyline points="6 9 12 15 18 9" />
+				</svg>
+				{label}
+			</button>
+			{open ? children : null}
+		</div>
 	)
 }
 
@@ -441,12 +553,12 @@ function StatCard({
 }) {
 	return (
 		<AppCard density="compact" className="h-full">
-			<p className="flex flex-wrap items-center text-[10px] font-medium uppercase tracking-wider text-slate-500">
+			<div className="flex flex-wrap items-center text-[10px] font-medium uppercase tracking-wider text-slate-500">
 				<span className="leading-snug">{label}</span>
 				{tip ? (
 					<TooltipIconButton tip={tip} aria-label={`About ${label}`} className="translate-y-px" />
 				) : null}
-			</p>
+			</div>
 			<p className={`mt-0.5 font-mono tabular-money text-lg ${valueClass}`}>{value}</p>
 		</AppCard>
 	)
@@ -478,10 +590,10 @@ function RewardsStatCard({ rewards }: { rewards: LendingRewardToClaim[] }) {
 
 	return (
 		<AppCard density="compact" className="h-full">
-			<p className="flex flex-wrap items-center text-[10px] font-medium uppercase tracking-wider text-slate-500">
+			<div className="flex flex-wrap items-center text-[10px] font-medium uppercase tracking-wider text-slate-500">
 				<span className="leading-snug">Rewards to Claim</span>
 				<TipIcon tip={tipContent} label="Rewards breakdown" />
-			</p>
+			</div>
 			<p className="mt-0.5 font-mono tabular-money text-lg text-sky-400">{displayValue}</p>
 		</AppCard>
 	)
@@ -490,115 +602,119 @@ function RewardsStatCard({ rewards }: { rewards: LendingRewardToClaim[] }) {
 // ── Protocol header label ──────────────────────────────────────────────────
 function ProtocolLabel({ name }: { name: string }) {
 	return (
-		<p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+		<p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">
 			{name}
 		</p>
 	)
 }
 
-// ── Current venue slices ───────────────────────────────────────────────────
-function sliceCurrentVenue(snap: LendingSnapshot, venue: string): LendingSnapshot {
-	const supplies = snap.supplies.filter((s) => (s.venue ?? 'Unknown') === venue)
-	const borrows = snap.borrows.filter((b) => (b.venue ?? 'Unknown') === venue)
-	const totalSuppliedUSD = supplies.reduce((a, x) => a + x.currentValueUSD, 0)
-	const totalBorrowedUSD = borrows.reduce((a, x) => a + x.currentDebtUSD, 0)
-	return {
-		...snap,
-		supplies,
-		borrows,
-		totalSuppliedUSD,
-		totalBorrowedUSD,
-		netValueUSD: totalSuppliedUSD - totalBorrowedUSD,
-	}
-}
-
-function listCurrentVenues(snap: LendingSnapshot): string[] {
-	const set = new Set<string>()
-	for (const s of snap.supplies) set.add(s.venue ?? 'Unknown')
-	for (const b of snap.borrows) set.add(b.venue ?? 'Unknown')
-	return [...set]
-}
-
-function ConcentrationWarning({ segment }: { segment?: ConcentrationSegment }) {
-	if (!segment?.overLimit || segment.sharePct == null) return null
+function HideUnderOneToggle({
+	checked,
+	onChange,
+}: {
+	checked: boolean
+	onChange: (next: boolean) => void
+}) {
 	return (
-		<p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200/95">
-			Частка {segment.label} {segment.sharePct.toFixed(1)}% перевищує ліміт 15% (база — net DeFi-портфель).
-		</p>
-	)
-}
-
-function DebtExceedsHint({ segment }: { segment?: ConcentrationSegment }) {
-	if (!segment?.debtExceedsDeposit) return null
-	return (
-		<p className="text-[11px] text-slate-500">
-			Частка: — · <span className="text-amber-300/90">борг перевищує депозит</span>
-		</p>
-	)
-}
-
-function CurrentCashflowSummary({ cashflow }: { cashflow: LendingCashflowUsd }) {
-	return (
-		<div className="mb-4 grid gap-2 rounded-lg border border-slate-800/80 bg-slate-900/40 p-3 text-xs sm:grid-cols-3">
-			<div>
-				<span className="text-slate-500">Realized P&amp;L</span>
-				<div className="font-semibold tabular-nums text-slate-200">{formatUSD(cashflow.realizedUSD)}</div>
-			</div>
-			<div>
-				<span className="text-slate-500">Unclaimed rewards</span>
-				<div className="font-semibold tabular-nums text-emerald-400/90">
-					{formatUSD(cashflow.unclaimedRewardsUSD)}
-				</div>
-			</div>
-			<div>
-				<span className="text-slate-500">Total cashflow (v1.1.1)</span>
-				<div className="font-semibold tabular-nums text-slate-200">{formatUSD(cashflow.resultUSD)}</div>
-			</div>
+		<div className="ml-auto flex items-center gap-1.5 text-xs text-slate-400">
+			<label className="inline-flex cursor-pointer items-center gap-1.5">
+				<input
+					type="checkbox"
+					checked={checked}
+					onChange={(e) => onChange(e.target.checked)}
+					className="rounded border-slate-600"
+				/>
+				Hide Positions Below $1
+			</label>
+			<TooltipIconButton
+				tip="Hides supplied and borrowed rows under $1. A protocol whose supplied and borrowed totals are both under $1 is hidden entirely. Header totals stay the same (table filter only)."
+				aria-label="About Hide Positions Below $1"
+				className="text-slate-500"
+			/>
 		</div>
 	)
 }
 
 // ── Single protocol section ────────────────────────────────────────────────
+function collateralLiquidationUSD(snapshot: LendingSnapshot): number {
+	return snapshot.supplies.reduce(
+		(sum, s) => sum + s.currentValueUSD * (s.liquidationThresholdFactor ?? 0),
+		0,
+	)
+}
+
+const HIDE_LENDING_POSITION_BELOW_USD = 1
+
+function worthAtLeastOneUsd(usd: number): boolean {
+	return Number.isFinite(usd) && Math.abs(usd) >= HIDE_LENDING_POSITION_BELOW_USD
+}
+
+/** Open book is dust: nothing supplied or borrowed is worth $1. Lifetime USD result does not count. */
+function protocolBookUnderOneUsd(snapshot: LendingSnapshot): boolean {
+	return (
+		!worthAtLeastOneUsd(snapshot.totalSuppliedUSD) &&
+		!worthAtLeastOneUsd(snapshot.totalBorrowedUSD)
+	)
+}
+
 function ProtocolSection({
 	snapshot,
-	concentrationSegment,
-	updatedAtMs,
+	hideUnderOneUsd,
 }: {
 	snapshot: LendingSnapshot
-	concentrationSegment?: ConcentrationSegment
-	updatedAtMs?: number | null
+	hideUnderOneUsd: boolean
 }) {
+	const supplies = hideUnderOneUsd
+		? snapshot.supplies.filter((s) => worthAtLeastOneUsd(s.currentValueUSD))
+		: snapshot.supplies
+	const borrows = hideUnderOneUsd
+		? snapshot.borrows.filter((b) => worthAtLeastOneUsd(b.currentDebtUSD))
+		: snapshot.borrows
 	const hasBorrows = snapshot.borrows.length > 0
-	const firstBorrow = snapshot.borrows[0]
-	const liquidationUSD = firstBorrow?.liquidationThreshold ?? 0
-	const safeFromSdk = firstBorrow?.safeBorrowLimit ?? 0
+	/** Prefer the most at-risk borrow (lowest HF > 0) — Current markets are isolated by venue. */
+	const riskBorrow =
+		snapshot.borrows
+			.filter((b) => b.currentDebtUSD > 0 && b.healthFactor > 0)
+			.sort((a, b) => a.healthFactor - b.healthFactor)[0] ?? snapshot.borrows[0]
+	const fromBorrow = riskBorrow?.liquidationThreshold ?? 0
+	const liquidationUSD = fromBorrow > 0 ? fromBorrow : collateralLiquidationUSD(snapshot)
+	const safeFromSdk = riskBorrow?.safeBorrowLimit ?? 0
 	const safeUSD =
 		safeFromSdk > 0 && safeFromSdk <= liquidationUSD
 			? safeFromSdk
 			: liquidationUSD * 0.85
-	const netAprSource = snapshot.protocol === 'AlphaLend' ? 'AlphaLend SDK' : 'Navi SDK'
+	const borrowedNominal =
+		riskBorrow?.venue != null
+			? snapshot.borrows
+					.filter((b) => b.venue === riskBorrow.venue)
+					.reduce((s, b) => s + b.currentDebtUSD, 0)
+			: snapshot.totalBorrowedUSD
+	const hf =
+		snapshot.healthFactor != null && snapshot.healthFactor > 0
+			? snapshot.healthFactor
+			: riskBorrow && riskBorrow.healthFactor > 0
+				? riskBorrow.healthFactor
+				: snapshot.totalBorrowedUSD <= 0
+					? Number.POSITIVE_INFINITY
+					: null
+	/** Align bar with HF (includes Current borrowWeight): used = liq / HF. */
+	const borrowedForLimit =
+		hf != null && Number.isFinite(hf) && hf > 0 && liquidationUSD > 0
+			? liquidationUSD / hf
+			: borrowedNominal
+	const limitUsedPct = liquidationUSD > 0 ? (borrowedForLimit / liquidationUSD) * 100 : 0
+	const hfText = hf == null ? '—' : Number.isFinite(hf) ? hf.toFixed(2) : '∞'
+	const netAprSource =
+		snapshot.protocol === 'AlphaLend'
+			? 'AlphaLend SDK'
+			: snapshot.protocol === 'Current'
+				? 'Current (per market)'
+				: 'Navi SDK'
 	const hasRewards = snapshot.rewardsToClaim.length > 0
+	const showNet = snapshot.cashflowUsd != null
 
 	return (
 		<AppCard className="space-y-5">
-			<div className="flex flex-wrap items-start justify-between gap-2">
-				<div className="min-w-0 space-y-1">
-					{snapshot.venue ? (
-						<p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-							{snapshot.protocol === 'Current'
-								? `Current · ${snapshot.supplies[0]?.venue ?? snapshot.borrows[0]?.venue ?? 'Market'}`
-								: snapshot.protocol}
-						</p>
-					) : null}
-					<ConcentrationWarning segment={concentrationSegment} />
-					<DebtExceedsHint segment={concentrationSegment} />
-				</div>
-				<DataFreshnessHint
-					updatedAtMs={updatedAtMs ?? null}
-					stale={snapshot.readStale === true}
-					lastSuccessAtMs={snapshot.lastSuccessAtMs}
-				/>
-			</div>
 			{/* ── Header stats ─────────────────────────────────────────── */}
 			<div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
 				<StatCard
@@ -607,35 +723,27 @@ function ProtocolSection({
 					valueClass="text-emerald-400"
 					tip="Total value supplied as collateral."
 				/>
-				{hasBorrows && (
-					<StatCard
-						label="Borrowed"
-						value={formatUSDAdaptive(snapshot.totalBorrowedUSD)}
-						valueClass="text-red-400"
-						tip="Total value currently borrowed."
-					/>
-				)}
+				<StatCard
+					label="Borrowed"
+					value={formatUSDAdaptive(snapshot.totalBorrowedUSD)}
+					valueClass="text-red-400"
+					tip="Total value currently borrowed."
+				/>
 				<StatCard
 					label="Net Value"
 					value={formatUSDAdaptive(snapshot.netValueUSD)}
 					tip="Supplied minus borrowed."
 				/>
-				{hasBorrows && snapshot.healthFactor != null && snapshot.healthFactor > 0 && (
-					<StatCard
-						label="Health Factor"
-						value={snapshot.healthFactor.toFixed(2)}
-						valueClass={healthFactorColorClass(
-							snapshot.healthFactor,
-							lendingHealthFactorThresholds(snapshot.protocol),
-							{ metricsLive: snapshot.metricsLive !== false },
-						)}
-						tip={
-							snapshot.metricsLive === false
-								? `${healthFactorStatTip(snapshot.protocol)} (STALE — P0 лише з живих даних)`
-								: healthFactorStatTip(snapshot.protocol)
-						}
-					/>
-				)}
+				<StatCard
+					label="Health Factor"
+					value={hfText}
+					valueClass={hf == null ? 'text-slate-500' : hfColor(hf)}
+					tip={
+						snapshot.protocol === 'Current'
+							? 'Per Current market (isolated). Shown: lowest HF among markets with debt. No debt → ∞. Below 1 → liquidation risk.'
+							: 'Liquidation threshold / total debt. No debt → ∞. Below 1 → liquidation risk.'
+					}
+				/>
 				{hasRewards && (
 					<RewardsStatCard rewards={snapshot.rewardsToClaim} />
 				)}
@@ -644,7 +752,7 @@ function ProtocolSection({
 			{/* ── Net APR + Daily Earnings + Borrow Limit chip + bar ──── */}
 			{(snapshot.netAPR != null ||
 				snapshot.dailyEarningsUSD != null ||
-				(hasBorrows && liquidationUSD > 0)) && (
+				liquidationUSD > 0) && (
 				<div className="flex flex-nowrap items-start gap-3">
 					<div className="flex shrink-0 items-center gap-3">
 						{snapshot.netAPR != null && (
@@ -667,105 +775,102 @@ function ProtocolSection({
 								</span>
 							</div>
 						)}
-						{hasBorrows && liquidationUSD > 0 && (
+						{snapshot.cashflowUsd != null && (
 							<div className="flex items-center gap-1.5 rounded-lg bg-slate-800/70 px-3 py-1.5 text-xs">
-								<span className="text-slate-500">Borrow Limit Used</span>
-								<span className="font-semibold tabular-nums text-slate-200">
-									{((snapshot.totalBorrowedUSD / liquidationUSD) * 100).toFixed(1)}%
+								<span className="text-slate-500">USD result</span>
+								<span className={`font-semibold tabular-nums ${snapshot.cashflowUsd.resultUSD >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+									{snapshot.cashflowUsd.resultUSD >= 0 ? '+' : ''}{formatUSD(snapshot.cashflowUsd.resultUSD)}
 								</span>
+								<TooltipIconButton
+									tip={
+										<div className="min-w-[180px] text-xs">
+											<p>Supply interest {formatUSD(snapshot.cashflowUsd.supplyInterestUSD)}</p>
+											<p>Borrow interest −{formatUSD(snapshot.cashflowUsd.borrowInterestUSD)}</p>
+											<p>Claimed rewards {formatUSD(snapshot.cashflowUsd.claimedRewardsUSD)}</p>
+											<p>
+												Unclaimed{' '}
+												{formatUSD(snapshot.rewardsToClaim.reduce((s, r) => s + r.valueUSD, 0))}
+											</p>
+											<p className="mt-1 text-slate-400">
+												Interest on the principal and rewards. The price move of the coins is not included.
+											</p>
+										</div>
+									}
+									aria-label="About USD result"
+								/>
 							</div>
 						)}
+						<div className="flex items-center gap-1.5 rounded-lg bg-slate-800/70 px-3 py-1.5 text-xs">
+							<span className="text-slate-500">Borrow Limit Used</span>
+							<span className="font-semibold tabular-nums text-slate-200">
+								{limitUsedPct.toFixed(1)}%
+							</span>
+						</div>
 					</div>
-					{hasBorrows && liquidationUSD > 0 && (
-						<BorrowLimitBar
-							borrowed={snapshot.totalBorrowedUSD}
-							safe={safeUSD}
-							liquidation={liquidationUSD}
-						/>
-					)}
+					<BorrowLimitBar
+						borrowed={snapshot.totalBorrowedUSD}
+						safe={safeUSD}
+						liquidation={liquidationUSD}
+					/>
 				</div>
 			)}
 
 			{/* ── Supplies ─────────────────────────────────────────────── */}
-			{snapshot.supplies.length > 0 && (
-				<div>
-					<SubLabel>Supplied</SubLabel>
+			{supplies.length > 0 && (
+				<CollapsibleRows label="Supplied">
 					<div className={appTableShell}>
 						<table className="w-full table-fixed border-collapse text-sm">
-							<LendingPositionColgroup showLiqColumn={hasBorrows} />
+							<LendingPositionColgroup showLiqColumn={hasBorrows} showNet={showNet} />
 							<thead>
 								<tr className={appTableHeadRow}>
-									<th className={`${appTableHeadCellDefault} pl-3`}>
-										<span className={appTableHeadLabel}>Asset</span>
-									</th>
-									<th className={`${appTableHeadCellDefault} text-right`}>
-										<span className={appTableHeadLabel}>Balance</span>
-									</th>
-									<th className={`${appTableHeadCellDefault} text-right`}>
-										<span className={appTableHeadLabel}>USD Value</span>
-									</th>
-									<th
-										className={`${appTableHeadCellDefault} text-right${hasBorrows ? '' : ' pr-3'}`}
-									>
-										<span className={appTableHeadLabel}>Supply APR</span>
-									</th>
-									{hasBorrows && (
-										<th className={`${appTableHeadCellDefault} pr-3 text-right`}>
-											<span className={appTableHeadLabel}>Liq. Price</span>
-										</th>
-									)}
+									<LendingTh label="Asset" className="pl-3" />
+									<LendingTh label="Balance" align="right" />
+									<LendingTh label="USD Value" align="right" />
+									{showNet ? <LendingTh label="Net deposited" align="right" /> : null}
+									<LendingTh
+										label="Supply APR"
+										align="right"
+										className={hasBorrows ? '' : 'pr-3'}
+									/>
+									{hasBorrows ? (
+										<LendingTh label="Liq. Price" align="right" className="pr-3" />
+									) : null}
 								</tr>
 							</thead>
 							<tbody>
-								{snapshot.supplies.map((s) => (
-									<SupplyRow
-										key={s.id}
-										s={s}
-										showLiqPrice={hasBorrows}
-										updatedAtMs={updatedAtMs}
-										metricsLiveStale={snapshot.metricsLive === false}
-									/>
+								{supplies.map((s) => (
+									<SupplyRow key={s.id} s={s} showLiqPrice={hasBorrows} showNet={showNet} />
 								))}
 							</tbody>
 						</table>
 					</div>
-				</div>
+				</CollapsibleRows>
 			)}
 
 			{/* ── Borrows ──────────────────────────────────────────────── */}
-			{hasBorrows && (
-				<div>
-					<SubLabel>Borrowed</SubLabel>
+			{borrows.length > 0 && (
+				<CollapsibleRows label="Borrowed">
 					<div className={appTableShell}>
 						<table className="w-full table-fixed border-collapse text-sm">
-							<LendingPositionColgroup showLiqColumn />
+							<LendingPositionColgroup showLiqColumn showNet={showNet} />
 							<thead>
 								<tr className={appTableHeadRow}>
-									<th className={`${appTableHeadCellDefault} pl-3`}>
-										<span className={appTableHeadLabel}>Asset</span>
-									</th>
-									<th className={`${appTableHeadCellDefault} text-right`}>
-										<span className={appTableHeadLabel}>Balance</span>
-									</th>
-									<th className={`${appTableHeadCellDefault} text-right`}>
-										<span className={appTableHeadLabel}>USD Value</span>
-									</th>
-									<th className={`${appTableHeadCellDefault} text-right`}>
-										<span className={appTableHeadLabel}>Borrow APR</span>
-									</th>
-									<th className={`${appTableHeadCellDefault} pr-3 text-right`} aria-hidden="true">
-										<span className={`${appTableHeadLabel} invisible`}>Liq. Price</span>
-									</th>
+									<LendingTh label="Asset" className="pl-3" />
+									<LendingTh label="Balance" align="right" />
+									<LendingTh label="USD Value" align="right" />
+									{showNet ? <LendingTh label="Net borrowed" align="right" /> : null}
+									<LendingTh label="Borrow APR" align="right" />
+									<LendingTh label="Liq. Price" align="right" className="pr-3" invisible />
 								</tr>
 							</thead>
 							<tbody>
-								{snapshot.borrows.map((b) => (
-									<BorrowRow key={b.id} b={b} showLiqSpacer />
+								{borrows.map((b) => (
+									<BorrowRow key={b.id} b={b} showLiqSpacer showNet={showNet} />
 								))}
 							</tbody>
 						</table>
 					</div>
-				</div>
+				</CollapsibleRows>
 			)}
 		</AppCard>
 	)
@@ -773,49 +878,32 @@ function ProtocolSection({
 
 // ── Main ───────────────────────────────────────────────────────────────────
 export function LendingModule() {
-	const { snapshot, naviSnapshot, currentSnapshot, isLoading, error, lendingDataUpdatedAtMs } =
-		useLendingPositions()
-	const openPositions = useAppStore((s) => s.openPositions)
-
-	const lpByProtocol = useMemo(() => {
-		const m = new Map<string, number>()
-		for (const p of openPositions) {
-			const v = positionValueUsd(p)
-			if (!(v > 0)) continue
-			m.set(p.protocol, (m.get(p.protocol) ?? 0) + v)
-		}
-		return [...m.entries()].map(([protocol, valueUsd]) => ({ protocol, valueUsd }))
-	}, [openPositions])
+	const { snapshot, naviSnapshot, currentSnapshot, isLoading, error } = useLendingPositions()
 
 	const alphaHasData = snapshot && (snapshot.supplies.length > 0 || snapshot.borrows.length > 0)
 	const naviHasData = naviSnapshot && (naviSnapshot.supplies.length > 0 || naviSnapshot.borrows.length > 0)
 	const currentHasData =
+		currentSnapshot && (currentSnapshot.supplies.length > 0 || currentSnapshot.borrows.length > 0)
+	const anyData = alphaHasData || naviHasData || currentHasData
+	const [hideUnderOneUsd, setHideUnderOneUsd] = useState(true)
+	const showAlpha = Boolean(
+		snapshot && alphaHasData && !(hideUnderOneUsd && protocolBookUnderOneUsd(snapshot)),
+	)
+	const showNavi = Boolean(
+		naviSnapshot && naviHasData && !(hideUnderOneUsd && protocolBookUnderOneUsd(naviSnapshot)),
+	)
+	const showCurrent = Boolean(
 		currentSnapshot &&
-		(currentSnapshot.supplies.length > 0 || currentSnapshot.borrows.length > 0)
+			currentHasData &&
+			!(hideUnderOneUsd && protocolBookUnderOneUsd(currentSnapshot)),
+	)
+	const labeled = [showAlpha, showNavi, showCurrent].filter(Boolean).length > 1
 
-	const concentration = computeDefiConcentration({
-		lpByProtocol,
-		currentVenues: currentHasData
-			? listCurrentVenues(currentSnapshot!).map((venue) => {
-					const slice = sliceCurrentVenue(currentSnapshot!, venue)
-					return { key: venue, label: venue, netUsd: slice.netValueUSD }
-				})
-			: [],
-		otherLending: [
-			alphaHasData
-				? { key: 'other:alphalend', label: 'AlphaLend', netUsd: snapshot!.netValueUSD }
-				: null,
-			naviHasData ? { key: 'other:navi', label: 'Navi', netUsd: naviSnapshot!.netValueUSD } : null,
-		].filter(Boolean) as Array<{ key: string; label: string; netUsd: number }>,
-	})
-
-	const segFor = (key: string) => concentration.segments.find((s) => s.key === key)
-
-	if (isLoading && !alphaHasData && !naviHasData && !currentHasData) return <SkeletonCard />
-	if (error && !alphaHasData && !naviHasData && !currentHasData)
+	if (isLoading && !anyData) return <SkeletonCard />
+	if (error && !anyData)
 		return <p className="text-sm text-red-400">{error}</p>
 
-	if (!alphaHasData && !naviHasData && !currentHasData) {
+	if (!anyData) {
 		return (
 			<p className="text-sm text-slate-500">
 				No lending positions found for this wallet (AlphaLend / Navi / Current).
@@ -823,60 +911,53 @@ export function LendingModule() {
 		)
 	}
 
-	const showAlpha = alphaHasData
-	const showNavi = naviHasData
-	const showCurrent = currentHasData
-	const currentVenues = showCurrent ? listCurrentVenues(currentSnapshot!) : []
-	const currentVenueNets = showCurrent
-		? currentVenues.map((venue) => ({
-				netUsd: sliceCurrentVenue(currentSnapshot!, venue).netValueUSD,
-			}))
-		: []
-	const currentRef = currentAggregateReferenceSegment(currentVenueNets, concentration.baseUsd)
+	const hideToggle = (
+		<HideUnderOneToggle checked={hideUnderOneUsd} onChange={setHideUnderOneUsd} />
+	)
+	const toggleHost = showNavi ? 'navi' : showAlpha ? 'alpha' : showCurrent ? 'current' : 'none'
+
+	if (toggleHost === 'none') {
+		return (
+			<div className="space-y-3">
+				<div className="flex items-center">{hideToggle}</div>
+				<p className="text-sm text-slate-500">No lending positions of $1 or more.</p>
+			</div>
+		)
+	}
 
 	return (
 		<div className="space-y-6">
 			{showAlpha && (
 				<div>
-					<ProtocolLabel name="AlphaLend" />
-					<ProtocolSection
-						snapshot={snapshot!}
-						concentrationSegment={segFor('other:alphalend')}
-						updatedAtMs={lendingDataUpdatedAtMs}
-					/>
+					{(labeled || toggleHost === 'alpha') && (
+						<div className="mb-3 flex items-center gap-3">
+							{labeled && <ProtocolLabel name="AlphaLend" />}
+							{toggleHost === 'alpha' && hideToggle}
+						</div>
+					)}
+					<ProtocolSection snapshot={snapshot!} hideUnderOneUsd={hideUnderOneUsd} />
 				</div>
 			)}
+			{showAlpha && (showNavi || showCurrent) && <hr className="border-slate-800" />}
 			{showNavi && (
 				<div>
-					{showAlpha && <hr className="border-slate-800" />}
-					<ProtocolLabel name="Navi" />
-					<ProtocolSection
-						snapshot={naviSnapshot!}
-						concentrationSegment={segFor('other:navi')}
-						updatedAtMs={lendingDataUpdatedAtMs}
-					/>
+					<div className="mb-3 flex items-center gap-3">
+						{labeled && <ProtocolLabel name="Navi" />}
+						{toggleHost === 'navi' && hideToggle}
+					</div>
+					<ProtocolSection snapshot={naviSnapshot!} hideUnderOneUsd={hideUnderOneUsd} />
 				</div>
 			)}
+			{showNavi && showCurrent && <hr className="border-slate-800" />}
 			{showCurrent && (
-				<div className="space-y-6">
-					{(showAlpha || showNavi) && <hr className="border-slate-800" />}
-					<ProtocolLabel name="Current Finance" />
-					{currentRef ? (
-						<p className="mb-3 text-xs text-slate-500">
-							Частка Current у DeFi: {currentRef.sharePct?.toFixed(1)}% (довідка, без ліміту)
-						</p>
-					) : null}
-					{currentSnapshot?.cashflowUsd ? (
-						<CurrentCashflowSummary cashflow={currentSnapshot.cashflowUsd} />
-					) : null}
-					{currentVenues.map((venue) => (
-						<ProtocolSection
-							key={venue}
-							snapshot={{ ...sliceCurrentVenue(currentSnapshot!, venue), protocol: 'Current' }}
-							concentrationSegment={segFor(`current:${venue}`)}
-							updatedAtMs={lendingDataUpdatedAtMs}
-						/>
-					))}
+				<div>
+					{(labeled || toggleHost === 'current') && (
+						<div className="mb-3 flex items-center gap-3">
+							{labeled && <ProtocolLabel name="Current" />}
+							{toggleHost === 'current' && hideToggle}
+						</div>
+					)}
+					<ProtocolSection snapshot={currentSnapshot!} hideUnderOneUsd={hideUnderOneUsd} />
 				</div>
 			)}
 		</div>

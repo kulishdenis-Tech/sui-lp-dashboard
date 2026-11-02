@@ -423,7 +423,7 @@ export async function buildAdvisorState(options?: { wallet?: string }): Promise<
 	const raced = await Promise.race([loadWork.then((r) => ({ kind: 'done' as const, r })), delay(deadlineMs)])
 
 	let currentSnap: LendingSnapshot = EMPTY_CURRENT_SNAP
-	let openLpRows: OpenPosition[] = []
+	let openLpRows: OpenPosition[]
 	let currentLive = false
 	let lpLive = false
 
@@ -487,7 +487,7 @@ export async function buildAdvisorState(options?: { wallet?: string }): Promise<
 	const mapAdvisorLp = (rows: OpenPosition[]) =>
 		mapPool(rows, LP_MAP_CONCURRENCY, async (p) => mapLpPosition(p, staleSourceIds, wallet))
 
-	let lpPositions: AdvisorLpPosition[] = await advisorTimed('lp-map', () => mapAdvisorLp(openLpActive))
+	const lpPositions: AdvisorLpPosition[] = await advisorTimed('lp-map', () => mapAdvisorLp(openLpActive))
 	const lpEmpty: AdvisorLpPosition[] = await advisorTimed('lp-empty-map', () => mapAdvisorLp(openLpEmpty))
 
 	const priceBudgetMs = deadlineAt - Date.now()

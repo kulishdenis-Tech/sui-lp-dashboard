@@ -4,7 +4,7 @@ import { normalizeCoinTypeForMatch } from '@/utils/suiCoinType'
 type Pair = {
 	priceUsd?: string
 	liquidity?: { usd?: string }
-	priceChange?: { h24?: number }
+	priceChange?: { m5?: number; h1?: number; h6?: number; h24?: number }
 	baseToken?: { address?: string }
 	quoteToken?: { address?: string }
 }
@@ -55,13 +55,22 @@ function pickBest(pairs: Pair[], coinTypeNorm: string): Pair | null {
 	return [...pairs].sort(byLiq)[0]!
 }
 
-function parsePair(top: Pair): { price: number; change24h: number | null } | null {
+function parsePair(top: Pair): {
+	price: number
+	change24h: number | null
+	change5m: number | null
+	change1h: number | null
+} | null {
 	const price = parseFloat(String(top.priceUsd ?? ''))
 	if (!Number.isFinite(price) || price <= 0) return null
-	const h = top.priceChange?.h24
+	const m5 = top.priceChange?.m5
+	const h1 = top.priceChange?.h1
+	const h24 = top.priceChange?.h24
 	return {
 		price,
-		change24h: h != null && Number.isFinite(h) ? h : null,
+		change5m: m5 != null && Number.isFinite(m5) ? m5 : null,
+		change1h: h1 != null && Number.isFinite(h1) ? h1 : null,
+		change24h: h24 != null && Number.isFinite(h24) ? h24 : null,
 	}
 }
 
@@ -74,6 +83,8 @@ function packageId(coinType: string): string | null {
 export async function dexScreenerPrice(coinType: string): Promise<{
 	price: number | null
 	change24h: number | null
+	change5m: number | null
+	change1h: number | null
 } | null> {
 	const norm = normalizeCoinTypeForMatch(coinType)
 	const addr = packageId(coinType)
@@ -89,7 +100,7 @@ export async function dexScreenerPrice(coinType: string): Promise<{
 					const top = pickBest(pairs, norm)
 					if (top) {
 						const p = parsePair(top)
-						if (p) return { price: p.price, change24h: p.change24h }
+						if (p) return p
 					}
 				}
 			}
@@ -107,8 +118,7 @@ export async function dexScreenerPrice(coinType: string): Promise<{
 		if (!pairs?.length) return null
 		const top = pickBest(pairs, norm)
 		if (!top) return null
-		const p = parsePair(top)
-		return p ? { price: p.price, change24h: p.change24h } : null
+		return parsePair(top)
 	} catch {
 		return null
 	}

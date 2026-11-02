@@ -1,21 +1,33 @@
-import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { execFile, execFileSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import https from 'node:https'
-import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
-import { localApiPlugin } from './vite-plugin-local-api'
-import { isLocalApiPath } from './local-api-paths'
+import { activityExportApiPlugin } from './vite-plugin-activity-export'
+import { advisorStateApiPlugin } from './vite-plugin-advisor-state'
+import { analyticsApiPlugin } from './vite-plugin-analytics-api'
+import { apiStubPlugin } from './vite-plugin-api-stub'
+import { coingeckoProxyApiPlugin } from './vite-plugin-coingecko-proxy'
+import { localSnapshotWriterPlugin } from './vite-plugin-local-snapshot-writer'
 import { lpCandlesApiPlugin } from './vite-plugin-lp-candles'
+import { okxProxyApiPlugin } from './vite-plugin-okx-proxy'
 import { poolQuoteApiPlugin } from './vite-plugin-pool-quote'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-const pkg = JSON.parse(readFileSync(path.join(__dirname, 'package.json'), 'utf8')) as { version?: string }
+/** Workspace installs hoist React to the repo root; a nested copy wins when present. */
+function hoistedPkg(name: string): string {
+	const local = path.resolve(__dirname, 'node_modules', name)
+	if (existsSync(local)) return local
+	return path.resolve(__dirname, '../node_modules', name)
+}
+
+const pkg = JSON.parse(readFileSync(path.join(__dirname, 'package.json'), 'utf8')) as {
+	version?: string
+}
 
 function gitShortHash(): string {
 	try {
@@ -32,6 +44,31 @@ const appVersionDefines = {
 	__APP_VERSION__: JSON.stringify(pkg.version ?? '0.0.0'),
 	__GIT_HASH__: JSON.stringify(gitShortHash()),
 	__BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+}
+
+/** Vite 8 oxc serve path does not always inline `define` into /src modules; build does. */
+function injectAppVersionDefinesPlugin(): {
+	name: string
+	transform(code: string, id: string): string | null
+} {
+	return {
+		name: 'inject-app-version-defines',
+		transform(code, id) {
+			if (id.includes('node_modules')) return null
+			if (
+				!code.includes('__APP_VERSION__') &&
+				!code.includes('__GIT_HASH__') &&
+				!code.includes('__BUILD_DATE__')
+			) {
+				return null
+			}
+			let out = code
+			for (const [key, value] of Object.entries(appVersionDefines)) {
+				out = out.replaceAll(new RegExp(`\\b${key}\\b`, 'g'), value)
+			}
+			return out === code ? null : out
+		},
+	}
 }
 
 // https://vite.dev/config/
@@ -98,24 +135,56 @@ const extHttpsAgent = new https.Agent({
 export default defineConfig({
 	define: appVersionDefines,
 	plugins: [
+		injectAppVersionDefinesPlugin(),
 		react(),
 		tailwindcss(),
-		localApiPlugin(),
 		lpCandlesApiPlugin(),
 		poolQuoteApiPlugin(),
+		okxProxyApiPlugin(),
+		coingeckoProxyApiPlugin(),
+		advisorStateApiPlugin(),
+		activityExportApiPlugin(),
+		analyticsApiPlugin(),
+		localSnapshotWriterPlugin(),
+		apiStubPlugin(),
 		tailscaleDevUrlPlugin(DEV_PORT),
 	],
 	resolve: {
+		// Monorepo / linked packages can pull a second React copy → useContext on null dispatcher.
+		dedupe: ['react', 'react-dom', 'react/jsx-runtime'],
 		alias: {
 			'@': path.resolve(__dirname, './src'),
-			buffer: path.resolve(__dirname, 'node_modules/buffer/index.js'),
+			react: hoistedPkg('react'),
+			'react-dom': hoistedPkg('react-dom'),
+			'react/jsx-runtime': path.join(hoistedPkg('react'), 'jsx-runtime.js'),
+			'react/jsx-dev-runtime': path.join(hoistedPkg('react'), 'jsx-dev-runtime.js'),
+			// Workspaces hoist deps to root node_modules — resolve from repo root.
+			buffer: path.resolve(__dirname, '../node_modules/buffer/index.js'),
 			// aftermath-ts-sdk imports bare `dayjs/plugin/duration` (Node ESM needs .js)
-			'dayjs/plugin/duration': path.resolve(__dirname, 'node_modules/dayjs/plugin/duration.js'),
+			'dayjs/plugin/duration': path.resolve(__dirname, '../node_modules/dayjs/plugin/duration.js'),
 			// Shim: @mysten/sui v2 no longer exports SuiClient from ./client.
 			// Momentum CLMM SDK still imports that path. AlphaLend 4 uses GraphQL.
 			'@mysten/sui/client': path.resolve(
 				__dirname,
 				'./src/shims/sui-client.ts',
+			),
+			// Autopilot engine/policy — source aliases (same as former dashboard Vite).
+			'@autopilot/engine': path.resolve(__dirname, '../sui-lp-autopilot/packages/engine/src/index.ts'),
+			'@autopilot/cetus/policy': path.resolve(
+				__dirname,
+				'../sui-lp-autopilot/packages/cetus/src/txPolicy.ts',
+			),
+			'@autopilot/cetus/clmmPolicy': path.resolve(
+				__dirname,
+				'../sui-lp-autopilot/packages/cetus/src/clmmTxPolicy.ts',
+			),
+			'@autopilot/cetus/bluefinPolicy': path.resolve(
+				__dirname,
+				'../sui-lp-autopilot/packages/cetus/src/bluefinTxPolicy.ts',
+			),
+			'@autopilot/cetus/autoWithdrawPolicy': path.resolve(
+				__dirname,
+				'../sui-lp-autopilot/packages/cetus/src/autoWithdrawTxPolicy.ts',
 			),
 		},
 	},
@@ -149,8 +218,9 @@ export default defineConfig({
 		/** Обхід CORS у dev для порівняння джерел цін (браузер → той самий origin → проксі). */
 		proxy: {
 			// Path ↔ host is fixed so the dashboard pool can fail over without remapping.
+			// Residual JSON-RPC for dapp-kit / DEX SDKs (not Build broadcast — that uses gRPC).
 			'/ext/sui-rpc': {
-				target: 'https://sui-rpc.publicnode.com',
+				target: 'https://mainnet.suiet.app',
 				changeOrigin: true,
 				secure: true,
 				agent: extHttpsAgent,
@@ -177,15 +247,7 @@ export default defineConfig({
 				agent: extHttpsAgent,
 				rewrite: (p) => p.replace(/^\/ext\/sui-onfinality/, '') || '/',
 			},
-			// PublicNode public gRPC (default portfolio read transport; no API key).
-			'/ext/sui-grpc-publicnode': {
-				target: 'https://sui-grpc.publicnode.com:443',
-				changeOrigin: true,
-				secure: true,
-				agent: extHttpsAgent,
-				rewrite: (p) => p.replace(/^\/ext\/sui-grpc-publicnode/, '') || '/',
-			},
-			// Mysten public gRPC-Web (override via VITE_SUI_GRPC_URL=fullnode…).
+			// Mysten public gRPC-Web (default portfolio transport; no API key).
 			'/ext/sui-grpc-web': {
 				target: 'https://fullnode.mainnet.sui.io',
 				changeOrigin: true,
@@ -305,17 +367,11 @@ export default defineConfig({
 				agent: extHttpsAgent,
 				rewrite: (p) => p.replace(/^\/ext\/current/, ''),
 			},
-			// Residual /api/* not handled by `localApiPlugin` / candles / pool-quote → prod.
-			// Known routes stay on localhost (Vercel free tier returns 402 Payment Required).
-			'/api': {
-				target: 'https://sui-lp-dashboard.vercel.app',
+			// Autopilot bot (MANUAL_SIGN) — local only; former Vercel `/api/*` catch-all removed.
+			'/api/autopilot': {
+				target: 'http://127.0.0.1:5191',
 				changeOrigin: true,
-				secure: true,
-				bypass(req) {
-					const orig = (req as { originalUrl?: string }).originalUrl ?? ''
-					const u = `${orig} ${req.url ?? ''}`
-					if (isLocalApiPath(u)) return req.url ?? orig
-				},
+				rewrite: (p) => p.replace(/^\/api\/autopilot/, '/api'),
 			},
 		},
 	},
@@ -326,15 +382,10 @@ export default defineConfig({
 		host: true,
 		allowedHosts: TAILSCALE_ALLOWED_HOSTS,
 		proxy: {
-			'/api': {
-				target: 'https://sui-lp-dashboard.vercel.app',
+			'/api/autopilot': {
+				target: 'http://127.0.0.1:5191',
 				changeOrigin: true,
-				secure: true,
-				bypass(req) {
-					const orig = (req as { originalUrl?: string }).originalUrl ?? ''
-					const u = `${orig} ${req.url ?? ''}`
-					if (u.includes('/api/pool-quote')) return req.url ?? orig
-				},
+				rewrite: (p) => p.replace(/^\/api\/autopilot/, '/api'),
 			},
 		},
 	},

@@ -61,6 +61,28 @@ describe('pickBestPool prefers TOKEN/STABLE', () => {
 		expect(picked?.quoteSymbol.toUpperCase()).toBe('USDC')
 	})
 
+	it('prefers deep TOKEN/SUI over dust TOKEN/USDC', () => {
+		const pools = [
+			{
+				attributes: {
+					address: '0xdust',
+					name: 'xSUI / USDC 0.2%',
+					reserve_in_usd: '95',
+				},
+			},
+			{
+				attributes: {
+					address: '0xdeep',
+					name: 'xSUI / SUI',
+					reserve_in_usd: '350000',
+				},
+			},
+		]
+		const picked = pickBestPool(pools, 'xSUI', undefined)
+		expect(picked?.poolId).toBe('0xdeep')
+		expect(picked?.quoteSymbol.toUpperCase()).toBe('SUI')
+	})
+
 	it('scores token-as-base lower than stable-as-base', () => {
 		const a = scorePoolForToken(
 			'SUI',
@@ -73,6 +95,28 @@ describe('pickBestPool prefers TOKEN/STABLE', () => {
 			5e6,
 		)
 		expect(a).toBeLessThan(b)
+	})
+
+	it('prefers NS/SUI over inverted USDC/NS even when stable dust exists', () => {
+		const pools = [
+			{
+				attributes: {
+					address: '0xusdcns',
+					name: 'USDC / NS 1%',
+					reserve_in_usd: '800',
+				},
+			},
+			{
+				attributes: {
+					address: '0xnssui',
+					name: 'NS / SUI 0.25%',
+					reserve_in_usd: '26000',
+				},
+			},
+		]
+		const picked = pickBestPool(pools, 'NS', undefined)
+		expect(picked?.poolId).toBe('0xnssui')
+		expect(picked?.pairLabel.toUpperCase()).toContain('NS')
 	})
 })
 

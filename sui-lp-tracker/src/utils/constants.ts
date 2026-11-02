@@ -76,4 +76,5 @@ export const PROTOCOL_COLORS: Record<string, string> = {
 	flowx: '#7C3AED',
 	aftermath: '#10B981',
 	scallop: '#F39C12',
+	current: '#3B82F6',
 }

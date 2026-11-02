@@ -28,11 +28,11 @@ export default async function handler(req: VercelReq, res: VercelRes) {
 		for (const wallet of wallets) {
 			try {
 				const snap = await runPortfolioSnapshotForWallet(wallet)
-				if (snap) {
+				if (snap && snap.incomplete !== true) {
 					await upsertSnapshot(snap)
 					results.push({ wallet, ok: true, totalUSD: snap.totalUSD })
 				} else {
-					results.push({ wallet, ok: false, error: 'empty snapshot' })
+					results.push({ wallet, ok: false, error: 'incomplete or empty; complete bucket kept' })
 				}
 			} catch (e) {
 				results.push({

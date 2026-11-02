@@ -20,5 +20,18 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts"]
+  "include": [
+    "vite.config.ts",
+    "vite-plugin-activity-export.ts",
+    "vite-plugin-advisor-state.ts",
+    "vite-plugin-analytics-api.ts",
+    "vite-plugin-api-stub.ts",
+    "vite-plugin-coingecko-proxy.ts",
+    "vite-plugin-local-snapshot-writer.ts",
+    "vite-plugin-lp-candles.ts",
+    "vite-plugin-okx-proxy.ts",
+    "vite-plugin-pool-quote.ts",
+    "vite-server-env.ts",
+    "api/_lib/secrets.ts"
+  ]
 }

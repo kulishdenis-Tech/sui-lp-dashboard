@@ -114,6 +114,7 @@ describe.skipIf(!runLive)('portfolio read acceptance (live, gRPC default)', () =
 
 		const wide = bluefin.filter(isSuiUsdc).find((p) => {
 			const r = clmmRangeFromOpenPosition(p)
+			if (!r) return false
 			return bandOk(r.priceMin, 0.95, 1.7) && bandOk(r.priceMax, 0.95, 1.7)
 		})
 		expect(wide).toBeDefined()
@@ -122,6 +123,7 @@ describe.skipIf(!runLive)('portfolio read acceptance (live, gRPC default)', () =
 
 		const tight = bluefin.filter(isSuiUsdc).find((p) => {
 			const r = clmmRangeFromOpenPosition(p)
+			if (!r) return false
 			return bandOk(r.priceMin, 0.982, 1.016) && bandOk(r.priceMax, 0.982, 1.016)
 		})
 		expect(tight).toBeDefined()
@@ -130,8 +132,9 @@ describe.skipIf(!runLive)('portfolio read acceptance (live, gRPC default)', () =
 		const deep = bluefin.find(isDeepSui)
 		expect(deep).toBeDefined()
 		const dr = clmmRangeFromOpenPosition(deep!)
-		expect(bandOk(dr.priceMin, 0.0185, 0.0359)).toBe(true)
-		expect(bandOk(dr.priceMax, 0.0185, 0.0359)).toBe(true)
+		expect(dr).not.toBeNull()
+		expect(bandOk(dr!.priceMin, 0.0185, 0.0359)).toBe(true)
+		expect(bandOk(dr!.priceMax, 0.0185, 0.0359)).toBe(true)
 	}, 120_000)
 
 	it('NS/SUI value and NS amount (regression v1.1.1)', async () => {

@@ -15,15 +15,24 @@
  *  4. getCoinMetadata + resolveSpots → human amounts + USD values
  */
 import { TickMath, Utils } from '@mmt-finance/clmm-sdk'
-import type { OpenPosition } from '@/types'
+import type { BluefinUnclaimedTokenRow, OpenPosition } from '@/types'
 import { suiClient } from '@/services/suiClient'
+import {
+	listOwnedMoveObjects,
+	multiGetObjectsHydrated,
+	asRpcObjectClient,
+} from '@/services/objectVersionCache'
 import type { ResolveSpotsOptions, Row } from '@/services/spotPrice/resolveSpots'
 import { resolveSpots } from '@/services/spotPrice/resolveSpots'
 import { normalizeStructTag, normalizeSuiAddress } from '@mysten/sui/utils'
 import { PROTOCOL_PACKAGES, RPC_CONCURRENCY } from '@/utils/constants'
 import { mapPool } from '@/utils/concurrency'
+import { resolveCoinMetadata } from '@/services/coinMetadata'
 import { fetchCetusAccruedFees } from '@/services/cetusAccruedInspect'
-import { resolveLifecycleStatus, resolveRangeStatus } from '@/utils/lpLifecycle'
+import { fetchCetusLocalAccrued } from '@/services/cetusLocalUnclaimed'
+import { fetchCetusCloseLockedIds } from '@/services/cetusCompensationLock'
+import { isLocalUnclaimedEnabled } from '@/services/lpFeatureFlags'
+import { resolveLifecycleStatus } from '@/utils/lpLifecycle'
 import Decimal from 'decimal.js'
 import BN from 'bn.js'
 
@@ -48,7 +57,7 @@ const STABLECOIN_SYMS_CETUS = new Set([
 	'USDD', 'FRAX', 'LUSD', 'SUSD', 'GUSD',
 ])
 
-export type CetusPositionsOptions = { forceRefreshPrices?: boolean }
+export type CetusPositionsOptions = { forceRefreshPrices?: boolean; incremental?: boolean }
 
 // ---------------------------------------------------------------------------
 // Move JSON field shapes (Sui showContent:true / json:true)
@@ -246,6 +255,42 @@ function spotPriceSafe(raw: number | null | undefined): number | null {
 	return raw
 }
 
+function cetusUnclaimedRewardRows(
+	rewardOweds: string[],
+	rewarderCoinTypes: string[],
+	metaMap: Map<string, CoinMeta>,
+	spotsMap: Map<string, Row>,
+): { rows: BluefinUnclaimedTokenRow[]; usd: number } {
+	const rows: BluefinUnclaimedTokenRow[] = []
+	let usd = 0
+	for (let i = 0; i < rewardOweds.length; i++) {
+		const rawAmt = rewardOweds[i]
+		if (!rawAmt || rawAmt === '0') continue
+		const rewCt = rewarderCoinTypes[i]
+		if (!rewCt) continue
+		const rewMeta = metaMap.get(rewCt) ?? {
+			symbol: symbolFromCoinType(rewCt),
+			decimals: 9,
+			iconUrl: null,
+		}
+		const decimals = rewMeta.decimals >= 0 ? rewMeta.decimals : 9
+		const hum = safeHumanFromStringRaw(rawAmt, decimals)
+		if (!(hum > 0)) continue
+		const spot = spotsMap.get(rewCt)
+		const px = spotPriceSafe(spot?.price)
+		const amountUsd = px != null ? clampUsd(hum * px) : 0
+		usd += amountUsd
+		rows.push({
+			token: rewMeta.symbol || symbolFromCoinType(rewCt),
+			coinType: rewCt,
+			amount: hum,
+			amount_usd: amountUsd,
+			price_source: spot?.priceSource ?? 'unavailable',
+		})
+	}
+	return { rows, usd: clampUsd(usd) }
+}
+
 // ---------------------------------------------------------------------------
 // RPC fetching
 // ---------------------------------------------------------------------------
@@ -266,6 +311,9 @@ export interface ParsedPool {
 	feeRate: number
 	positionsHandle: string
 	rewarderCoinTypes: string[]
+	feeGrowthGlobalA?: string
+	feeGrowthGlobalB?: string
+	ticksHandle?: string
 }
 
 /**
@@ -289,47 +337,48 @@ function positionFieldsOf(raw: unknown): PositionNFTFields | null {
 }
 
 /** Fetch all Cetus position NFTs owned by wallet (paginated). */
-async function fetchPositionNFTs(wallet: string): Promise<ParsedPosition[]> {
+async function fetchPositionNFTs(
+	wallet: string,
+	incremental = false,
+): Promise<ParsedPosition[]> {
 	const results: ParsedPosition[] = []
-	let cursor: string | null | undefined = undefined
-	let hasMore = true
+	const page = await listOwnedMoveObjects(asRpcObjectClient(suiClient), {
+		owner: wallet,
+		filter: { StructType: CETUS_POSITION_TYPE },
+		incremental,
+		limit: 50,
+	})
 
-	while (hasMore) {
-		const page = await suiClient.getOwnedObjects({
-			owner: wallet,
-			filter: { StructType: CETUS_POSITION_TYPE },
-			options: { showContent: true, showType: true },
-			cursor,
-			limit: 50,
-		})
+	for (const item of page) {
+		const obj = item.data
+		if (!obj?.objectId) continue
+		const content = obj.content as { dataType?: string; fields?: unknown } | undefined
+		if (content?.dataType !== 'moveObject') continue
 
-		for (const item of page.data) {
-			const obj = item.data
-			if (!obj?.objectId || obj.content?.dataType !== 'moveObject') continue
-
-			const rawFields = (obj.content as { fields?: unknown }).fields
-			const f = positionFieldsOf(rawFields)
+		const rawFields = content.fields
+		const f = positionFieldsOf(rawFields)
 
 			if (!f) {
-				// eslint-disable-next-line no-console
+				 
 				console.warn('[cetus] position NFT has unknown field layout, objectId:', obj.objectId, '| raw keys:', rawFields && typeof rawFields === 'object' ? Object.keys(rawFields as object) : String(rawFields))
 				continue
 			}
 
 			const liquidity = String(f.liquidity ?? '0')
-			if (liquidity === '0') continue // zero-liquidity = closed position
+			// Keep liquidity===0: Empty (owned NFT), not Closed (burned). Closed scanners
+			// must not treat missing/zero principal as a confirmed close.
 
 			const coinTypeA = parseTypeName(f.coin_type_a)
 			const coinTypeB = parseTypeName(f.coin_type_b)
 			if (!coinTypeA || !coinTypeB) {
-				// eslint-disable-next-line no-console
+				 
 				console.warn('[cetus] position has null coin types, id:', obj.objectId, '| coin_type_a:', f.coin_type_a, 'coin_type_b:', f.coin_type_b)
 				continue
 			}
 
 			const poolId = typeof f.pool === 'string' ? normId(f.pool) : ''
 			if (!poolId) {
-				// eslint-disable-next-line no-console
+				 
 				console.warn('[cetus] position has no pool id, id:', obj.objectId, '| pool field:', f.pool)
 				continue
 			}
@@ -343,10 +392,6 @@ async function fetchPositionNFTs(wallet: string): Promise<ParsedPosition[]> {
 				lowerTick: readI32(f.tick_lower_index),
 				upperTick: readI32(f.tick_upper_index),
 			})
-		}
-
-		cursor = page.nextCursor
-		hasMore = page.hasNextPage && !!cursor
 	}
 
 	return results
@@ -371,18 +416,22 @@ function poolFieldsOf(raw: unknown): PoolRawFields | null {
 }
 
 /** Batch-fetch pool objects. Returns map: normId(objectId) → ParsedPool. */
-export async function fetchPools(poolIds: string[]): Promise<Map<string, ParsedPool>> {
+export async function fetchPools(
+	poolIds: string[],
+	incremental = false,
+): Promise<Map<string, ParsedPool>> {
 	const map = new Map<string, ParsedPool>()
 	if (!poolIds.length) return map
 
-	const objs = await suiClient.multiGetObjects({
-		ids: poolIds,
-		options: { showContent: true },
+	const objs = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), poolIds, {
+		incremental,
+		showType: false,
 	})
 
 	for (const item of objs) {
 		const obj = item?.data
-		if (!obj?.objectId || obj.content?.dataType !== 'moveObject') continue
+		const content = obj?.content as { dataType?: string; fields?: unknown } | undefined
+		if (!obj?.objectId || content?.dataType !== 'moveObject') continue
 
 		// Use objectId from response as the canonical key (not the request-array index)
 		const key = normId(obj.objectId)
@@ -390,7 +439,7 @@ export async function fetchPools(poolIds: string[]): Promise<Map<string, ParsedP
 		const rawFields = (obj.content as { fields?: unknown }).fields
 		const f = poolFieldsOf(rawFields)
 		if (!f) {
-			// eslint-disable-next-line no-console
+			 
 			console.warn('[cetus] fetchPools: no current_sqrt_price in pool', key, 'raw keys:', rawFields && typeof rawFields === 'object' ? Object.keys(rawFields as object) : String(rawFields))
 			continue
 		}
@@ -402,7 +451,7 @@ export async function fetchPools(poolIds: string[]): Promise<Map<string, ParsedP
 		const posFields = unwrapStruct(positionsRaw)               // Table<ID,PositionInfo> fields
 		const posHandle = parseUID(posFields?.id ?? pmFields?.positions_handle)
 		if (!posHandle) {
-			// eslint-disable-next-line no-console
+			 
 			console.warn('[cetus] posHandle empty for pool', key, '| pmFields:', JSON.stringify(pmFields), '| posFields:', JSON.stringify(posFields))
 			continue
 		}
@@ -419,6 +468,10 @@ export async function fetchPools(poolIds: string[]): Promise<Map<string, ParsedP
 		}
 
 		const feeRateRaw = Number(f.fee_rate ?? 0)
+		const tmFields = unwrapStruct((f as unknown as Record<string, unknown>).tick_manager)
+		const ticksTable = unwrapStruct(tmFields?.ticks)
+		const ticksHandleRaw = parseUID(ticksTable?.id ?? tmFields?.ticks_handle)
+		const rec = f as unknown as Record<string, unknown>
 
 		map.set(key, {
 			sqrtPriceStr: String(f.current_sqrt_price),
@@ -426,6 +479,9 @@ export async function fetchPools(poolIds: string[]): Promise<Map<string, ParsedP
 			feeRate: Number.isFinite(feeRateRaw) ? feeRateRaw / 1_000_000 : 0,
 			positionsHandle: normId(posHandle),
 			rewarderCoinTypes,
+			feeGrowthGlobalA: rec.fee_growth_global_a != null ? String(rec.fee_growth_global_a) : undefined,
+			feeGrowthGlobalB: rec.fee_growth_global_b != null ? String(rec.fee_growth_global_b) : undefined,
+			ticksHandle: ticksHandleRaw ? normId(ticksHandleRaw) : undefined,
 		})
 	}
 
@@ -438,7 +494,9 @@ export async function fetchPools(poolIds: string[]): Promise<Map<string, ParsedP
 
 /**
  * Returns Cetus position NFTs with **zero liquidity** still held in the wallet.
- * These are "drained" positions — all liquidity removed but NFT not yet burned.
+ * These are **Empty** (owned object) — not Closed. Prefer `getCetusPositions`
+ * which now includes them; this helper remains for migrations/tests.
+ * @deprecated Prefer open-list Empty via getCetusPositions; Closed = burned only.
  */
 export async function fetchClosedPositionNFTs(wallet: string): Promise<ParsedPosition[]> {
 	const results: ParsedPosition[] = []
@@ -505,9 +563,9 @@ export async function getCetusPositions(
 	// 1. Fetch position NFTs
 	let positions: ParsedPosition[]
 	try {
-		positions = await fetchPositionNFTs(walletAddress)
+		positions = await fetchPositionNFTs(walletAddress, options?.incremental === true)
 	} catch (e) {
-		// eslint-disable-next-line no-console
+		 
 		console.warn('[cetus] fetchPositionNFTs failed', e)
 		return []
 	}
@@ -517,9 +575,9 @@ export async function getCetusPositions(
 	const uniquePoolIds = [...new Set(positions.map((p) => p.poolId))]
 	let poolMap: Map<string, ParsedPool>
 	try {
-		poolMap = await fetchPools(uniquePoolIds)
+		poolMap = await fetchPools(uniquePoolIds, options?.incremental === true)
 	} catch (e) {
-		// eslint-disable-next-line no-console
+		 
 		console.warn('[cetus] fetchPools failed', e)
 		return []
 	}
@@ -540,25 +598,20 @@ export async function getCetusPositions(
 	const metaMap = await (async () => {
 		const mm = new Map<string, CoinMeta>()
 		await mapPool([...allCoinTypes], RPC_CONCURRENCY, async (ct) => {
-			try {
-				const m = await suiClient.getCoinMetadata({ coinType: ct })
-				mm.set(ct, {
-					symbol: m?.symbol ?? symbolFromCoinType(ct),
-					decimals: m?.decimals ?? 0,
-					iconUrl:
-						typeof m?.iconUrl === 'string' && m.iconUrl.startsWith('https://')
-							? m.iconUrl
-							: null,
-				})
-			} catch {
-				mm.set(ct, { symbol: symbolFromCoinType(ct), decimals: 0, iconUrl: null })
-			}
+			const m = await resolveCoinMetadata(suiClient, ct)
+			if (!m) return
+			mm.set(ct, {
+				symbol: m.symbol || symbolFromCoinType(ct),
+				decimals: m.decimals,
+				iconUrl: m.iconUrl,
+			})
 		})
 		return mm
 	})()
 
+	// Missing metadata must not become 0 decimals: that prices the raw integer as whole tokens.
 	const getMeta = (ct: string): CoinMeta =>
-		metaMap.get(ct) ?? { symbol: symbolFromCoinType(ct), decimals: 0, iconUrl: null }
+		metaMap.get(ct) ?? { symbol: symbolFromCoinType(ct), decimals: -1, iconUrl: null }
 
 	// 5. Resolve spot prices
 	const spotOpts: ResolveSpotsOptions | undefined = options?.forceRefreshPrices
@@ -577,6 +630,22 @@ export async function getCetusPositions(
 
 	const openedAt = Math.floor(Date.now() / 1000)
 	const out: OpenPosition[] = []
+
+	// 5b. Compensation-certificate NFTs (cannot Close) — omit from open list.
+	// Uses dashboard suiClient (gRPC); Cetus SDK JSON-RPC fails silently in browser.
+	let closeLockedIds: Set<string>
+	try {
+		closeLockedIds = await fetchCetusCloseLockedIds(
+			suiClient,
+			positions.map((p) => ({ poolId: p.poolId, positionId: p.objectId })),
+		)
+		if (closeLockedIds.size > 0) {
+			console.info('[cetus] hiding compensation-certificate positions:', closeLockedIds.size)
+		}
+	} catch (e) {
+		console.warn('[cetus] compensation-lock detect failed; Cert NFTs may still show', e)
+		closeLockedIds = new Set()
+	}
 
 	// 6. Map each position to OpenPosition
 	for (const pos of positions) {
@@ -623,11 +692,13 @@ export async function getCetusPositions(
 		)
 
 		// --- Fee rate & range status ---
-		const priceInRange = pool.currentTick >= pos.lowerTick && pool.currentTick <= pos.upperTick
-		const lifecycleStatus = resolveLifecycleStatus(pos.liquidity)
+		const inRange = pool.currentTick >= pos.lowerTick && pool.currentTick <= pos.upperTick
 		const feeLabelPct = `${(pool.feeRate * 100).toFixed(3)}%`
-		const pair = `${symA}/${symB} · ${feeLabelPct}${priceInRange && lifecycleStatus !== 'empty' ? '' : ' · OUT'}`
+		const pair = `${symA}/${symB} · ${feeLabelPct}${inRange ? '' : ' · OUT'}`
 
+		const lifecycleStatus = resolveLifecycleStatus(pos.liquidity)
+		// Compensation-certificate NFTs (abort 23): hide from open list entirely.
+		if (closeLockedIds.has(normId(pos.objectId))) continue
 		out.push({
 			id: pos.objectId,
 			protocol: 'cetus',
@@ -648,7 +719,7 @@ export async function getCetusPositions(
 			currentSqrtPrice: pool.sqrtPriceStr,
 			liquidity: pos.liquidity,
 			lifecycleStatus,
-			status: resolveRangeStatus(priceInRange, lifecycleStatus),
+			status: inRange ? 'in_range' : 'out_of_range',
 			tokenAAmount: humA,
 			tokenBAmount: humB,
 			currentPriceA_USD: pxaF ?? 0,
@@ -666,28 +737,65 @@ export async function getCetusPositions(
 			daysOpen: 0,
 			lifetimeEarningsUSD: 0,
 			vsHodlDeltaUSD: 0,
+			// Empty positions do not accrue range APR on zero principal.
 			aprEstimatePct: 0,
 		})
 	}
 
-	// 7. Fetch real-time unclaimed fees + rewards via devInspect.
-	//    `fee_owned_a/b` from the position dynamic field only holds materialized fees;
-	//    the true accumulated amount requires computing fee-growth deltas on-chain.
+	// 7. Unclaimed fees: local fee-growth when enabled, else / fallback devInspect.
+	const useLocal = isLocalUnclaimedEnabled()
 	await mapPool(out, RPC_CONCURRENCY, async (p) => {
 			const pool = poolMap.get(p.poolId ?? '')
-			const result = await fetchCetusAccruedFees(suiClient, {
-				positionId: p.id,
-				poolId: p.poolId ?? '',
-				coinTypeA: p.tokenAAddress,
-				coinTypeB: p.tokenBAddress,
-				sender: walletAddress,
-			})
-			if (!result.ok) {
-				// eslint-disable-next-line no-console
-				console.warn('[cetus-accrued] failed for pos', p.id.slice(0, 10), '|', result.error)
-				return
+			let feeOwedA = '0'
+			let feeOwedB = '0'
+			let rewardOweds: string[] = []
+			let gotFees = false
+			if (useLocal && pool) {
+				const local = await fetchCetusLocalAccrued(suiClient, {
+					positionId: p.id,
+					positionsHandle: pool.positionsHandle,
+					ticksHandle: pool.ticksHandle,
+					feeGrowthGlobalA: pool.feeGrowthGlobalA,
+					feeGrowthGlobalB: pool.feeGrowthGlobalB,
+					currentTick: p.currentTick,
+					lowerTick: p.tickLower,
+					upperTick: p.tickUpper,
+					liquidity: p.liquidity,
+				})
+				if (local.ok) {
+					feeOwedA = local.feeOwedA
+					feeOwedB = local.feeOwedB
+					gotFees = true
+				}
 			}
-			const { feeOwedA, feeOwedB, rewardOweds } = result
+			if (!gotFees) {
+				const result = await fetchCetusAccruedFees(suiClient, {
+					positionId: p.id,
+					poolId: p.poolId ?? '',
+					coinTypeA: p.tokenAAddress,
+					coinTypeB: p.tokenBAddress,
+					sender: walletAddress,
+				})
+				if (!result.ok) {
+					console.warn('[cetus-accrued] failed for pos', p.id.slice(0, 10), '|', result.error)
+					// Unknown ≠ $0 — Empty rows must not fake zero unclaimed / break cascade Partial.
+					p.unclaimedFeeUSD = Number.NaN
+					p.unclaimedRewardUSD = Number.NaN
+					return
+				}
+				feeOwedA = result.feeOwedA
+				feeOwedB = result.feeOwedB
+				rewardOweds = result.rewardOweds
+			} else if (pool?.rewarderCoinTypes.some((ct) => ct.length > 0)) {
+				const rewardsOnly = await fetchCetusAccruedFees(suiClient, {
+					positionId: p.id,
+					poolId: p.poolId ?? '',
+					coinTypeA: p.tokenAAddress,
+					coinTypeB: p.tokenBAddress,
+					sender: walletAddress,
+				})
+				if (rewardsOnly.ok) rewardOweds = rewardsOnly.rewardOweds
+			}
 			const decA = p.tokenADecimals
 			const decB = p.tokenBDecimals
 			const pxaF = spotPriceSafe(spotsMap.get(p.tokenAAddress)?.price)
@@ -699,25 +807,18 @@ export async function getCetusPositions(
 			if (pxbF != null) feeUsd += feeHumB * pxbF
 			feeUsd = clampUsd(feeUsd)
 
-			let rewUsd = 0
-			if (pool) {
-				for (let i = 0; i < rewardOweds.length; i++) {
-					const rawAmt = rewardOweds[i]
-					if (!rawAmt || rawAmt === '0') continue
-					const rewCt = pool.rewarderCoinTypes[i]
-					if (!rewCt) continue
-					const rewMeta = metaMap.get(rewCt) ?? { symbol: symbolFromCoinType(rewCt), decimals: 9, iconUrl: null }
-					const hum = safeHumanFromStringRaw(rawAmt, rewMeta.decimals)
-					const pxRf = spotPriceSafe(spotsMap.get(rewCt)?.price)
-					if (pxRf != null) rewUsd += clampUsd(hum * pxRf)
-				}
-				rewUsd = clampUsd(rewUsd)
-			}
+			const rewards = cetusUnclaimedRewardRows(
+				rewardOweds,
+				pool?.rewarderCoinTypes ?? [],
+				metaMap,
+				spotsMap,
+			)
 
 			p.unclaimedFeeA = feeHumA
 			p.unclaimedFeeB = feeHumB
 			p.unclaimedFeeUSD = feeUsd
-			p.unclaimedRewardUSD = rewUsd
+			p.unclaimedRewardUSD = rewards.usd
+			p.unclaimedRewardRows = rewards.rows
 	})
 
 	// 8. Normalise token ordering: ensure stablecoins appear as tokenB.
@@ -778,4 +879,73 @@ export async function getCetusPositions(
 	}
 
 	return out
+}
+
+/** On-chain inspect unclaimed (detail-page verify). Honours cetusSwapped display order. */
+export async function hydrateCetusUnclaimedForPosition(
+	p: OpenPosition,
+	walletAddress: string,
+): Promise<Partial<OpenPosition>> {
+	const coinTypeA = p.cetusSwapped ? p.tokenBAddress : p.tokenAAddress
+	const coinTypeB = p.cetusSwapped ? p.tokenAAddress : p.tokenBAddress
+	const result = await fetchCetusAccruedFees(suiClient, {
+		positionId: p.id,
+		poolId: p.poolId,
+		coinTypeA,
+		coinTypeB,
+		sender: walletAddress,
+	})
+	if (!result.ok) return {}
+	let feeOwedA = result.feeOwedA
+	let feeOwedB = result.feeOwedB
+	if (p.cetusSwapped) {
+		const tmp = feeOwedA
+		feeOwedA = feeOwedB
+		feeOwedB = tmp
+	}
+	const feeHumA = safeHumanFromStringRaw(feeOwedA, p.tokenADecimals)
+	const feeHumB = safeHumanFromStringRaw(feeOwedB, p.tokenBDecimals)
+	const pxa = p.currentPriceA_USD
+	const pxb = p.currentPriceB_USD
+	let feeUsd = 0
+	if (pxa > 0) feeUsd += feeHumA * pxa
+	if (pxb > 0) feeUsd += feeHumB * pxb
+
+	const pools = await fetchPools([p.poolId]).catch(() => new Map<string, ParsedPool>())
+	const pool = pools.get(normId(p.poolId))
+	const rewarderCoinTypes = pool?.rewarderCoinTypes ?? []
+	const metaMap = new Map<string, CoinMeta>()
+	const types = [...new Set(rewarderCoinTypes.filter((ct) => ct.length > 0))]
+	await Promise.all(
+		types.map(async (ct) => {
+			const m = await resolveCoinMetadata(suiClient, ct)
+			metaMap.set(ct, {
+				symbol: m?.symbol || symbolFromCoinType(ct),
+				decimals: m && m.decimals >= 0 ? m.decimals : 9,
+				iconUrl: m?.iconUrl ?? null,
+			})
+		}),
+	)
+	let spotsMap = new Map<string, Row>()
+	if (types.length > 0) {
+		try {
+			spotsMap = await resolveSpots(
+				types,
+				(ct) => metaMap.get(ct)?.symbol || symbolFromCoinType(ct),
+			)
+		} catch {
+			spotsMap = new Map()
+		}
+	}
+	const rewards = pool
+		? cetusUnclaimedRewardRows(result.rewardOweds, rewarderCoinTypes, metaMap, spotsMap)
+		: null
+	return {
+		unclaimedFeeA: feeHumA,
+		unclaimedFeeB: feeHumB,
+		unclaimedFeeUSD: clampUsd(feeUsd),
+		...(rewards
+			? { unclaimedRewardUSD: rewards.usd, unclaimedRewardRows: rewards.rows }
+			: {}),
+	}
 }

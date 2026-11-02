@@ -162,6 +162,7 @@ export type GetPositionEventOpts = {
  */
 /**
  * Сканує Bluefin-події гаманця двофазово — без важкого `queryTransactionBlocks`:
+ * Transport: dashboard `suiClient` defaults to gRPC/GraphQL compat (`@/services/suiData`).
  * 1. `queryEvents({ Sender: wallet })` — усі події цього гаманця (≤ 60 сторінок ≈ 3 000 подій).
  * 2. `queryEvents({ MoveEventType: PositionClosed })` глобально, фільтр по `parsedJson.sender` —
  *    ловить старі закриті позиції поза вікном Sender-скану. **Жодних TX-фетчів.**
@@ -192,19 +193,19 @@ export async function scanBluefinWalletAllPositionEvents(walletAddress: string):
 
 	if (!idbEntry) {
 		// ── Cold start: full scan ───────────────────────────────────────────────
-		// eslint-disable-next-line no-console
+		 
 		console.log('[bf-scan] cold start wallet=', walletNormKey.slice(0, 12))
 
 		await mergeBluefinSenderQueryEvents(walletAddress, rawByPositionId, (partial) => {
 			if (partial) historyPartial = true
 		}, seenPkgs)
 
-		// eslint-disable-next-line no-console
+		 
 		console.log('[bf-scan] Phase 1 done — positions=', rawByPositionId.size, '| seenPkgs=', [...seenPkgs])
 
 		await mergeBluefinClosedGlobal(walletAddress, rawByPositionId, seenPkgs)
 
-		// eslint-disable-next-line no-console
+		 
 		console.log('[bf-scan] Phase 2 done — total positions=', rawByPositionId.size)
 
 		// Save full result to IDB
@@ -222,7 +223,7 @@ export async function scanBluefinWalletAllPositionEvents(walletAddress: string):
 	} else {
 		// ── Warm start: delta scan (only events newer than lastEventTs) ─────────
 		const lastTs = idbEntry.lastEventTs
-		// eslint-disable-next-line no-console
+		 
 		console.log('[bf-scan] warm start wallet=', walletNormKey.slice(0, 12), '| lastEventTs=', lastTs, '| positions=', rawByPositionId.size)
 
 		const added = await mergeBluefinSenderQueryEvents(
@@ -232,7 +233,7 @@ export async function scanBluefinWalletAllPositionEvents(walletAddress: string):
 			lastTs, // delta stop threshold
 		)
 
-		// eslint-disable-next-line no-console
+		 
 		console.log('[bf-scan] delta done — added=', added, '| total positions=', rawByPositionId.size)
 
 		// Phase 2 skipped on warm start:
@@ -1044,8 +1045,8 @@ export async function scanLpWalletPositionHistory(
 				if (!pjRaw || typeof pjRaw !== 'object') continue
 				const pj = pjRaw as Parsed
 
-				let posNorm: string | null = null
-				let kind: null | 'bf' | 'mt' = null
+				let posNorm: string
+				let kind: 'bf' | 'mt'
 				if (isBluefinLpLifecycleMoveEventType(typeStr)) {
 					const pos = readPositionId(pj)
 					if (!pos) continue
@@ -1072,7 +1073,7 @@ export async function scanLpWalletPositionHistory(
 
 				const dec = decByPos.get(posNorm!)
 				if (!dec) continue
-				let pe: PositionEvent | null = null
+				let pe: PositionEvent | null
 				if (kind === 'bf') {
 					pe = parseEventFromSui(ev, tx.digest, tsSec, posNorm!, dec.a, dec.b)
 				} else {

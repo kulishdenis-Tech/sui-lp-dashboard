@@ -1,9 +1,7 @@
-import type { ReactNode } from 'react'
 import { useMemo } from 'react'
-import { AppCard } from '@/components/ui/AppCard'
+import { SummaryMetricCard } from '@/components/ui/SummaryMetricCard'
 import type { ClosedPosition } from '@/types'
 import { formatUSD } from '@/utils/formatting'
-import { TooltipIconButton } from '@/components/ui/Tooltip'
 
 // ─── Tooltips ────────────────────────────────────────────────────────────────
 
@@ -65,12 +63,14 @@ export function ClosedSummaryStrip({ positions, protocolFilter }: Props) {
 			if (Number.isFinite(p.pnlUSD)) totalPnl += p.pnlUSD
 			if (Number.isFinite(p.totalFeesCollectedUSD)) totalEarned += p.totalFeesCollectedUSD
 
-			// ROI: only include positions with actual deposit data
+			// ROI: numerator and denominator must cover the same paired set.
 			const dep = p.depositedUSD
-			if (Number.isFinite(dep) && dep > 0) {
+			if (Number.isFinite(dep) && dep > 0 && Number.isFinite(p.pnlUSD)) {
 				totalDeposited += dep
 				wDeposited += dep
-				if (Number.isFinite(p.pnlUSD)) wPnl += p.pnlUSD
+				wPnl += p.pnlUSD
+			} else if (Number.isFinite(dep) && dep > 0) {
+				totalDeposited += dep
 			}
 
 			// Win rate: only count positions where PnL is actually known
@@ -116,31 +116,31 @@ export function ClosedSummaryStrip({ positions, protocolFilter }: Props) {
 	const avgDaysStr = Number.isFinite(avgDays) ? `${Math.round(avgDays)}d` : '—'
 
 	return (
-		<div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-			<Stat
+		<div className="mb-4 grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+			<SummaryMetricCard
 				label="Total PnL"
 				value={formatUSD(totalPnl)}
 				valueClassName={pnlTone(totalPnl)}
 				tip={TOTAL_PNL_TOOLTIP}
 			/>
-			<Stat
+			<SummaryMetricCard
 				label="Total Earned"
 				value={formatUSD(totalEarned)}
 				tip={TOTAL_EARNED_TOOLTIP}
 			/>
-			<Stat
+			<SummaryMetricCard
 				label="Total Deposited"
 				value={hasDepositData ? formatUSD(totalDeposited) : '—'}
 				valueClassName="text-slate-100"
 				tip={TOTAL_DEPOSITED_TOOLTIP}
 			/>
-			<Stat
+			<SummaryMetricCard
 				label="Avg ROI"
 				value={hasDepositData ? fmtPct(avgRoiPct) : '—'}
 				valueClassName={hasDepositData ? pnlTone(avgRoiPct) : 'text-app-fg-muted'}
 				tip={AVG_ROI_TOOLTIP}
 			/>
-			<Stat
+			<SummaryMetricCard
 				label="Win Rate"
 				value={fmtPct(winRatePct, 0)}
 				valueClassName={
@@ -152,35 +152,11 @@ export function ClosedSummaryStrip({ positions, protocolFilter }: Props) {
 				}
 				tip={WIN_RATE_TOOLTIP}
 			/>
-			<Stat
+			<SummaryMetricCard
 				label="Avg Duration"
 				value={avgDaysStr}
 				tip={AVG_DURATION_TOOLTIP}
 			/>
 		</div>
-	)
-}
-
-function Stat({
-	label,
-	value,
-	valueClassName = 'text-slate-100',
-	tip,
-}: {
-	label: string
-	value: ReactNode
-	valueClassName?: string
-	tip?: string
-}) {
-	return (
-		<AppCard density="compact" className="h-full">
-			<p className="flex flex-wrap items-center text-[10px] font-medium uppercase tracking-wider text-slate-500">
-				<span className="leading-snug">{label}</span>
-				{tip ? (
-					<TooltipIconButton tip={tip} aria-label={`About ${label}`} className="translate-y-px" />
-				) : null}
-			</p>
-			<p className={'mt-0.5 font-mono tabular-money text-lg ' + valueClassName}>{value}</p>
-		</AppCard>
 	)
 }

@@ -11,8 +11,10 @@ async function getSdk(): Promise<Aftermath | null> {
 	if (inFlight) return inFlight
 	inFlight = (async () => {
 		try {
-			const a = new Aftermath('MAINNET')
-			await a.init({ fullnodeUrl: getRpcUrl() })
+			const a = await Aftermath.create({
+				network: 'MAINNET',
+				fullnodeUrl: getRpcUrl(),
+			})
 			sdk = a
 			return a
 		} catch {

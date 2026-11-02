@@ -1,0 +1,12 @@
+[package]
+name = "autopilot_vault"
+version = "0.0.1"
+edition = "2024.beta"
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/mainnet" }
+# Pin Cetus DLMM published package when integrating on-chain tests:
+# CetusDlmm = { local = "../vendor/cetus-dlmm" }
+
+[addresses]
+autopilot_vault = "0x0"

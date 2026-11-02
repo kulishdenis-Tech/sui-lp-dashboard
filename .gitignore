@@ -1,13 +1,30 @@
 node_modules/
 dist/
+dist-ssr/
+build/
+.vite/
+*.tsbuildinfo
+
 .env
 .env.*
 !.env.example
+.cron-secret.tmp
+*.pem
+*.key
 
-# Legacy / local copies
-SUI LP dashboard/
+# Local stores, logs, backups — never publish
+data/
+*.db
+*.db.json
+*.db-journal
+*.log
+_local/
+coverage/
 
-# OS & editor
+.vercel
+.idea/
 .DS_Store
 Thumbs.db
-*.log
+
+# Legacy copy that must not reappear inside this root
+SUI LP dashboard/

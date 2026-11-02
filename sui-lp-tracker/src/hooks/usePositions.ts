@@ -7,6 +7,7 @@ export function usePositions() {
 			open: s.openPositions,
 			closed: s.closedPositions,
 			isLoading: s.isLoadingPositions,
+			isRefreshing: s.isRefreshing,
 			isLoadingClosed: s.isLoadingClosed,
 			closedCountPending: s.closedCountPending,
 			error: s.positionsError,

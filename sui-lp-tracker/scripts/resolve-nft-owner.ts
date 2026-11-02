@@ -9,7 +9,7 @@ import { MOMENTUM_PUBLISHED_AT } from '../src/utils/constants.ts'
 async function main() {
 	const rawArg = process.argv[2]?.trim()
 	if (!rawArg) throw new Error('pass object id hex')
-	let hex = rawArg.replace(/^0x/i, '')
+	const hex = rawArg.replace(/^0x/i, '')
 	if (!/^[a-fA-F0-9]+$/.test(hex)) throw new Error('invalid hex')
 
 	const url = getJsonRpcFullnodeUrl('mainnet')

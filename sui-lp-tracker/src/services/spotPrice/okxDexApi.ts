@@ -1,6 +1,5 @@
-import { extFetchUrl } from '@/utils/externalFetchUrl'
-import { isProdBuild, okxProxyFetch } from '@/utils/apiProxy'
-import { normalizeCoinTypeForMatch } from '@/utils/suiCoinType'
+import { okxProxyFetch } from '@/utils/apiProxy'
+import { normalizeCoinTypeForMatch, okxPriceInfoTokenAddress } from '@/utils/suiCoinType'
 
 /** Sui mainnet в OKX Web3 / Onchain OS. */
 const CHAIN_SUI = '784'
@@ -10,8 +9,6 @@ const PRICE_INFO_PATH = '/api/v6/dex/market/price-info'
 
 const BATCH = 100
 
-/** Мін. 5s; за замовчуванням 12s — OS ETIMEDOUT ~20s, обрізаємо раніше щоб швидко трипнути circuit. */
-const DEFAULT_FETCH_TIMEOUT_MS = 12_000
 /** Скільки додаткових спроб після невдачі (усього спроб = 1 + N). */
 const DEFAULT_FETCH_RETRIES = 2
 const DEFAULT_RETRY_BACKOFF_MS = 1_500
@@ -33,7 +30,7 @@ function okxTripCircuit(): void {
 	if (!okxCircuitOpen()) {
 		_okxCircuitTrippedAt = Date.now()
 		if (import.meta.env.DEV) {
-			// eslint-disable-next-line no-console
+			 
 			console.warn('[OKX] circuit tripped — skipping OKX calls for', OKX_CIRCUIT_OPEN_MS / 60_000, 'min')
 		}
 	}
@@ -43,65 +40,11 @@ function sleep(ms: number): Promise<void> {
 	return new Promise((r) => setTimeout(r, ms))
 }
 
-function okxFetchTimeoutMs(): number {
-	const v = import.meta.env.VITE_OKX_TIMEOUT_MS
-	const n = v != null && v !== '' ? Number.parseInt(String(v), 10) : Number.NaN
-	if (Number.isFinite(n) && n >= 5_000 && n <= 300_000) return n
-	return DEFAULT_FETCH_TIMEOUT_MS
-}
-
 function okxFetchExtraRetries(): number {
 	const v = import.meta.env.VITE_OKX_RETRIES
 	const n = v != null && v !== '' ? Number.parseInt(String(v), 10) : Number.NaN
 	if (Number.isFinite(n) && n >= 0 && n <= 5) return n
 	return DEFAULT_FETCH_RETRIES
-}
-
-function okxCreds(): { key: string; secret: string; pass: string } | null {
-	const key =
-		import.meta.env.VITE_OKX_API_KEY ||
-		(typeof process !== 'undefined' ? process.env.OKX_API_KEY ?? process.env.VITE_OKX_API_KEY : undefined)
-	const secret =
-		import.meta.env.VITE_OKX_SECRET_KEY ||
-		(typeof process !== 'undefined'
-			? process.env.OKX_SECRET_KEY ?? process.env.VITE_OKX_SECRET_KEY
-			: undefined)
-	const pass =
-		import.meta.env.VITE_OKX_PASSPHRASE ||
-		(typeof process !== 'undefined'
-			? process.env.OKX_PASSPHRASE ?? process.env.VITE_OKX_PASSPHRASE
-			: undefined)
-	if (
-		typeof key === 'string' &&
-		key.length > 0 &&
-		typeof secret === 'string' &&
-		secret.length > 0 &&
-		typeof pass === 'string' &&
-		pass.length > 0
-	) {
-		return { key, secret, pass }
-	}
-	return null
-}
-
-function okxTimestamp(): string {
-	return new Date().toISOString()
-}
-
-async function hmacSha256Base64(secret: string, message: string): Promise<string> {
-	const te = new TextEncoder()
-	const k = await crypto.subtle.importKey(
-		'raw',
-		te.encode(secret),
-		{ name: 'HMAC', hash: 'SHA-256' },
-		false,
-		['sign'],
-	)
-	const sig = await crypto.subtle.sign('HMAC', k, te.encode(message))
-	const b = new Uint8Array(sig)
-	let s = ''
-	for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]!)
-	return btoa(s)
 }
 
 export type OkxJson = { code: string | number; msg: string; data?: unknown }
@@ -110,11 +53,7 @@ function okxSuccess(j: OkxJson): boolean {
 	return j.code === '0' || j.code === 0
 }
 
-function okxUrlOnWire(requestPath: string): string {
-	return extFetchUrl(`https://web3.okx.com${requestPath.startsWith('/') ? requestPath : `/${requestPath}`}`)
-}
-
-/** Signed OKX request — prod uses `/api/okx`; dev signs in-browser with VITE_* creds. */
+/** Signed OKX request via `/api/okx` (Vite middleware in DEV, serverless in prod). Secrets never in the browser. */
 async function okxSignedRequestOnce(
 	method: 'GET' | 'POST',
 	pathWithQuery: string,
@@ -123,54 +62,18 @@ async function okxSignedRequestOnce(
 	if (okxCircuitOpen()) return null
 	const path = pathWithQuery.startsWith('/') ? pathWithQuery : `/${pathWithQuery}`
 
-	if (isProdBuild()) {
-		try {
-			const r = await okxProxyFetch(method, path, bodyStr)
-			const json = (await r.json()) as OkxJson
-			return { ok: r.ok, status: r.status, json }
-		} catch (e) {
-			const msg = e instanceof Error ? e.message : String(e)
-			if (/ETIMEDOUT|AbortError|network|fetch/i.test(msg)) okxTripCircuit()
-			return null
-		}
-	}
-
-	const creds = okxCreds()
-	if (!creds) return null
-	const ts = okxTimestamp()
-	const pre = `${ts}${method}${path}${method === 'POST' ? bodyStr : ''}`
-	const sign = await hmacSha256Base64(creds.secret, pre)
-	const url = okxUrlOnWire(path)
-	const timeoutMs = okxFetchTimeoutMs()
-	const ac = new AbortController()
-	const t = setTimeout(() => ac.abort(), timeoutMs)
 	try {
-		const r = await fetch(url, {
-			method,
-			signal: ac.signal,
-			headers: {
-				...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
-				'OK-ACCESS-KEY': creds.key,
-				'OK-ACCESS-SIGN': sign,
-				'OK-ACCESS-TIMESTAMP': ts,
-				'OK-ACCESS-PASSPHRASE': creds.pass,
-			},
-			body: method === 'POST' ? bodyStr : undefined,
-		})
+		const r = await okxProxyFetch(method, path, bodyStr)
 		const json = (await r.json()) as OkxJson
 		return { ok: r.ok, status: r.status, json }
 	} catch (e) {
-		const isAbort = e instanceof Error && e.name === 'AbortError'
 		const msg = e instanceof Error ? e.message : String(e)
-		if (isAbort || /ETIMEDOUT|ECONNREFUSED|ENOTFOUND/i.test(msg)) okxTripCircuit()
+		if (/ETIMEDOUT|AbortError|network|fetch|ECONNREFUSED|ENOTFOUND/i.test(msg)) okxTripCircuit()
 		return null
-	} finally {
-		clearTimeout(t)
 	}
 }
 
 /** Retry on HTTP 429 (free-tier rate limit) with short backoff. */
-let lastOkx429LogAt = 0
 async function okxSignedRequest(
 	method: 'GET' | 'POST',
 	pathWithQuery: string,
@@ -182,18 +85,11 @@ async function okxSignedRequest(
 		last = await okxSignedRequestOnce(method, pathWithQuery, bodyStr)
 		if (!last) return null
 		if (last.status !== 429) return last
-		const backoffMs = 800 * (attempt + 1) * (attempt + 1)
-		const now = Date.now()
-		if (now - lastOkx429LogAt > 30_000) {
-			lastOkx429LogAt = now
-			// eslint-disable-next-line no-console
-			console.warn('[OKX] 429 backoff', {
-				attempt: attempt + 1,
-				backoffMs,
-				path: pathWithQuery.split('?')[0],
-			})
+		const backoffMs = 400 * (attempt + 1) * (attempt + 1)
+		if (import.meta.env.DEV || typeof window === 'undefined') {
+			 
+			console.warn('[OKX] 429 backoff', { attempt: attempt + 1, backoffMs, path: pathWithQuery.split('?')[0] })
 		}
-		if (attempt >= 1) return last
 		await sleep(backoffMs)
 	}
 	return last
@@ -211,7 +107,7 @@ export async function okxSignedGet(pathWithQuery: string): Promise<OkxJson | nul
 	if (!res) return null
 	if (res.ok && okxSuccess(res.json)) return res.json
 	if (import.meta.env.DEV) {
-		// eslint-disable-next-line no-console
+		 
 		console.warn('[OKX] GET', path.split('?')[0], res.status, res.json?.code, res.json?.msg)
 	}
 	return null
@@ -245,8 +141,6 @@ export async function okxSignedPostResponseAnyCode(
 	return res.json
 }
 
-type PriceInfoBody = { chainIndex: string; tokenContractAddress: string }[]
-
 type PriceInfoRow = {
 	chainIndex?: string
 	tokenContractAddress?: string
@@ -255,6 +149,8 @@ type PriceInfoRow = {
 	priceChange1H?: string
 	priceChange4H?: string
 	priceChange24H?: string
+	liquidity?: string
+	txs24H?: string
 }
 
 function parseChangePct(s: string | undefined): number | null {
@@ -270,23 +166,6 @@ export type OkxPriceInfo = {
 	change24h: number | null
 }
 
-const OKX_PRICE_INFO_TTL_MS = (() => {
-	const raw =
-		typeof process !== 'undefined' ? process.env.OKX_PRICE_INFO_CACHE_MS : undefined
-	const n = raw != null && raw !== '' ? Number.parseInt(String(raw), 10) : Number.NaN
-	return Number.isFinite(n) && n >= 5_000 && n <= 600_000 ? n : 60_000
-})()
-
-const priceInfoCache = new Map<string, { info: OkxPriceInfo; expiresAt: number }>()
-
-export function _resetOkxPriceInfoCacheForTests(): void {
-	priceInfoCache.clear()
-}
-
-function priceInfoCacheKey(coinType: string): string {
-	return normalizeCoinTypeForMatch(coinType)
-}
-
 /**
  * Підпис змінюється щоразу (timestamp) — кожен POST окремо.
  * Retries: мережа / таймаут / HTTP ≠ 2xx / code ≠ 0.
@@ -300,7 +179,7 @@ async function postPriceInfoChunk(bodyStr: string): Promise<OkxJson | null> {
 		const res = await okxSignedRequest('POST', PRICE_INFO_PATH, bodyStr)
 		if (res && res.ok && okxSuccess(res.json) && Array.isArray(res.json.data)) {
 			if (import.meta.env.DEV && attempt > 0) {
-				// eslint-disable-next-line no-console
+				 
 				console.log('[OKX] price-info retry success', { attempt: attempt + 1 })
 			}
 			return res.json
@@ -312,7 +191,7 @@ async function postPriceInfoChunk(bodyStr: string): Promise<OkxJson | null> {
 		}
 	}
 	if (import.meta.env.DEV) {
-		// eslint-disable-next-line no-console
+		 
 		console.warn('[OKX] price-info chunk failed after retries', { lastErr, attempts: maxAttempt })
 	}
 	return null
@@ -320,7 +199,14 @@ async function postPriceInfoChunk(bodyStr: string): Promise<OkxJson | null> {
 
 /**
  * POST `/api/v6/dex/market/price-info` — ціна USD + % зміни (5M / 1H / 24H).
- * Ключі мапи — `coinType` з гаманця.
+ * Ключі мапи — оригінальні `coinType` з гаманця (можуть бути без leading-zero в адресі).
+ *
+ * Адреси в body:
+ * - більшість токенів — `normalizeSuiAddress` (leading zeros), інакше OKX може віддати ghost-ціну
+ *   (CETUS `0x6864…` vs `0x06864…`);
+ * - **native SUI** — короткий `0x2::sui::SUI` (padded `0x000…002` → порожня відповідь, тоді
+ *   немає 5m/1h і spot падає на CoinGecko лише з 24h%).
+ *
  * @see https://web3.okx.com/onchainos/dev-docs/market/market-token-price-info
  */
 export async function okxPriceInfoByCoinType(
@@ -329,55 +215,45 @@ export async function okxPriceInfoByCoinType(
 	const out = new Map<string, OkxPriceInfo>()
 	if (!isOkxDexConfigured() || coinTypes.length === 0) return out
 
-	const unique = [...new Set(coinTypes.map((c) => c.trim()).filter(Boolean))]
-	const now = Date.now()
-	const needFetch: string[] = []
-	for (const ct of unique) {
-		const hit = priceInfoCache.get(priceInfoCacheKey(ct))
-		if (hit && hit.expiresAt > now) {
-			out.set(ct, hit.info)
-			continue
-		}
-		needFetch.push(ct)
+	/** normalized coin type → originals from wallet / caller */
+	const originalsByNorm = new Map<string, string[]>()
+	for (const ct of coinTypes) {
+		const norm = normalizeCoinTypeForMatch(ct)
+		const arr = originalsByNorm.get(norm) ?? []
+		if (!arr.includes(ct)) arr.push(ct)
+		originalsByNorm.set(norm, arr)
 	}
-	if (needFetch.length === 0) return out
+	const uniqueNorms = [...originalsByNorm.keys()]
 
-	const bodyTemplate: PriceInfoBody = needFetch.map((tokenContractAddress) => ({
-		chainIndex: CHAIN_SUI,
-		tokenContractAddress,
-	}))
-
-	for (let i = 0; i < bodyTemplate.length; i += BATCH) {
-		const chunk = bodyTemplate.slice(i, i + BATCH)
-		const bodyStr = JSON.stringify(chunk)
+	for (let i = 0; i < uniqueNorms.length; i += BATCH) {
+		const chunk = uniqueNorms.slice(i, i + BATCH)
+		const bodyStr = JSON.stringify(
+			chunk.map((norm) => ({
+				chainIndex: CHAIN_SUI,
+				tokenContractAddress: okxPriceInfoTokenAddress(norm),
+			})),
+		)
 		const j = await postPriceInfoChunk(bodyStr)
 		if (j == null) continue
-		// Primary key: full normalized coin type (e.g. "0x06864...::cetus::CETUS")
-		// Secondary key: package-only (e.g. "0x06864...") for OKX responses that strip ::module::STRUCT
-		const normToCt = new Map<string, string>()
-		for (const b of chunk) {
-			const norm = normalizeCoinTypeForMatch(b.tokenContractAddress)
-			normToCt.set(norm, b.tokenContractAddress)
-			// Also index by package address alone as fallback
-			const pkg = norm.split('::')[0]
-			if (pkg && !normToCt.has(pkg)) normToCt.set(pkg, b.tokenContractAddress)
-		}
+
+		/** Best quote per normalized type (prefer live liquidity / txs over ghost rows). */
+		const bestByNorm = new Map<
+			string,
+			OkxPriceInfo & { score: number; rawAddr: string }
+		>()
+
 		if (import.meta.env.DEV) {
-			// eslint-disable-next-line no-console
+			 
 			console.debug('[OKX price-info] raw response:', JSON.stringify(j.data))
 		}
 		for (const row of j.data as PriceInfoRow[]) {
 			const p = parseFloat(String(row?.price ?? ''))
 			if (!Number.isFinite(p) || p <= 0) continue
 			const raw = String(row.tokenContractAddress ?? '')
-			// Match by full normalized coin type first, then package-only fallback.
-			// OKX sometimes echoes back just the package address without ::module::STRUCT.
-			const normRaw = normalizeCoinTypeForMatch(raw)
-			const pkgRaw = normRaw.split('::')[0] ?? normRaw
-			const ct = normToCt.get(normRaw) ?? normToCt.get(pkgRaw)
-			if (!ct) {
+			const normRaw = normalizeCoinTypeForMatch(raw || '0x2::sui::SUI')
+			if (!originalsByNorm.has(normRaw)) {
 				if (import.meta.env.DEV) {
-					// eslint-disable-next-line no-console
+					 
 					console.warn('[OKX price-info] unmatched tokenContractAddress:', raw)
 				}
 				continue
@@ -385,24 +261,91 @@ export async function okxPriceInfoByCoinType(
 			const change5m = parseChangePct(row.priceChange5M)
 			const change1h = parseChangePct(row.priceChange1H)
 			const change24h = parseChangePct(row.priceChange24H)
-			if (import.meta.env.DEV) {
-				// eslint-disable-next-line no-console
-				console.debug(
-					`[OKX price-info] ${ct.split('::')[2] ?? ct} → $${p} ` +
-						`5m=${change5m} 1h=${change1h} 24h=${change24h}`,
-				)
-			}
-			out.set(ct, { price: p, change5m, change1h, change24h })
-			priceInfoCache.set(priceInfoCacheKey(ct), {
-				info: { price: p, change5m, change1h, change24h },
-				expiresAt: now + OKX_PRICE_INFO_TTL_MS,
+			const liq = parseFloat(String(row.liquidity ?? ''))
+			const txs24 = parseFloat(String(row.txs24H ?? ''))
+			// Ghost / mis-indexed rows (wrong Sui address padding) often have ~0 activity.
+			const score =
+				(Number.isFinite(liq) ? Math.log10(1 + Math.max(0, liq)) : 0) * 10 +
+				(Number.isFinite(txs24) ? Math.min(txs24, 1_000_000) / 1000 : 0) +
+				(change5m != null || change1h != null || change24h != null ? 1 : 0)
+			const prev = bestByNorm.get(normRaw)
+			if (prev && prev.score >= score) continue
+			bestByNorm.set(normRaw, {
+				price: p,
+				change5m,
+				change1h,
+				change24h,
+				score,
+				rawAddr: raw || '0x2::sui::SUI',
 			})
 		}
+
+		for (const [norm, info] of bestByNorm) {
+			const originals = originalsByNorm.get(norm) ?? []
+			if (import.meta.env.DEV) {
+				 
+				console.debug(
+					`[OKX price-info] ${norm.split('::')[2] ?? norm} → $${info.price} ` +
+						`5m=${info.change5m} 1h=${info.change1h} 24h=${info.change24h}` +
+						(info.rawAddr !== norm
+							? ` (req ${okxPriceInfoTokenAddress(norm).slice(0, 18)}… echo ${info.rawAddr.slice(0, 18)}…)`
+							: ''),
+				)
+			}
+			for (const ct of originals) {
+				out.set(ct, {
+					price: info.price,
+					change5m: info.change5m,
+					change1h: info.change1h,
+					change24h: info.change24h,
+				})
+			}
+		}
 	}
-	for (const ct of unique) {
-		if (out.has(ct)) continue
-		const hit = priceInfoCache.get(priceInfoCacheKey(ct))
-		if (hit) out.set(ct, hit.info)
+	return out
+}
+
+/** Ethereum mainnet — for short-window % on Sui-bridged ETH/WETH when Sui pools are idle. */
+const CHAIN_ETH = '1'
+const ETHEREUM_WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
+
+const SUI_BRIDGE_ETH = normalizeCoinTypeForMatch(
+	'0xd0e89b2af5e4910726fbcd8b8dd37bb79b29e5f83f7491bca830e94f7f226d29::eth::ETH',
+)
+const SUI_WORMHOLE_WETH = normalizeCoinTypeForMatch(
+	'0xaf8cd5edc19c4512f4259f0bee101a40d41ebed738ade5874359610ef8eeced5::coin::COIN',
+)
+
+function isBridgedEthLike(coinType: string): boolean {
+	const n = normalizeCoinTypeForMatch(coinType)
+	return n === SUI_BRIDGE_ETH || n === SUI_WORMHOLE_WETH
+}
+
+/**
+ * 5m/1h for Sui Bridge ETH / Wormhole WETH from Ethereum WETH (Sui pools often have txs5M=0).
+ */
+export async function okxEthereumShortWindowForBridgedEth(
+	coinTypes: string[],
+): Promise<Map<string, { change5m: number | null; change1h: number | null }>> {
+	const out = new Map<string, { change5m: number | null; change1h: number | null }>()
+	const targets = coinTypes.filter(isBridgedEthLike)
+	if (!targets.length || !isOkxDexConfigured()) return out
+
+	const bodyStr = JSON.stringify([
+		{ chainIndex: CHAIN_ETH, tokenContractAddress: ETHEREUM_WETH },
+	])
+	const j = await postPriceInfoChunk(bodyStr)
+	if (j == null) return out
+	const row = (j.data as PriceInfoRow[])[0]
+	if (!row) return out
+	const change5m = parseChangePct(row.priceChange5M)
+	const change1h = parseChangePct(row.priceChange1H)
+	for (const ct of targets) {
+		out.set(ct, { change5m, change1h })
+	}
+	if (import.meta.env.DEV) {
+		 
+		console.debug('[OKX eth-short] WETH →', { change5m, change1h, for: targets.length })
 	}
 	return out
 }
@@ -412,7 +355,7 @@ export async function okxPriceInfoByCoinType(
  */
 export async function okxDexConnectionPing(): Promise<{ ok: boolean; error?: string }> {
 	if (!isOkxDexConfigured()) {
-		return { ok: false, error: 'OKX not configured (dev VITE_* or prod /api/okx)' }
+		return { ok: false, error: 'OKX not configured (/api/okx)' }
 	}
 	try {
 		const m = await okxPriceInfoByCoinType(['0x2::sui::SUI'])
@@ -425,8 +368,9 @@ export async function okxDexConnectionPing(): Promise<{ ok: boolean; error?: str
 	}
 }
 
+/** Always true — signing is server-side via `/api/okx`; missing creds surface as 503/null. */
 export function isOkxDexConfigured(): boolean {
-	return isProdBuild() || okxCreds() != null
+	return true
 }
 
 /** true, якщо OKX щойно дав ETIMEDOUT і circuit відкритий — поточні виклики слід пропускати. */

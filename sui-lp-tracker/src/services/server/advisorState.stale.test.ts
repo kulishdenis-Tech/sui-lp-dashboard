@@ -65,7 +65,7 @@ describe('buildAdvisorState STALE / deadline', () => {
 			tickLower: 0,
 			tickUpper: 0,
 			status: 'in_range',
-		} as OpenPosition
+		} as unknown as OpenPosition
 		recordAdvisorSnapshotSuccess(ADVISOR_STATE_WALLET, [cachedPos], EMPTY_CURRENT_SNAP, savedAt)
 
 		const hang = () =>
@@ -103,7 +103,7 @@ describe('buildAdvisorState STALE / deadline', () => {
 					tickLower: 0,
 					tickUpper: 0,
 					status: 'in_range',
-				} as OpenPosition,
+				} as unknown as OpenPosition,
 			],
 			EMPTY_CURRENT_SNAP,
 			savedAt,
@@ -145,7 +145,7 @@ describe('buildAdvisorState STALE / deadline', () => {
 					tickLower: 0,
 					tickUpper: 0,
 					status: 'in_range',
-				} as OpenPosition,
+				} as unknown as OpenPosition,
 			],
 			incomplete: false,
 		})

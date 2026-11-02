@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { usePositions } from '@/hooks/usePositions'
 import { useAppStore } from '@/store/appStore'
@@ -9,14 +9,24 @@ import { OpenPositionsTable } from '@/components/positions/OpenPositionsTable'
 import { ClosedPositionsTable } from '@/components/positions/ClosedPositionsTable'
 import { ClosedSummaryStrip } from '@/components/positions/ClosedSummaryStrip'
 import { AftermathFarmsSection } from '@/components/positions/AftermathFarmsSection'
-import { SkeletonCard } from '@/components/ui/SkeletonCard'
+import { CetusVaultsSection } from '@/components/positions/CetusVaultsSection'
+import { VaultSummaryStrip } from '@/components/positions/VaultSummaryStrip'
+import { CurrentMultiplySummaryStrip } from '@/components/positions/CurrentMultiplySummaryStrip'
 import { EmptyLpPositionsSection } from '@/components/positions/EmptyLpPositionsSection'
 import { splitOpenLpActiveEmpty } from '@/utils/openLpActiveEmpty'
+import { SkeletonCard } from '@/components/ui/SkeletonCard'
+import { Spinner } from '@/components/ui/Spinner'
+import { isCetusVaultPosition } from '@/utils/cetusVault'
+import {
+	enrichCetusLiveFeesFromBot,
+	fetchAutopilotOpenDigests,
+} from '@/pages/autopilot/enrichCetusLiveFees'
+import { expandOpenDigestsWithCascadeCreates } from '@/pages/autopilot/cascadeOpenBindings'
 
-type LpView = 'open' | 'closed'
+type LpView = 'open' | 'closed' | 'vaults'
 
 export function LpModule() {
-	const { open, closed, isLoading, isLoadingClosed, closedCountPending, error } = usePositions()
+	const { open, closed, isLoading, isRefreshing, isLoadingClosed, error } = usePositions()
 	const { address } = useWalletAuth()
 	const loadClosedPositions = useAppStore((s) => s.loadClosedPositions)
 	const filter = useAppStore((s) => s.protocolFilter)
@@ -24,20 +34,108 @@ export function LpModule() {
 	const [view, setView] = useState<LpView>(
 		(location.state as { lpView?: LpView } | null)?.lpView ?? 'open',
 	)
+	const closedReconcileKey = useRef('')
+	const liveFeeKey = useRef('')
+	const [openDigestByPosId, setOpenDigestByPosId] = useState<Map<string, string>>(() => new Map())
 
 	useEffect(() => {
-		if (view !== 'closed' || !address) return
-		if (isLoadingClosed || closed.length > 0) return
-		void loadClosedPositions(address)
+		const next = (location.state as { lpView?: LpView } | null)?.lpView
+		if (next === 'open' || next === 'closed' || next === 'vaults') setView(next)
+	}, [location.state])
+
+	/** Live Cetus fees + open digests via Autopilot bot (fetchPosFeeAmount path). */
+	useEffect(() => {
+		if (!address || open.length === 0 || isLoading) return
+		const cetusIds = open
+			.filter((p) => p.protocol === 'cetus' && !p.cetusVault)
+			.map((p) => p.id)
+			.sort()
+			.join(',')
+		if (!cetusIds) return
+		const key = `${address}:${cetusIds}`
+		// Only skip after a successful apply for this set (avoid abort-race that never retries).
+		if (liveFeeKey.current === key) return
+		let cancelled = false
+		void (async () => {
+			try {
+				const snapshot = useAppStore.getState().openPositions
+				const [enriched, botDigests] = await Promise.all([
+					enrichCetusLiveFeesFromBot(address, snapshot),
+					fetchAutopilotOpenDigests(address),
+				])
+				if (cancelled) return
+				// Remap Empty NFTs to their *open* cascade digest (previousTransaction after
+				// Withdraw All is the remove tx, so bot digests omit zero-liquidity positions).
+				const digests = await expandOpenDigestsWithCascadeCreates(snapshot, botDigests)
+				if (cancelled) return
+				setOpenDigestByPosId(digests)
+				const feeById = new Map(
+					enriched.map((p) => [
+						p.id,
+						{
+							unclaimedFeeUSD: p.unclaimedFeeUSD,
+							unclaimedFeeA: p.unclaimedFeeA,
+							unclaimedFeeB: p.unclaimedFeeB,
+						},
+					]),
+				)
+				const prev = useAppStore.getState().openPositions
+				let changed = false
+				const next = prev.map((p) => {
+					const fee = feeById.get(p.id)
+					if (!fee) return p
+					if (
+						fee.unclaimedFeeUSD === p.unclaimedFeeUSD &&
+						fee.unclaimedFeeA === p.unclaimedFeeA &&
+						fee.unclaimedFeeB === p.unclaimedFeeB
+					) {
+						return p
+					}
+					changed = true
+					return {
+						...p,
+						unclaimedFeeUSD: fee.unclaimedFeeUSD,
+						unclaimedFeeA: fee.unclaimedFeeA,
+						unclaimedFeeB: fee.unclaimedFeeB,
+					}
+				})
+				if (changed) useAppStore.setState({ openPositions: next })
+				liveFeeKey.current = key
+			} catch {
+				/* leave key unset so refresh / next effect can retry */
+			}
+		})()
+		return () => {
+			cancelled = true
+		}
+	}, [address, open, isLoading])
+
+	useEffect(() => {
+		if (view !== 'closed' || !address) {
+			closedReconcileKey.current = ''
+			return
+		}
+		if (closed.length === 0) {
+			if (isLoadingClosed) return
+			void loadClosedPositions(address)
+			return
+		}
+		// Once per visit. Refresh also appends closes that landed after the list was built.
+		if (closedReconcileKey.current === address) return
+		closedReconcileKey.current = address
+		void loadClosedPositions(address, { reconcileOnly: true, refreshScan: true })
 	}, [view, address, isLoadingClosed, closed.length, loadClosedPositions])
 
-	// Split open positions: Aftermath farm positions vs CLMM/AMM positions.
 	const aftermathOpen = useMemo(
 		() => open.filter((p) => p.protocol === 'aftermath'),
 		[open],
 	)
+	const vaultOpen = useMemo(
+		() => open.filter((p) => isCetusVaultPosition(p)),
+		[open],
+	)
 	const clmmOpen = useMemo(
-		() => open.filter((p) => p.protocol !== 'aftermath'),
+		() => open.filter((p) => p.protocol !== 'aftermath' && !isCetusVaultPosition(p)),
 		[open],
 	)
 	const { active: clmmActive, empty: clmmEmpty } = useMemo(
@@ -45,7 +143,11 @@ export function LpModule() {
 		[clmmOpen],
 	)
 
-	// Aftermath positions to show in the dedicated section (respects protocol filter).
+	const vaultFiltered = useMemo(
+		() => (filter === 'all' || filter === 'cetus' ? vaultOpen : []),
+		[filter, vaultOpen],
+	)
+
 	const aftermathVisible = useMemo(
 		() =>
 			view === 'open' && (filter === 'all' || filter === 'aftermath')
@@ -54,15 +156,12 @@ export function LpModule() {
 		[view, filter, aftermathOpen],
 	)
 
-	// Only compute the count for the active tab — no-op for the inactive one.
-	const openFilteredCount = useMemo(() => {
-		if (view !== 'open') return open.length
-		const clmmFiltered =
-			filter === 'all' || filter === 'aftermath'
-				? clmmActive.filter((p) => filter === 'all' || p.protocol === filter)
-				: clmmActive.filter((p) => p.protocol === filter)
-		return clmmFiltered.length + aftermathVisible.length
-	}, [view, open.length, clmmOpen, aftermathVisible, filter])
+	const positionsTabCount = useMemo(() => {
+		const clmmFiltered = clmmActive.filter((p) => filter === 'all' || p.protocol === filter)
+		const af =
+			filter === 'all' || filter === 'aftermath' ? aftermathOpen.length : 0
+		return clmmFiltered.length + af
+	}, [clmmActive, aftermathOpen, filter])
 
 	const closedFilteredCount = useMemo(
 		() =>
@@ -73,14 +172,12 @@ export function LpModule() {
 	)
 
 	const closedTabLabel = useMemo(() => {
-		if (closedCountPending && closed.length === 0) return '…'
+		// Don't show "Closed (…)" before the first fetch — show plain "Closed" until data arrives.
 		if (closed.length > 0) return String(closedFilteredCount)
 		return ''
-	}, [closedCountPending, closed.length, closedFilteredCount])
+	}, [closed.length, closedFilteredCount])
 
-	// Whether the CLMM table should be shown (hidden when the aftermath-only filter is active).
 	const showClmmSection = filter !== 'aftermath'
-
 	const showSkeleton = isLoading && open.length === 0 && closed.length === 0 && !isLoadingClosed
 
 	if (showSkeleton) {
@@ -92,7 +189,7 @@ export function LpModule() {
 		)
 	}
 	return (
-		<section className="min-w-0">
+		<section className={`min-w-0${isRefreshing ? ' opacity-90 transition-opacity' : ''}`}>
 			<ProtocolFilter />
 			{error ? <p className="text-sm text-red-400">{error}</p> : null}
 
@@ -106,7 +203,18 @@ export function LpModule() {
 							: 'rounded-lg px-3 py-1.5 text-sm text-slate-400 hover:bg-slate-800/80 hover:text-slate-200'
 					}
 				>
-					Open{open.length > 0 ? ` (${openFilteredCount})` : ''}
+					Positions{open.length > 0 || aftermathOpen.length > 0 ? ` (${positionsTabCount})` : ''}
+				</button>
+				<button
+					type="button"
+					onClick={() => setView('vaults')}
+					className={
+						view === 'vaults'
+							? 'rounded-lg bg-slate-700 px-3 py-1.5 text-sm font-medium text-white ring-1 ring-slate-500/60'
+							: 'rounded-lg px-3 py-1.5 text-sm text-slate-400 hover:bg-slate-800/80 hover:text-slate-200'
+					}
+				>
+					Vaults{vaultOpen.length > 0 ? ` (${vaultFiltered.length})` : ''}
 				</button>
 				<button
 					type="button"
@@ -121,9 +229,27 @@ export function LpModule() {
 				</button>
 			</div>
 
-			{view === 'open' ? (
+			{view === 'vaults' ? (
+				<CetusVaultsSection
+					positions={vaultFiltered}
+					multiplySummary={
+						vaultFiltered.length > 0 ? (
+							<CurrentMultiplySummaryStrip positions={vaultFiltered} />
+						) : null
+					}
+					summary={
+						vaultFiltered.length > 0 ? (
+							<VaultSummaryStrip positions={vaultFiltered} />
+						) : null
+					}
+					emptyHint={
+						filter !== 'all' && filter !== 'cetus'
+							? 'Vaults are Cetus Earn / Haedal / Current Multiply — switch protocol filter to All or Cetus.'
+							: 'No supported vault positions found for this address (Earn LP, Haedal Liquidity, Haedal Lending Vault, Current Multiply).'
+					}
+				/>
+			) : view === 'open' ? (
 				<>
-					{/* ── CLMM / AMM positions (Bluefin, Momentum, Cetus, Turbos, FlowX) ── */}
 					{showClmmSection ? (
 						<>
 							<h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-slate-500">
@@ -137,20 +263,22 @@ export function LpModule() {
 							) : (
 								<>
 									<LpSummaryStrip positions={clmmActive} protocolFilter={filter} />
-									<OpenPositionsTable allOpen={clmmActive} protocolFilter={filter} />
+									<OpenPositionsTable
+										allOpen={clmmActive}
+										protocolFilter={filter}
+										openDigestByPosId={openDigestByPosId}
+									/>
 								</>
 							)}
 							<EmptyLpPositionsSection positions={clmmEmpty} protocolFilter={filter} />
 						</>
 					) : null}
 
-					{/* ── Aftermath Farms (separate section) ─────────────────────────── */}
 					{aftermathVisible.length > 0 ? (
 						<AftermathFarmsSection positions={aftermathVisible} />
 					) : filter === 'aftermath' ? (
 						<p className="text-slate-500">No Aftermath Farm positions.</p>
 					) : null}
-
 				</>
 			) : (
 				<>
@@ -161,17 +289,17 @@ export function LpModule() {
 					{isLoadingClosed ? (
 						<div className="flex items-center gap-2 text-sm text-slate-400">
 							<Spinner className="h-4 w-4" />
-							<span>Завантаження закритих позицій (скан подій і USD)…</span>
+							<span>Loading closed positions (scanning events and USD values)…</span>
 						</div>
 					) : closed.length === 0 ? (
 						<p className="max-w-2xl text-sm leading-relaxed text-slate-500">
-							Закритих LP у поточному скані не знайдено. Скан охоплює події гаманця (Bluefin, Momentum,
-							Cetus, Turbos); для дуже старих позицій допомагає warm-кеш IndexedDB або Refresh.
-							Семантика «закритої» позиції різниться по DEX — див.{' '}
+							No closed LP positions found in the current scan. The scan covers wallet events for Bluefin,
+							Momentum, Cetus, and Turbos. For very old positions, a warm IndexedDB cache or Refresh Data
+							may help. The definition of "closed" varies by DEX — see{' '}
 							<code className="rounded bg-slate-800 px-1 py-0.5 font-mono text-[11px]">
 								docs/ARCHITECTURE.md
 							</code>{' '}
-							(таблиця DEX × closed).
+							(DEX × closed table).
 						</p>
 					) : (
 						<>

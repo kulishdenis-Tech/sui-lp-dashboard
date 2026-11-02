@@ -30,10 +30,16 @@
 import { TickMath, Utils } from '@mmt-finance/clmm-sdk'
 import type { OpenPosition } from '@/types'
 import { suiClient } from '@/services/suiClient'
+import {
+	listOwnedMoveObjects,
+	multiGetObjectsHydrated,
+	asRpcObjectClient,
+} from '@/services/objectVersionCache'
 import { resolveSpots } from '@/services/spotPrice/resolveSpots'
 import { normalizeStructTag, normalizeSuiAddress } from '@mysten/sui/utils'
 import { mapPool } from '@/utils/concurrency'
 import { PROTOCOL_PACKAGES, RPC_CONCURRENCY } from '@/utils/constants'
+import { computeFeeGrowthInside, computeTotalOwed, U128_MOD, U64_MAX } from '@/clmm/feeGrowth'
 import Decimal from 'decimal.js'
 import BN from 'bn.js'
 
@@ -417,55 +423,6 @@ async function fetchTurbosTickFeeGrowth(
 	}
 }
 
-const U128_MAX_PLUS_1 = 2n ** 128n
-
-/** Compute fee_growth_inside using Uniswap V3 math (wrapping u128 arithmetic). */
-function computeFeeGrowthInside(
-	feeGrowthGlobal: bigint,
-	lowerFeeGrowthOutside: bigint,
-	upperFeeGrowthOutside: bigint,
-	lowerTick: number,
-	upperTick: number,
-	currentTick: number,
-): bigint {
-	// fee_growth_below at lowerTick
-	const feeGrowthBelow =
-		currentTick >= lowerTick ? lowerFeeGrowthOutside
-			: (feeGrowthGlobal - lowerFeeGrowthOutside + U128_MAX_PLUS_1) % U128_MAX_PLUS_1
-	// fee_growth_above at upperTick
-	const feeGrowthAbove =
-		currentTick < upperTick ? upperFeeGrowthOutside
-			: (feeGrowthGlobal - upperFeeGrowthOutside + U128_MAX_PLUS_1) % U128_MAX_PLUS_1
-	// fee_growth_inside (wrapping subtract)
-	return (feeGrowthGlobal - feeGrowthBelow - feeGrowthAbove + 2n * U128_MAX_PLUS_1) % U128_MAX_PLUS_1
-}
-
-const U64_MAX = 18_446_744_073_709_551_615n
-
-/**
- * Compute total unclaimed fees = tokens_owed + live_accrued.
- * Fee growth values are Q128 (multiplied by 2^128): delta × liquidity >> 128.
- * Returns the raw u64 total in the same unit as tokens_owed.
- */
-function computeTotalOwed(
-	tokensOwedRaw: string,
-	feeGrowthInsideNow: bigint,
-	feeGrowthInsideLast: bigint,
-	liquidity: string,
-): string {
-	try {
-		const liq = BigInt(liquidity)
-		if (liq === 0n) return tokensOwedRaw
-		const owed = BigInt(tokensOwedRaw)
-		const delta = (feeGrowthInsideNow - feeGrowthInsideLast + U128_MAX_PLUS_1) % U128_MAX_PLUS_1
-		const live = (delta * liq) >> 128n
-		const total = owed + live > U64_MAX ? owed : owed + live
-		return total.toString()
-	} catch {
-		return tokensOwedRaw
-	}
-}
-
 /**
  * Compute total unclaimed rewards = amount_owed + live_accrued.
  * Turbos reward growth values are Q64.64 (multiplied by 2^64): delta × liquidity >> 64.
@@ -482,7 +439,7 @@ function computeTotalRewardOwed(
 		if (liq === 0n) return amountOwedRaw
 		const owed = BigInt(amountOwedRaw)
 		// Reward growth delta uses wrapping u128 arithmetic
-		const delta = (rewardGrowthInsideNow - rewardGrowthInsideLast + U128_MAX_PLUS_1) % U128_MAX_PLUS_1
+		const delta = (rewardGrowthInsideNow - rewardGrowthInsideLast + U128_MOD) % U128_MOD
 		// Q64.64: shift right 64 (not 128 like fees)
 		const live = (delta * liq) >> 64n
 		const total = owed + live > U64_MAX ? owed : owed + live
@@ -496,31 +453,32 @@ function computeTotalRewardOwed(
 // Main entry point
 // ---------------------------------------------------------------------------
 
-export async function getTurbosPositions(walletAddress: string): Promise<OpenPosition[]> {
-	// 1. Fetch all Turbos position NFTs owned by wallet
+export type TurbosPositionsOptions = { incremental?: boolean }
+
+export async function getTurbosPositions(
+	walletAddress: string,
+	options?: TurbosPositionsOptions,
+): Promise<OpenPosition[]> {
+	const incremental = options?.incremental === true
+	const owned = await listOwnedMoveObjects(asRpcObjectClient(suiClient), {
+		owner: walletAddress,
+		filter: { StructType: TURBOS_POSITION_TYPE },
+		incremental,
+	})
 	const nfts: NonNullable<ReturnType<typeof parseNftObject>>[] = []
-	let cursor: string | null = null
-	do {
-		const page = await suiClient.getOwnedObjects({
-			owner: walletAddress,
-			cursor: cursor ?? undefined,
-			filter: { StructType: TURBOS_POSITION_TYPE },
-			options: { showContent: true, showType: true },
-		})
-		for (const item of page.data) {
-			const parsed = parseNftObject(item)
-			if (parsed) nfts.push(parsed)
-		}
-		cursor = page.hasNextPage ? (page.nextCursor ?? null) : null
-	} while (cursor)
+	for (const item of owned) {
+		const parsed = parseNftObject(item)
+		if (parsed) nfts.push(parsed)
+	}
 
 	if (nfts.length === 0) return []
 
 	// 2. Batch-fetch position objects
-	const positionObjs = await suiClient.multiGetObjects({
-		ids: nfts.map((n) => n.positionId),
-		options: { showContent: true },
-	})
+	const positionObjs = await multiGetObjectsHydrated(
+		asRpcObjectClient(suiClient),
+		nfts.map((n) => n.positionId),
+		{ incremental },
+	)
 
 	// 3. Filter open positions (liquidity !== '0'), map positionId → parsed
 	const posData = new Map<string, NonNullable<ReturnType<typeof parsePositionObject>>>()
@@ -538,10 +496,7 @@ export async function getTurbosPositions(walletAddress: string): Promise<OpenPos
 
 	// 4. Batch-fetch pool objects (deduplicate) — for sqrt_price, tick, fee, reward types
 	const uniquePoolIds = [...new Set(openNfts.map((n) => n.poolId))]
-	const poolObjs = await suiClient.multiGetObjects({
-		ids: uniquePoolIds,
-		options: { showContent: true },
-	})
+	const poolObjs = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), uniquePoolIds, { incremental })
 	const poolData = new Map<string, NonNullable<ReturnType<typeof parsePoolObject>>>()
 	for (let i = 0; i < uniquePoolIds.length; i++) {
 		const raw = poolObjs[i]

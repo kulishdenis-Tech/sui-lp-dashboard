@@ -17,7 +17,9 @@ Shared terminology for UI, tooltips, and **`positionDerivedMetrics`**. The on-ch
 
 ## Related (brief)
 
-- **Net deposited (events):** cumulative add − remove in USD at tx-time prices (`depositedUSD` after enrichment).
+- **Net deposited (events, open):** cumulative add − remove in USD at tx-time prices.
+- **Closed capital:** gross `add_liquidity` USD (`depositedUSD` after closed enrichment) — not add−remove.
+- **Closed Value:** `closedValueUSD` = withdrawn liquidity + claimed fees/rewards (realized exit).
 - **Lifetime earnings:** claimed fees/rewards from history (`lifetimeEarningsUSD`) + unclaimed at spot (`totalLifetimeEarningsUsd()`).
 - Dashboard **Total Value** (`totalNetUSD`): sum of wallet balance, open LP (per-position **Value**), and lending **Credit/Borrow** net as implemented in `computeNetWorth`.
 - **Closed LP rows:** побудова з ончейн-подій / адаптерами DEX та опційним lifecycle indexer (`VITE_LP_LIFECYCLE_INDEXER`); см. **`docs/ARCHITECTURE.md`** (розділ LP → закриті позиції).

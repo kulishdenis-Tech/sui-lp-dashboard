@@ -15,9 +15,17 @@ import { getTurbosPositions } from '@/services/turbosService'
 import { getAftermathFarmsPositions } from '@/services/aftermathService'
 import { mapPool } from '@/utils/concurrency'
 
+function readEnv(name: string): string | undefined {
+	if (typeof process !== 'undefined' && process.env) {
+		const v = process.env[name]
+		if (typeof v === 'string' && v.trim()) return v.trim()
+	}
+	return undefined
+}
+
 /** Concurrency limit for parallel LP source loading (RPC-heavy operations). */
 const LP_SOURCE_CONCURRENCY = (() => {
-	const n = Number(process.env.PORTFOLIO_LP_SOURCE_CONCURRENCY ?? 4)
+	const n = Number(readEnv('PORTFOLIO_LP_SOURCE_CONCURRENCY') ?? 4)
 	return Number.isFinite(n) && n >= 1 && n <= 12 ? n : 6
 })()
 

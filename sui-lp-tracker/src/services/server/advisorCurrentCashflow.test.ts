@@ -16,7 +16,7 @@ vi.mock('@/services/currentService', async (importOriginal) => {
 import { getCurrentPositions } from '@/services/currentService'
 import { buildAdvisorCurrentCashflow } from '@/services/server/advisorState'
 
-const LIVE_CURRENT: LendingSnapshot = {
+const LIVE_CURRENT = {
 	protocol: 'Current',
 	supplies: [
 		{
@@ -57,7 +57,7 @@ const LIVE_CURRENT: LendingSnapshot = {
 		resultUSD: 1,
 		usedSpotPrice: false,
 	},
-}
+} as unknown as LendingSnapshot
 
 describe('buildAdvisorCurrentCashflow', () => {
 	beforeEach(() => {

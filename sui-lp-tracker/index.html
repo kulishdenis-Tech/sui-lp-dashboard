@@ -5,6 +5,39 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sui LP &amp; Lending Dashboard</title>
+    <!--
+      Cursor Simple Browser + Phantom (and similar) inject window.ethereum.
+      A second inject throws "Cannot redefine property: ethereum" as an unhandled
+      error; Vite client then aborts and React never mounts (black screen).
+      Swallow that specific error early, before module graph runs.
+    -->
+    <script>
+      ;(function () {
+        window.addEventListener(
+          'error',
+          function (e) {
+            var msg = e && e.message ? String(e.message) : ''
+            if (msg.indexOf('Cannot redefine property: ethereum') !== -1) {
+              e.preventDefault()
+              e.stopImmediatePropagation()
+              return true
+            }
+          },
+          true,
+        )
+        try {
+          var d = Object.getOwnPropertyDescriptor(window, 'ethereum')
+          if (!d) {
+            Object.defineProperty(window, 'ethereum', {
+              value: undefined,
+              writable: true,
+              configurable: true,
+              enumerable: false,
+            })
+          }
+        } catch (_) {}
+      })()
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -17,6 +50,13 @@
         margin: 0;
         min-height: 100%;
         background: #060b15;
+      }
+      #root:empty::before {
+        content: 'Loading dashboard…';
+        display: block;
+        padding: 1.25rem;
+        color: #94a3b8;
+        font: 14px/1.4 system-ui, sans-serif;
       }
     </style>
   </head>

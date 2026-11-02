@@ -50,7 +50,7 @@ async function dexpPaprikaPriceInner(
 		}
 	}
 	const enc = encodeURIComponent(want)
-	let q = await tryDetail(enc)
+	const q = await tryDetail(enc)
 	if (q) return q
 	const su = extFetchUrl(
 		`${DEXP}/search?query=${encodeURIComponent(symbol)}&networks=${encodeURIComponent('sui')}`,

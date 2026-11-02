@@ -1,44 +1,50 @@
 # Sui LP & Lending Dashboard
 
-Веб-додаток (**React + TypeScript + Vite**) для read-only огляду портфеля на **Sui mainnet**: баланс токенів, LP-позиції (відкриті та закриті), lending, вкладка аналітики. Код живе в каталозі **`sui-lp-tracker`**.
+Веб-додаток (**React + TypeScript + Vite**) для огляду портфеля на **Sui mainnet** і торгівлі Cetus/Bluefin LP з **MANUAL_SIGN**: баланс, LP, lending, analytics, **Build** (конструктор каскаду) і **Markets**. Код UI — у **`sui-lp-tracker`**; Autopilot bot API — у **`sui-lp-autopilot`** (порт **5191**).
 
 ## Швидкий старт
 
-З кореня репозиторію **`SUI Dashboard`** (батьківський `package.json` лише проксує команди):
+З кореня **`SUI Dashboard`**:
 
 ```bash
-npm run dev
-```
-
-Або напряму:
-
-```bash
-cd sui-lp-tracker
 npm install
-npm run dev
+npm run bot          # окремо: API 5191 (або через bat нижче)
+npm run dev          # Vite 5180 (+ concurrently bot, якщо `npm run dev` з кореня)
 ```
 
-- **Локальна URL:** [http://localhost:5180](http://localhost:5180) (порт зафіксовано у `vite.config.ts`; якщо зайнятий — звільни порт або зміни конфіг).
-- **Прод-збірка:** `npm run build`, попередній перегляд: `npm run preview` (порт **5181**).
-- **Тести:** `npm run test`
+Або **`sui-lp-tracker/start-SUIdashboard.bat`**: піднімає **bot 5191** + **tracker 5180**.
 
-Скопіюй **`sui-lp-tracker/.env.example`** → **`.env`**, підстав RPC і за потреби ключі провайдерів. Після зміни `.env` перезапусти dev-сервер (Vite зчитує змінні при старті).
+- **Dashboard UI:** [http://localhost:5180](http://localhost:5180) — **єдиний** UI (manual sign / submit)
+- **Build / Markets:** `/lp/build`, `/lp/markets` (proxy `/api/autopilot` → `127.0.0.1:5191`)
+- **Прод-збірка:** `npm run build`, preview: **5181**
+- **CI / QA:** з кореня `npm run ci` (typecheck → test → lint → build)
+- **Тести:** `npm run test` у корені або в `sui-lp-tracker` / `sui-lp-autopilot`
+
+Скопіюй **`sui-lp-tracker/.env.example`** → **`.env`**. Після зміни `.env` перезапусти Vite.
+
+## Autopilot
+
+| Компонент | Роль |
+|-----------|------|
+| **tracker (5180)** | Єдиний UI: preview, dry-run, wallet sign, submit |
+| **bot (5191)** | HTTP build/recommend; default **MONITOR_ONLY**; без AUTO_GUARDED execution |
+| **`@autopilot/db`** | JSON file store (strategies, ops, position map) |
+| **deprecated dashboard** | `packages/dashboard` **видалено** — не використовувати порт 5190 |
+
+Підпис завжди власником гаманця (MANUAL_SIGN). Bot не підписує live tx.
+
+## Pool quote
+
+`/api/pool-quote` (Vite plugin + `quotePoolImpact`) лишається для impact-оцінок Cetus/Turbos. Research arb/scanner scripts і docs прибрані; мінімальна pricing-логіка в `src/arbitrage/pricing` збережена лише для quote.
 
 ## Документація в репозиторії
 
 | Файл | Зміст |
 |------|--------|
-| **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** | Поточна архітектура: модулі, стор, адаптери DEX, ціни, проксі, змінні середовища |
-| **[docs/GLOSSARY.md](./docs/GLOSSARY.md)** | Терміни Liquidity vs Value для UI |
-| **[docs/CHAT-HANDOFF.md](./docs/CHAT-HANDOFF.md)** | Короткий контекст для нового чату |
-| **[docs/rfc-tv-charting-library-udf.md](./docs/rfc-tv-charting-library-udf.md)** | RFC на майбутню інтеграцію TradingView UDF |
+| **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** | Архітектура: модулі, стор, DEX, ціни, проксі |
+| **[docs/GLOSSARY.md](./docs/GLOSSARY.md)** | Liquidity vs Value |
+| **[docs/CHAT-HANDOFF.md](./docs/CHAT-HANDOFF.md)** | Контекст для нового чату |
 
-## Ціни та змінні середовища (коротко)
+## Cursor
 
-У **`.env.example`** описані ключі (**CoinGecko**, **OKX Web3**, таймаути, прапорці indexer / Bluefin). Для деву зовнішні API часто йдуть через **Vite proxy** та `src/utils/externalFetchUrl.ts` (обхід CORS).
-
-Детальніше таблиця зовнішніх доменів — у **`docs/ARCHITECTURE.md`**.
-
-## Cursor / правило про документацію провайдерів
-
-У корені воркспейсу: **`.cursor/rules/verify-official-docs.mdc`** — перед впровадженням нових інтеграцій з офіційними HTTP/SDK слід узгоджувати з документацією провайдера.
+У корені воркспейсу: **`.cursor/rules/verify-official-docs.mdc`** — перед новими HTTP/SDK інтеграціями звіряти офіційну документацію провайдера.

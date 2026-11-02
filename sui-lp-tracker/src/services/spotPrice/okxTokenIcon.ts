@@ -309,7 +309,7 @@ type IconDebug = {
 }
 function logIconDebug(d: IconDebug) {
 	if (!import.meta.env.DEV) return
-	// eslint-disable-next-line no-console
+	 
 	console.info('[OKX][token-icon] lookup', d)
 }
 
@@ -366,7 +366,7 @@ export function logTokenIconImageErrorOnce(
 	const key = `${cacheKey(coinType ?? symbol)}|${url}`
 	if (imgErrorOnce.has(key)) return
 	imgErrorOnce.add(key)
-	// eslint-disable-next-line no-console
+	 
 	console.warn('[OKX][token-icon] <img> onError', { coinType, symbol, url })
 }
 

@@ -1,10 +1,6 @@
-import type { ReactNode } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { formatUSD } from '@/utils/formatting'
-import { TooltipIconButton } from '@/components/ui/Tooltip'
-import { AppCard } from '@/components/ui/AppCard'
-import { DataFreshnessHint } from '@/pages/overviewLab/DataFreshnessHint'
-import { useOverviewFreshness } from '@/pages/overviewLab/useOverviewFreshness'
+import { SummaryMetricCard } from '@/components/ui/SummaryMetricCard'
 
 /** Matches `computeNetWorth` (`totalNetUSD`). */
 const TOTAL_VALUE_TOOLTIP =
@@ -18,7 +14,6 @@ const NET_LENDING_TOOLTIP = 'Net lending position: total supplied collateral min
 export function SummaryCards() {
 	const netWorth = useAppStore((s) => s.netWorth)
 	const openN = useAppStore((s) => s.openPositions.length)
-	const freshness = useOverviewFreshness()
 	const isRefreshing = useAppStore(
 		(s) => s.isLoadingBalances || s.isLoadingPositions || s.isLoadingLending,
 	)
@@ -30,14 +25,14 @@ export function SummaryCards() {
 					(isRefreshing ? ' opacity-80 transition-opacity' : '')
 				}
 			>
-				<Card label="Wallet Balance" value="—" tooltip={WALLET_TOOLTIP} />
-				<Card
+				<SummaryMetricCard label="Wallet Balance" value="—" tip={WALLET_TOOLTIP} />
+				<SummaryMetricCard
 					label={`Liquidity Positions (${openN})`}
 					value="—"
-					tooltip={LP_POSITIONS_TOOLTIP}
+					tip={LP_POSITIONS_TOOLTIP}
 				/>
-				<Card label="Net Lending" value="—" tooltip={NET_LENDING_TOOLTIP} />
-				<Card label="Total Value" value="—" tooltip={TOTAL_VALUE_TOOLTIP} />
+				<SummaryMetricCard label="Net Lending" value="—" tip={NET_LENDING_TOOLTIP} />
+				<SummaryMetricCard label="Total Value" value="—" tip={TOTAL_VALUE_TOOLTIP} />
 			</div>
 		)
 	}
@@ -48,54 +43,18 @@ export function SummaryCards() {
 				(isRefreshing ? ' opacity-90 transition-opacity' : '')
 			}
 		>
-			<Card label="Wallet Balance" value={formatUSD(netWorth.walletAssetsUSD)} tooltip={WALLET_TOOLTIP} />
-			<Card
+			<SummaryMetricCard label="Wallet Balance" value={formatUSD(netWorth.walletAssetsUSD)} tip={WALLET_TOOLTIP} />
+			<SummaryMetricCard
 				label={`Liquidity Positions (${openN})`}
 				value={formatUSD(netWorth.openLpUSD)}
-				tooltip={LP_POSITIONS_TOOLTIP}
+				tip={LP_POSITIONS_TOOLTIP}
 			/>
-			<Card
+			<SummaryMetricCard
 				label="Net Lending"
 				value={formatUSD(netWorth.netLendingUSD)}
-				tooltip={NET_LENDING_TOOLTIP}
+				tip={NET_LENDING_TOOLTIP}
 			/>
-			<Card label="Total Value" value={formatUSD(netWorth.verifiedTotalNetUSD ?? netWorth.totalNetUSD)} tooltip={TOTAL_VALUE_TOOLTIP}>
-				<DataFreshnessHint
-					updatedAtMs={freshness.displayUpdatedAtMs}
-					stale={freshness.anyStale}
-					className="mt-1"
-				/>
-				{(netWorth.unverifiedUSD ?? 0) > 0 ? (
-					<div className="mt-1 text-[10px] text-amber-300/90">
-						UNVERIFIED (STALE &gt;30 хв): {formatUSD(netWorth.unverifiedUSD!)}
-					</div>
-				) : null}
-			</Card>
+			<SummaryMetricCard label="Total Value" value={formatUSD(netWorth.totalNetUSD)} tip={TOTAL_VALUE_TOOLTIP} />
 		</div>
-	)
-}
-
-function Card({
-	label,
-	value,
-	tooltip,
-	children,
-}: {
-	label: string
-	value: string
-	tooltip?: string
-	children?: ReactNode
-}) {
-	return (
-		<AppCard className="h-full">
-			<p className="flex flex-wrap items-center text-xs font-medium uppercase tracking-wider text-slate-500">
-				<span className="leading-snug">{label}</span>
-				{tooltip ? (
-					<TooltipIconButton tip={tooltip} aria-label={`About ${label}`} className="translate-y-px" />
-				) : null}
-			</p>
-			<p className="mt-1 font-mono tabular-money text-xl text-slate-100">{value}</p>
-			{children}
-		</AppCard>
 	)
 }

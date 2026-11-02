@@ -16,14 +16,28 @@ import { CetusStateLoader } from '@/poolQuote/pricing/state/cetus/CetusStateLoad
 import { TurbosStateLoader } from '@/poolQuote/pricing/state/turbos/TurbosStateLoader'
 import { CetusFastQuoteEngine } from '@/poolQuote/pricing/cetus/CetusFastQuoteEngine'
 import { TurbosFastQuoteEngine } from '@/poolQuote/pricing/turbos/TurbosFastQuoteEngine'
-import { quoteFromLoadedCache } from '@/services/server/quotePoolImpactCache'
+import { isTicksDirty } from '@/poolQuote/pricing/state/types'
+import type { MarketPool } from '@/poolQuote/core/types'
 
-export type {
-	PoolQuoteRequest,
-	PoolQuoteResponse,
-	PoolQuoteVenue,
-} from '@/services/server/quotePoolImpactTypes'
-export { quoteFromLoadedCache } from '@/services/server/quotePoolImpactCache'
+export type PoolQuoteVenue = 'cetus' | 'turbos'
+
+export type PoolQuoteRequest = {
+	venue: PoolQuoteVenue
+	poolId: string
+	tokenIn: string
+	amountIn: string
+}
+
+export type PoolQuoteResponse = {
+	ok: boolean
+	amountOut?: string
+	authority?: string
+	valid?: boolean
+	reason?: string
+	priceImpactBps?: number | null
+	ageMs?: number | null
+	error?: string
+}
 
 const cache = new ClmmStateCache()
 const cetusLoader = new CetusStateLoader(cache)
@@ -31,7 +45,28 @@ const turbosLoader = new TurbosStateLoader(cache)
 const cetusEngine = new CetusFastQuoteEngine(cache)
 const turbosEngine = new TurbosFastQuoteEngine(cache)
 
-export async function quotePoolImpact(req: import('@/services/server/quotePoolImpactTypes').PoolQuoteRequest): Promise<import('@/services/server/quotePoolImpactTypes').PoolQuoteResponse> {
+function marketPoolFromSnap(
+	venue: PoolQuoteVenue,
+	poolId: string,
+	tokenA: string,
+	tokenB: string,
+	decimalsA: number,
+	decimalsB: number,
+): MarketPool {
+	return {
+		id: poolId,
+		venue,
+		tokenA,
+		tokenB,
+		feeBps: 0,
+		decimalsA,
+		decimalsB,
+		active: true,
+		stale: false,
+	}
+}
+
+export async function quotePoolImpact(req: PoolQuoteRequest): Promise<PoolQuoteResponse> {
 	const venue = req.venue
 	if (venue !== 'cetus' && venue !== 'turbos') {
 		return { ok: false, error: 'unsupported_venue' }
@@ -52,4 +87,47 @@ export async function quotePoolImpact(req: import('@/services/server/quotePoolIm
 	}
 
 	return quoteFromLoadedCache(cache, { cetus: cetusEngine, turbos: turbosEngine }, req, amountIn)
+}
+
+/** Quote using an already-populated cache (no RPC). Used by tests and after load(). */
+export function quoteFromLoadedCache(
+	state: ClmmStateCache,
+	engines: { cetus: CetusFastQuoteEngine; turbos: TurbosFastQuoteEngine },
+	req: PoolQuoteRequest,
+	amountIn = BigInt(req.amountIn),
+): PoolQuoteResponse {
+	const snap = state.get(req.poolId)
+	if (!snap) return { ok: false, error: 'snapshot_missing' }
+	if (isTicksDirty(snap)) {
+		return {
+			ok: true,
+			valid: false,
+			reason: 'ticks_dirty',
+			ageMs: Date.now() - snap.loadedAtMs,
+		}
+	}
+
+	const pool = marketPoolFromSnap(
+		req.venue,
+		req.poolId,
+		snap.tokenA,
+		snap.tokenB,
+		snap.decimalsA,
+		snap.decimalsB,
+	)
+	const engine = req.venue === 'cetus' ? engines.cetus : engines.turbos
+	const q = engine.quoteExactIn(pool, req.tokenIn, amountIn)
+	const impact =
+		typeof q.priceImpactBps === 'number' && Number.isFinite(q.priceImpactBps)
+			? q.priceImpactBps
+			: null
+	return {
+		ok: true,
+		amountOut: q.amountOut.toString(),
+		authority: q.authority,
+		valid: q.valid,
+		reason: q.reason,
+		priceImpactBps: impact,
+		ageMs: Date.now() - snap.loadedAtMs,
+	}
 }

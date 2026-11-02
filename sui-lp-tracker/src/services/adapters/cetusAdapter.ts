@@ -15,12 +15,12 @@ export const cetusAdapter: DexAdapter = {
 	async getOpenPositions(wallet: string): Promise<OpenPosition[]> {
 		const [clmm, dlmm] = await Promise.all([
 			getCetusPositions(wallet).catch((e) => {
-				// eslint-disable-next-line no-console
+				 
 				console.error('[cetusAdapter] CLMM getOpenPositions failed', e)
 				return [] as OpenPosition[]
 			}),
 			getCetusDlmmPositions(wallet).catch((e) => {
-				// eslint-disable-next-line no-console
+				 
 				console.error('[cetusAdapter] DLMM getOpenPositions failed', e)
 				return [] as OpenPosition[]
 			}),
@@ -32,7 +32,7 @@ export const cetusAdapter: DexAdapter = {
 		try {
 			return await getCetusClosedPositions(wallet)
 		} catch (e) {
-			// eslint-disable-next-line no-console
+			 
 			console.error('[cetusAdapter] getClosedPositions failed', e)
 			return []
 		}

@@ -3,9 +3,7 @@ import { AppCard } from '@/components/ui/AppCard'
 import { PROTOCOL_COLORS } from '@/utils/constants'
 import { formatUSD } from '@/utils/formatting'
 import { isBluefinUnclaimedUnavailable } from '@/utils/bluefinUnclaimedUi'
-import { useAppStore } from '@/store/appStore'
 import { positionValueUsd } from '@/utils/positionDerivedMetrics'
-import { DataFreshnessHint } from '@/pages/overviewLab/DataFreshnessHint'
 import { Badge } from '@/components/ui/Badge'
 import { ProtocolIcon } from '@/components/ui/ProtocolIcon'
 
@@ -18,7 +16,6 @@ function fmtTokenAmt(n: number) {
 
 export function OpenPositionCard({ p, filter }: { p: OpenPosition; filter: string }) {
 	const unclaimedQueryFailed = isBluefinUnclaimedUnavailable(p)
-	const positionsUpdatedAtMs = useAppStore((s) => s.positionsDataUpdatedAtMs)
 	if (filter !== 'all' && p.protocol !== filter) return null
 	const color = PROTOCOL_COLORS[p.protocol] ?? '#94a3b8'
 	return (
@@ -32,12 +29,6 @@ export function OpenPositionCard({ p, filter }: { p: OpenPosition; filter: strin
 				<div className="text-right text-sm text-slate-200">
 					<div className="text-lg font-mono text-slate-100">{formatUSD(positionValueUsd(p))}</div>
 					<div className="text-[10px] uppercase text-slate-500">Value (Liquidity + unclaimed)</div>
-					<DataFreshnessHint
-						updatedAtMs={positionsUpdatedAtMs}
-						stale={p.readStale === true}
-						lastSuccessAtMs={p.lastSuccessAtMs}
-						className="justify-end"
-					/>
 				</div>
 			</div>
 			<div className="mb-2 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
@@ -56,7 +47,7 @@ export function OpenPositionCard({ p, filter }: { p: OpenPosition; filter: strin
 					<div className="text-[10px] uppercase text-slate-500">Unclaimed (fee + rewards, USD)</div>
 					<div className="mt-0.5 space-y-0.5 font-mono text-slate-300">
 						{unclaimedQueryFailed ? (
-							<div className="text-slate-500" title="devInspect недоступний для цієї позиції (див. VITE_DEBUG_BLUEFIN=1).">
+							<div className="text-slate-500" title="devInspect unavailable for this position (see VITE_DEBUG_BLUEFIN=1).">
 								—
 							</div>
 						) : (

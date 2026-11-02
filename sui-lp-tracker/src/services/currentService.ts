@@ -599,10 +599,14 @@ export async function parallelCurrentMiningAndClaimableWrong216139c<
 	borrowMiningResults: TMined
 	mined: undefined
 }> {
-	const [depositMiningResults, borrowMiningResults, mined] = await Promise.all([
-		miningBundlePromise,
-		claimableRead,
-	])
+	const packed = (await Promise.all([miningBundlePromise, claimableRead])) as unknown as [
+		[TDep[], TBor[]],
+		TMined,
+		undefined,
+	]
+	const depositMiningResults = packed[0]
+	const borrowMiningResults = packed[1]
+	const mined = packed[2]
 	return {
 		depositMiningResults: depositMiningResults as [TDep[], TBor[]],
 		borrowMiningResults: borrowMiningResults as TMined,
@@ -1194,7 +1198,11 @@ async function loadCashflowTokens(
 }
 
 function currentAdvisorTimingEnabled(): boolean {
-	return process.env.VITEST !== 'true' && process.env.SUI_LP_ADVISOR_DEV_TIMING === '1'
+	return (
+		typeof process !== 'undefined' &&
+		process.env?.VITEST !== 'true' &&
+		process.env?.SUI_LP_ADVISOR_DEV_TIMING === '1'
+	)
 }
 
 function logCurrentAdvisorStep(step: string, ms: number): void {

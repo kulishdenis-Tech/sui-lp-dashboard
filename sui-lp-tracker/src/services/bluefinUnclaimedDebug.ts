@@ -3,7 +3,7 @@ import type { BluefinUnclaimedSnapshot } from '@/types'
 /** Увімкнути: `VITE_DEBUG_BLUEFIN=1`. */
 export function logBluefinUnclaimedDebug(s: BluefinUnclaimedSnapshot): void {
 	if (import.meta.env.VITE_DEBUG_BLUEFIN !== '1') return
-	// eslint-disable-next-line no-console
+	 
 	console.log('[bluefin unclaimed]', {
 		position_id: s.position_id,
 		pool_id: s.pool_id,

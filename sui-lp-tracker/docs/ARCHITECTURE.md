@@ -156,8 +156,7 @@ OKX там, де можливо інакше CoinGecko batch / DexScreener то�
 
 `vite.config.ts` алиаси:
 
-- `@mysten/sui/graphql/schemas/latest` → `src/shims/sui-graphql-schema.ts`
-- `@mysten/sui/client` → `src/shims/sui-client.ts` (для SDK, що очікують старий експорт)
+- `@mysten/sui/client` → `src/shims/sui-client.ts` (Momentum CLMM SDK still imports this path)
 
 `optimizeDeps.include`: `alphalend-sdk`, `@naviprotocol/lending`, `buffer`.
 

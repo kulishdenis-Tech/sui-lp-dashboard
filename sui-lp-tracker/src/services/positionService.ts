@@ -24,7 +24,7 @@ export async function fetchClosedFromAdapters(walletAddress: string): Promise<Cl
 	return results
 		.flatMap((r, i) => {
 			if (r.status === 'rejected') {
-				// eslint-disable-next-line no-console
+				 
 				console.error(
 					`[positionService] ${DEX_ADAPTERS[i]?.protocol} getClosedPositions failed`,
 					r.reason,
@@ -49,7 +49,7 @@ async function enrichClosedList(
 		}
 		return out
 	} catch (e) {
-		// eslint-disable-next-line no-console
+		 
 		console.error('getClosedPositions enrich/augment failed — returning merged without full enrichment', e)
 		return merged
 	}

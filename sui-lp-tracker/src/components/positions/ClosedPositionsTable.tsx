@@ -212,27 +212,29 @@ export function ClosedPositionsTable({ allClosed, protocolFilter }: Props) {
 
 	return (
 		<div className="w-full min-w-0">
-			<table className="w-full min-w-0 table-auto border-collapse text-left text-xs sm:text-sm">
+			<table className="w-full min-w-0 table-auto border-collapse text-left text-sm">
 				<thead>
 					<tr className={appTableHeadRow}>
 						<DataTableHeadCell
 							thClassName={appTablePoolStickyTh}
+							align="left"
 							tip={TIP_POOL}
 							tipAriaLabel="About Pool column"
 						>
 							<span className={appTableHeadLabel}>Pool</span>
 						</DataTableHeadCell>
-						<DataTableHeadCell thClassName={appTableHeadCellDefault} tip={TIP_PNL} tipAriaLabel="About PnL">
+						<DataTableHeadCell thClassName={appTableHeadCellDefault} align="right" tip={TIP_PNL} tipAriaLabel="About PnL">
 							<SortableHead label="PnL" sortKey="pnl" sort={sort} setSort={setSort} />
 						</DataTableHeadCell>
-						<DataTableHeadCell thClassName={appTableHeadCellDefault} tip={TIP_ROI} tipAriaLabel="About ROI">
+						<DataTableHeadCell thClassName={appTableHeadCellDefault} align="right" tip={TIP_ROI} tipAriaLabel="About ROI">
 							<SortableHead label="ROI %" sortKey="roi" sort={sort} setSort={setSort} />
 						</DataTableHeadCell>
-						<DataTableHeadCell thClassName={appTableHeadCellDefault} tip={TIP_EARNED} tipAriaLabel="About Earned">
+						<DataTableHeadCell thClassName={appTableHeadCellDefault} align="right" tip={TIP_EARNED} tipAriaLabel="About Earned">
 							<SortableHead label="Earned" sortKey="earned" sort={sort} setSort={setSort} />
 						</DataTableHeadCell>
 						<DataTableHeadCell
 							thClassName={appTableHeadCellDefault}
+							align="right"
 							tip={TIP_FEES_IX}
 							tipAriaLabel="About Fees(ix)"
 						>
@@ -240,6 +242,7 @@ export function ClosedPositionsTable({ allClosed, protocolFilter }: Props) {
 						</DataTableHeadCell>
 						<DataTableHeadCell
 							thClassName={appTableHeadCellDefault}
+							align="right"
 							tip={TIP_REW_IX}
 							tipAriaLabel="About Rew(ix)"
 						>
@@ -247,6 +250,7 @@ export function ClosedPositionsTable({ allClosed, protocolFilter }: Props) {
 						</DataTableHeadCell>
 						<DataTableHeadCell
 							thClassName={appTableHeadCellDefault}
+							align="right"
 							tip={TIP_DURATION}
 							tipAriaLabel="About Duration"
 						>
@@ -254,6 +258,7 @@ export function ClosedPositionsTable({ allClosed, protocolFilter }: Props) {
 						</DataTableHeadCell>
 						<DataTableHeadCell
 							thClassName={appTableHeadCellDefault}
+							align="right"
 							tip={TIP_CLOSED}
 							tipAriaLabel="About Closed date"
 						>

@@ -4,10 +4,14 @@
 // the SDK is dynamically imported in lendingService.ts.
 import { Buffer } from 'buffer'
 if (!globalThis.Buffer) globalThis.Buffer = Buffer
+import { installBrowserFetchProxy } from '@/utils/externalFetchUrl'
+installBrowserFetchProxy()
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+// Portfolio reads + Build broadcast use gRPC (`suiData` / `getDashboardGrpcClient`).
+// dapp-kit still uses JSON-RPC only for wallet connect/sign helpers (Suiet pool).
 import { createNetworkConfig, SuiClientProvider, WalletProvider } from '@mysten/dapp-kit'
 import { resolveBrowserRpcUrl } from '@/utils/suiRpcUrl'
 import '@mysten/dapp-kit/dist/index.css'
@@ -27,12 +31,16 @@ if (!el) {
 	throw new Error('Missing #root')
 }
 
+/** Cursor Simple Browser / Electron often breaks wallet autoConnect (Phantom ethereum clash). */
+const autoConnectWallet =
+	typeof navigator === 'undefined' || !/\bElectron\b/i.test(navigator.userAgent)
+
 createRoot(el).render(
 	<StrictMode>
 		<ErrorBoundary>
 			<QueryClientProvider client={queryClient}>
 				<SuiClientProvider networks={networkConfig} defaultNetwork="mainnet">
-					<WalletProvider autoConnect>
+					<WalletProvider autoConnect={autoConnectWallet}>
 						<BrowserRouter>
 							<App />
 						</BrowserRouter>

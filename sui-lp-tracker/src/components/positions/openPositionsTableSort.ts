@@ -1,19 +1,16 @@
 import type { OpenPosition, PositionEvent } from '@/types'
-import { earningsAnnualizedAprPct, positionValueUsd, totalLifetimeEarningsUsd } from '@/utils/positionDerivedMetrics'
+import {
+	earningsAnnualizedAprPct,
+	positionValueUsd,
+	totalLifetimeEarningsUsdOrNull,
+	unclaimedIncomeUsdOrNull,
+} from '@/utils/positionDerivedMetrics'
 import { isLpPositionHistoryEnriched, lpProtocolUsesOnChainHistory } from '@/utils/lpPositionHistoryUi'
-import { isBluefinUnclaimedUnavailable } from '@/utils/bluefinUnclaimedUi'
 
 export type OpenPositionsSortKey = 'value' | 'pnl' | 'roi' | 'apr' | 'earnings' | 'unclaimed' | 'hodl'
 
 /** null — порядок як у джерелі (filter). Інакше — активна колонка та напрям. */
 export type OpenPositionsSortState = null | { key: OpenPositionsSortKey; dir: 'asc' | 'desc' }
-
-function sumUnclaimedUsd(p: OpenPosition): number {
-	if (isBluefinUnclaimedUnavailable(p)) return NaN
-	const a = Number.isFinite(p.unclaimedFeeUSD) ? p.unclaimedFeeUSD : 0
-	const c = Number.isFinite(p.unclaimedRewardUSD) ? p.unclaimedRewardUSD : 0
-	return a + c
-}
 
 /**
  * Числове значення для сорту; NaN = «немає метрики» (завжди в кінці при asc і desc).
@@ -42,13 +39,14 @@ export function sortMetricForPosition(
 		}
 
 		case 'earnings': {
-			if (!showMetrics) return NaN
-			const total = totalLifetimeEarningsUsd(p)
-			return Number.isFinite(total) ? total : NaN
+			const total = totalLifetimeEarningsUsdOrNull(p, { includeClaimed: showMetrics })
+			return total != null ? total : NaN
 		}
 
-		case 'unclaimed':
-			return sumUnclaimedUsd(p)
+		case 'unclaimed': {
+			const u = unclaimedIncomeUsdOrNull(p)
+			return u != null ? u : NaN
+		}
 
 		case 'hodl':
 			return showMetrics && Number.isFinite(p.vsHodlDeltaUSD) ? p.vsHodlDeltaUSD : NaN
@@ -58,16 +56,10 @@ export function sortMetricForPosition(
 	}
 }
 
-function compareNumericWithNaNsLast(va: number, vb: number): number {
-	const na = Number.isNaN(va)
-	const nb = Number.isNaN(vb)
-	if (na && nb) return 0
-	if (na) return 1
-	if (nb) return -1
-	return va - vb
-}
-
-/** Стабільне сортування з урахуванням NaN завжди вкінці списку. */
+/**
+ * Stable sort: numeric asc/desc, but NaN / unknown always last for both directions.
+ * (Negating the whole NaN-aware comparator would put unknowns first on desc.)
+ */
 export function sortOpenPositionsSlice(
 	list: OpenPosition[],
 	state: OpenPositionsSortState,
@@ -79,7 +71,12 @@ export function sortOpenPositionsSlice(
 	out.sort((a, b) => {
 		const va = sortMetricForPosition(key, a, positionEvents)
 		const vb = sortMetricForPosition(key, b, positionEvents)
-		const cmp = compareNumericWithNaNsLast(va, vb)
+		const na = Number.isNaN(va)
+		const nb = Number.isNaN(vb)
+		if (na && nb) return 0
+		if (na) return 1
+		if (nb) return -1
+		const cmp = va - vb
 		return dir === 'desc' ? -cmp : cmp
 	})
 	return out

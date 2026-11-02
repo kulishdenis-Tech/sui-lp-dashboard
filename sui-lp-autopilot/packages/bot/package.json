@@ -1,0 +1,16 @@
+{
+  "name": "@autopilot/bot",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node ./dist/main.js"
+  },
+  "dependencies": {
+    "@autopilot/cetus": "0.1.0",
+    "@autopilot/db": "0.1.0",
+    "@autopilot/engine": "0.1.0",
+    "@mysten/sui": "2.31.2"
+  }
+}

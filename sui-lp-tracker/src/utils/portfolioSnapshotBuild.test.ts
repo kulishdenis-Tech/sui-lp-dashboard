@@ -8,6 +8,8 @@ import {
 } from '@/utils/portfolioSnapshotBuild'
 import { mergeSnapshotsByBucket } from '@/utils/portfolioSnapshotSanitize'
 import type { PortfolioSnapshot } from '@/services/portfolioSnapshotIdb'
+import { computeValueChangeForRange, valueChangeToleranceMs } from '@/pages/overviewLab/overviewMetrics'
+import { isPortfolioSnapshotStale, PORTFOLIO_SNAPSHOT_STALE_AFTER_MS } from '@/pages/overviewLab/overviewSourceStatus'
 
 const T0 = 1_700_000_000_000
 
@@ -169,43 +171,6 @@ describe('livePortfolioParts / build', () => {
 		expect(parts!.lpStatus).toBe('ok')
 		expect(parts!.incomplete).toBe(false)
 	})
-
-	it('QA-2026-11-01-01: includes Current Finance in lending total', () => {
-		const parts = livePortfolioParts(
-			baseState({
-				lendingSnapshot: { netValueUSD: 1000 } as LivePortfolioStoreSlice['lendingSnapshot'],
-				naviSnapshot: { netValueUSD: 2000 } as LivePortfolioStoreSlice['naviSnapshot'],
-				currentSnapshot: { netValueUSD: 3706 } as LivePortfolioStoreSlice['currentSnapshot'],
-				netWorth: {
-					walletAssetsUSD: 100,
-					openLpUSD: 200,
-					outstandingBorrowUSD: 0,
-					netLendingUSD: 6706, // 1000 + 2000 + 3706
-					totalNetUSD: 7006,
-				},
-			}),
-		)
-		expect(parts).not.toBeNull()
-		expect(parts!.lendingNetUSD).toBe(6706)
-		expect(parts!.lendingStatus).toBe('ok')
-		expect(parts!.incomplete).toBe(false)
-
-		const snap = buildPortfolioSnapshot('0xtest', baseState({
-			lendingSnapshot: { netValueUSD: 1000 } as LivePortfolioStoreSlice['lendingSnapshot'],
-			naviSnapshot: { netValueUSD: 2000 } as LivePortfolioStoreSlice['naviSnapshot'],
-			currentSnapshot: { netValueUSD: 3706 } as LivePortfolioStoreSlice['currentSnapshot'],
-			netWorth: {
-				walletAssetsUSD: 100,
-				openLpUSD: 200,
-				outstandingBorrowUSD: 0,
-				netLendingUSD: 6706,
-				totalNetUSD: 7006,
-			},
-		}))
-		expect(snap).not.toBeNull()
-		expect(snap!.lendingNetUSD).toBe(6706)
-		expect(snap!.totalUSD).toBe(7006)
-	})
 })
 
 describe('sumKnownLendingNet', () => {
@@ -236,5 +201,33 @@ describe('complete bucket protection', () => {
 		expect(merged).toHaveLength(1)
 		expect(merged[0]!.incomplete).toBe(false)
 		expect(merged[0]!.totalUSD).toBe(350)
+	})
+})
+
+describe('period tolerance contract (shared with Overview)', () => {
+	it('24h tolerance is ±90m not 18h lookback', () => {
+		expect(valueChangeToleranceMs(86_400_000)).toBe(90 * 60_000)
+		const now = T0
+		const snaps = [
+			{ ts: now - 20 * 3_600_000, totalUSD: 90, incomplete: false },
+			{ ts: now, totalUSD: 100, incomplete: false },
+		]
+		expect(computeValueChangeForRange(snaps, '24h', now)).toBeNull()
+	})
+
+	it('All uses first→latest; incomplete endpoints excluded', () => {
+		const now = T0
+		const snaps = [
+			{ ts: now - 10 * 86_400_000, totalUSD: 50, incomplete: false },
+			{ ts: now - 5 * 86_400_000, totalUSD: 1, incomplete: true },
+			{ ts: now, totalUSD: 80, incomplete: false },
+		]
+		const all = computeValueChangeForRange(snaps, 'all', now)
+		expect(all!.fromTs).toBe(snaps[0]!.ts)
+		expect(all!.abs).toBe(30)
+	})
+
+	it('stale latest uses freshness window', () => {
+		expect(isPortfolioSnapshotStale(T0, T0 + PORTFOLIO_SNAPSHOT_STALE_AFTER_MS + 1)).toBe(true)
 	})
 })

@@ -100,5 +100,5 @@ Analytics: server snapshots мерджаться з локальними 15-хв
 - Повний snapshot на Vercel (`/api/cron/portfolio-snapshot`) зараз падає на `cron-bundle` ESM/`ERR_MODULE_NOT_FOUND` — важка робота лишається в **GHA** (`snapshot:once`).
 - Легкий `/api/cron/dispatch-portfolio-snapshot` лише ставить `workflow_dispatch` (<2с).
 - Клиєнтський POST `/api/snapshots` добиває прогалини, коли браузер відкритий.
-- RPC: публічний Mysten fullnode ок для старту; при 429 зменш concurrency.
+- RPC: не використовуй Mysten `fullnode.*.sui.io` для JSON-RPC (вимкнено Jul 2026); default — PublicNode або свій `VITE_SUI_RPC_URL`. При 429 зменш concurrency.
 - LP history sync важчий за portfolio snapshot — wallets послідовно, не паралельно.

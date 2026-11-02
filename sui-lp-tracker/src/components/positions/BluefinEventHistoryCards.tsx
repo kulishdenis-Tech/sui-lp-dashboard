@@ -6,6 +6,7 @@ import {
 	formatTokenAmountForCentStep,
 	formatUSD,
 	formatUtcEnGbHistory,
+	isStablecoinSymbol,
 	shortAddress,
 } from '@/utils/formatting'
 import { NATIVE_SUI_COIN_TYPE, normalizeCoinTypeForMatch } from '@/utils/suiCoinType'
@@ -33,13 +34,13 @@ const EVENT_TYPE_ORDER: EventType[] = [
 	'close_position',
 ]
 
-const SOURCE_LABEL_UK: Record<HistoricalEventPriceSource, string> = {
-	okx_wallet_hist: 'OKX Wallet (історія цін)',
+const SOURCE_LABEL: Record<HistoricalEventPriceSource, string> = {
+	okx_wallet_hist: 'OKX Wallet (price history)',
 	okx_dex_candles: 'OKX DEX OHLC',
-	pyth: 'Pyth benchmark на секунду tx',
-	geckoterminal: 'GeckoTerminal (OHLCV пулу)',
-	okx_dex_spot_current: 'поточний OKX spot (~ не дата tx)',
-	cache: 'локальний кеш',
+	pyth: 'Pyth benchmark at tx second',
+	geckoterminal: 'GeckoTerminal (pool OHLCV)',
+	okx_dex_spot_current: 'current OKX spot (~ not tx date)',
+	cache: 'local cache',
 }
 
 function formatQuoteSkewVsTx(txUnixSec: number, quoteUnixSec: number | null | undefined): string {
@@ -49,15 +50,15 @@ function formatQuoteSkewVsTx(txUnixSec: number, quoteUnixSec: number | null | un
 		txUnixSec <= 0 ||
 		!Number.isFinite(txUnixSec)
 	) {
-		return 'зміщення невідоме'
+		return 'skew unknown'
 	}
 	const d = quoteUnixSec - txUnixSec
 	const abs = Math.abs(d)
 	const sign = d >= 0 ? '+' : '−'
-	if (abs < 60) return `${sign}${abs} с від часу tx`
-	if (abs < 3600) return `${sign}${Math.round(abs / 60)} хв від часу tx`
-	if (abs < 86400) return `${sign}${(abs / 3600).toFixed(1)} год від часу tx`
-	return `${sign}${(abs / 86400).toFixed(1)} доб від часу tx`
+	if (abs < 60) return `${sign}${abs}s from tx time`
+	if (abs < 3600) return `${sign}${Math.round(abs / 60)}m from tx time`
+	if (abs < 86400) return `${sign}${(abs / 3600).toFixed(1)}h from tx time`
+	return `${sign}${(abs / 86400).toFixed(1)}d from tx time`
 }
 
 function formatUsdPerOneToken(n: number): string {
@@ -68,12 +69,12 @@ function formatUsdPerOneToken(n: number): string {
 	return formatUSD(n, 8)
 }
 
-/** Підказка на Total USD: час tx, час котирування й курс до USD по кожній назі. */
+/** Tooltip for Total USD: tx time, quote time, and USD rate per leg. */
 function historyTotalUsdDetailTitle(ev: PositionEvent, p: OpenPosition): string {
 	const lines: string[] = []
-	lines.push(`Час події (tx): ${formatUtcEnGbHistory(ev.timestamp)} UTC`)
-	const src = ev.priceSource != null ? SOURCE_LABEL_UK[ev.priceSource] ?? String(ev.priceSource) : '—'
-	lines.push(`Джерело рядка (визначальне): ${src}`)
+	lines.push(`Event time (tx): ${formatUtcEnGbHistory(ev.timestamp)} UTC`)
+	const src = ev.priceSource != null ? SOURCE_LABEL[ev.priceSource] ?? String(ev.priceSource) : '—'
+	lines.push(`Row source (primary): ${src}`)
 
 	const leg = (
 		sym: string,
@@ -84,10 +85,10 @@ function historyTotalUsdDetailTitle(ev: PositionEvent, p: OpenPosition): string 
 		if (quoteSec != null && quoteSec > 0) {
 			const when = formatUtcEnGbHistory(quoteSec) + ' UTC'
 			const skew = formatQuoteSkewVsTx(ev.timestamp, quoteSec)
-			chunks.push(`знімок цін ≈ ${when} (${skew}; для OHLC OKX — час відкриття свічки)`)
+			chunks.push(`price snapshot ≈ ${when} (${skew}; for OKX OHLC — candle open time)`)
 		}
 		if (unitUsd != null && Number.isFinite(unitUsd) && unitUsd > 0) {
-			chunks.push(`курс до USD: ${formatUsdPerOneToken(unitUsd)} за 1 ${sym}`)
+			chunks.push(`USD rate: ${formatUsdPerOneToken(unitUsd)} per 1 ${sym}`)
 		}
 		if (chunks.length === 0) return null
 		return `${sym}: ${chunks.join('; ')}`
@@ -118,7 +119,7 @@ function historyTotalUsdDetailTitle(ev: PositionEvent, p: OpenPosition): string 
 
 	if (ev.priceAtTxApproximate) {
 		lines.push(
-			'Увага: сума містить поточний OKX spot для хоча б однієї ноги — це не повноцінний «курс на дату tx».',
+			'Note: total includes current OKX spot for at least one leg — not a full as-of-tx rate.',
 		)
 	}
 	return lines.join('\n')
@@ -465,10 +466,10 @@ export function BluefinEventHistoryCards({
 			</div>
 
 			{/* Table */}
-			<div className="overflow-x-auto">
+						<div className="overflow-x-auto">
 				<table className="w-full min-w-[56rem] table-fixed border-collapse text-left text-xs">
 					<colgroup>
-						<col style={{ width: '9.5rem' }} />
+						<col style={{ width: '10.5rem' }} />
 						<col style={{ width: '5.5rem' }} />
 						<col />
 						<col style={{ width: '8.25rem' }} />
@@ -496,7 +497,7 @@ export function BluefinEventHistoryCards({
 							</th>
 						</tr>
 					</thead>
-					<tbody className="text-slate-300">
+					<tbody className="relative z-0 text-slate-300 isolate">
 						{paged.length === 0 ? (
 							<tr>
 								<td colSpan={5} className="px-3 py-6 text-center text-sm text-slate-500">
@@ -513,12 +514,12 @@ export function BluefinEventHistoryCards({
 								const hasTotal = ev.totalValueUSD != null && ev.totalValueUSD > 0
 								return (
 									<tr key={ev.id} className="align-top border-b border-slate-800/90">
-										<td className="px-3 py-2.5 text-[11px] text-slate-400 sm:text-slate-500">
+										<td className="relative z-0 px-3 py-2.5 font-mono text-[11px] tabular-nums text-slate-400 sm:text-slate-500">
 											{formatUtcEnGbHistory(ev.timestamp)}
 										</td>
 										<td
 											className={
-												'py-2.5 pr-2 text-left text-xs font-medium ' +
+												'relative z-0 py-2.5 pr-2 text-left text-xs font-medium ' +
 												(isDeposit ? 'text-emerald-400/95' : 'text-slate-200')
 											}
 										>
@@ -550,6 +551,17 @@ export function BluefinEventHistoryCards({
 																{formatTokenAmountForCentStep(Math.abs(leg.qty), leg.unitUsd)}{' '}
 																{leg.sym}
 															</span>
+															{leg.unitUsd != null &&
+															Number.isFinite(leg.unitUsd) &&
+															leg.unitUsd > 0 &&
+															!isStablecoinSymbol(leg.sym) ? (
+																<span
+																	className="whitespace-nowrap font-mono text-[11px] text-slate-400"
+																	title={`USD rate per 1 ${leg.sym} at tx time`}
+																>
+																	@ {formatUsdPerOneToken(leg.unitUsd)}
+																</span>
+															) : null}
 															{leg.usd != null && leg.usd > 0 ? (
 																<span className="whitespace-nowrap font-mono text-[11px] text-slate-500">
 																	{formatUSD(leg.usd)}

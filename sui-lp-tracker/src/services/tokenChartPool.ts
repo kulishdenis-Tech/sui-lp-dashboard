@@ -3,11 +3,14 @@
  *
  * Pair policy:
  * - Prefer TOKEN / STABLE (e.g. DEEP/USDC, SUI/USDC) — not STABLE/TOKEN.
- * - Stable priority: USDC → USDT → other stables.
+ * - Stable priority: USDC → USDT → other stables — only among liquid pools
+ *   (ignore dust stables when a deeper TOKEN/SUI etc. exists).
  * - Else fall back to the highest-liquidity pool for the token.
+ * - On Gecko 429 / network errors → DexScreener pairAddress (same Sui object id).
  *
- * Official: GET /networks/{network}/tokens/{token_address}/pools
+ * Official GT: GET /networks/{network}/tokens/{token_address}/pools
  * https://api.geckoterminal.com/docs/index.html
+ * Sort default: h24_volume_usd_liquidity_desc (CoinGecko onchain docs).
  */
 import { GECKO_NETWORK } from '@/utils/constants'
 import { extFetchUrl } from '@/utils/externalFetchUrl'
@@ -59,8 +62,16 @@ type PoolsResponse = {
 }
 
 /** Bump when selection policy changes so stale bad cache is ignored. */
-const LS = 'sui_lp_token_chart_pool_v3'
+const LS = 'sui_lp_token_chart_pool_v5'
 const TTL_MS = 24 * 60 * 60 * 1000
+/** Dust stables below this USD reserve lose stable preference vs deep TOKEN/SUI. */
+const MIN_STABLE_RESERVE_USD = 5_000
+
+export type ChartPoolResolveReason = 'not_found' | 'rate_limited' | 'network'
+
+export type ChartPoolResolveResult =
+	| { ok: true; pool: TokenChartPool }
+	| { ok: false; reason: ChartPoolResolveReason }
 
 type CacheStore = Record<string, { pool: TokenChartPool; at: number }>
 
@@ -183,9 +194,13 @@ function resolvePairSides(
 
 /**
  * Prefer TOKEN/STABLE (token is base). Same for SUI → SUI/USDC, not USDC/SUI.
- * Lower score wins.
+ * Lower score wins. Dust stables do not beat deep TOKEN/native pools.
  */
-export function scorePoolForToken(tokenSym: string, sides: PairSides, reserveUsd: number): number {
+export function scorePoolForToken(
+	tokenSym: string,
+	sides: PairSides,
+	reserveUsd: number,
+): number {
 	const tokenIsStable = isStablecoinSymbol(tokenSym)
 	const other = sides.otherSym
 	const otherU = other.toUpperCase()
@@ -195,17 +210,20 @@ export function scorePoolForToken(tokenSym: string, sides: PairSides, reserveUsd
 	}
 
 	let score = 0
-	if (isStablecoinSymbol(other)) {
+	if (isStablecoinSymbol(other) && reserveUsd >= MIN_STABLE_RESERVE_USD) {
 		score += stableRank(other)
+	} else if (isStablecoinSymbol(other)) {
+		// Dust USDC pool — prefer a deep TOKEN/SUI instead.
+		score += 450
 	} else {
 		score += 500
 	}
 
-	// Prefer TOKEN / STABLE naming (SUI/USDC over USDC/SUI).
-	if (!sides.tokenIsBase) score += 100
+	// Prefer TOKEN as base (SUI/USDC, NS/SUI). STABLE/TOKEN pool embeds invert the USD axis.
+	if (!sides.tokenIsBase) score += 400
 
-	// Slight preference for deeper liquidity among equals.
-	score -= Math.min(reserveUsd / 1e9, 1)
+	// Prefer deeper liquidity among equals (log scale).
+	score -= Math.min(Math.log10(Math.max(reserveUsd, 1) + 9) * 25, 120)
 
 	return score
 }
@@ -218,7 +236,7 @@ export function pickBestPool(
 	if (pools.length === 0) return null
 	const symById = includedSymbolMap(included)
 
-	type Ranked = { pool: PoolItem; sides: PairSides; score: number }
+	type Ranked = { pool: PoolItem; sides: PairSides; score: number; reserve: number }
 	const ranked: Ranked[] = []
 
 	for (const pool of pools) {
@@ -230,11 +248,12 @@ export function pickBestPool(
 		ranked.push({
 			pool,
 			sides,
+			reserve,
 			score: scorePoolForToken(tokenSymbol, sides, reserve),
 		})
 	}
 
-	ranked.sort((a, b) => a.score - b.score)
+	ranked.sort((a, b) => a.score - b.score || b.reserve - a.reserve)
 
 	const best = ranked[0]
 	if (!best) {
@@ -249,9 +268,7 @@ export function pickBestPool(
 	}
 
 	const poolId = best.pool.attributes!.address!
-	const displayLabel = best.sides.tokenIsBase
-		? `${tokenSymbol} / ${best.sides.otherSym}`
-		: `${tokenSymbol} / ${best.sides.otherSym}`
+	const displayLabel = `${tokenSymbol} / ${best.sides.otherSym}`
 	const fromName = best.pool.attributes?.name?.replace(/\s+[\d.]+%\s*$/, '').trim()
 	// Prefer TOKEN/STABLE label even when Gecko lists STABLE/TOKEN.
 	const pairLabel = best.sides.tokenIsBase && fromName ? fromName : displayLabel
@@ -263,20 +280,118 @@ export function pickBestPool(
 	}
 }
 
-async function fetchPoolsPage(tokenAddress: string): Promise<PoolsResponse | null> {
+type FetchPoolsOutcome =
+	| { kind: 'ok'; body: PoolsResponse }
+	| { kind: 'empty' }
+	| { kind: 'rate_limited' }
+	| { kind: 'error' }
+
+async function sleep(ms: number) {
+	await new Promise((r) => setTimeout(r, ms))
+}
+
+async function fetchPoolsPageOnce(tokenAddress: string): Promise<FetchPoolsOutcome> {
 	const base = `https://api.geckoterminal.com/api/v2/networks/${GECKO_NETWORK}/tokens/${encodeURIComponent(tokenAddress)}/pools`
 	const u = new URL(base)
 	u.searchParams.set('page', '1')
-	// Keep query simple — commas in `include` have bitten nested /api/ext proxies before.
+	// Official default sort (CoinGecko onchain / GT).
 	u.searchParams.set('sort', 'h24_volume_usd_liquidity_desc')
+	u.searchParams.set('include', 'base_token,quote_token')
 
 	const url = extFetchUrl(u.toString())
-	const r = await fetch(url, {
-		headers: GT_HEADER,
-		signal: AbortSignal.timeout(15_000),
-	})
-	if (!r.ok) return null
-	return (await r.json()) as PoolsResponse
+	try {
+		const r = await fetch(url, {
+			headers: GT_HEADER,
+			signal: AbortSignal.timeout(15_000),
+		})
+		if (r.status === 429) return { kind: 'rate_limited' }
+		if (!r.ok) return { kind: 'error' }
+		const body = (await r.json()) as PoolsResponse
+		if (!body?.data?.length) return { kind: 'empty' }
+		return { kind: 'ok', body }
+	} catch {
+		return { kind: 'error' }
+	}
+}
+
+async function fetchPoolsPage(tokenAddress: string): Promise<FetchPoolsOutcome> {
+	const delays = [0, 1_200, 2_500]
+	let last: FetchPoolsOutcome = { kind: 'error' }
+	for (const d of delays) {
+		if (d > 0) await sleep(d)
+		last = await fetchPoolsPageOnce(tokenAddress)
+		if (last.kind === 'ok' || last.kind === 'empty') return last
+		if (last.kind !== 'rate_limited') break
+	}
+	return last
+}
+
+type DsPair = {
+	chainId?: string
+	pairAddress?: string
+	liquidity?: { usd?: number }
+	baseToken?: { symbol?: string }
+	quoteToken?: { symbol?: string }
+}
+
+/**
+ * DexScreener fallback when Gecko is rate-limited: Sui pairAddress == pool object id
+ * used by GeckoTerminal embeds.
+ */
+async function resolveViaDexScreener(
+	coinType: string,
+	tokenSymbol: string,
+): Promise<TokenChartPool | null> {
+	const DS = 'https://api.dexscreener.com'
+	for (const addr of geckoTokenAddressCandidates(coinType)) {
+		try {
+			const url = extFetchUrl(`${DS}/latest/dex/tokens/${encodeURIComponent(addr)}`)
+			const r = await fetch(url, { signal: AbortSignal.timeout(12_000) })
+			if (!r.ok) continue
+			const j = (await r.json()) as { pairs?: DsPair[] }
+			const pairs = (j.pairs ?? []).filter(
+				(p) =>
+					(p.chainId === 'sui' || p.chainId === 'sui-network') &&
+					Boolean(p.pairAddress?.trim()),
+			)
+			if (pairs.length === 0) continue
+
+			type Ranked = { pair: DsPair; sides: PairSides; score: number; reserve: number }
+			const ranked: Ranked[] = []
+			for (const pair of pairs) {
+				const baseSym = pair.baseToken?.symbol?.trim()
+				const quoteSym = pair.quoteToken?.symbol?.trim()
+				if (!baseSym || !quoteSym) continue
+				const fakePool: PoolItem = {
+					attributes: {
+						address: pair.pairAddress,
+						name: `${baseSym} / ${quoteSym}`,
+						reserve_in_usd: String(pair.liquidity?.usd ?? 0),
+					},
+				}
+				const sides = resolvePairSides(fakePool, tokenSymbol, new Map())
+				if (!sides) continue
+				const reserve = Number(pair.liquidity?.usd) || 0
+				ranked.push({
+					pair,
+					sides,
+					reserve,
+					score: scorePoolForToken(tokenSymbol, sides, reserve),
+				})
+			}
+			ranked.sort((a, b) => a.score - b.score || b.reserve - a.reserve)
+			const best = ranked[0]
+			if (!best?.pair.pairAddress) continue
+			return {
+				poolId: best.pair.pairAddress,
+				quoteSymbol: best.sides.otherSym,
+				pairLabel: `${tokenSymbol} / ${best.sides.otherSym}`,
+			}
+		} catch {
+			/* try next addr */
+		}
+	}
+	return null
 }
 
 /**
@@ -312,27 +427,66 @@ export function geckoTokenAddressCandidates(coinType: string): string[] {
 }
 
 /** Resolve chart pool for a balance token (cached 24h). */
+export async function resolveTokenChartPoolResult(
+	coinType: string,
+	tokenSymbol: string,
+): Promise<ChartPoolResolveResult> {
+	const cached = getCached(coinType)
+	if (cached) return { ok: true, pool: cached }
+
+	try {
+		let sawRateLimit = false
+		let sawNetwork = false
+		let body: PoolsResponse | null = null
+
+		for (const addr of geckoTokenAddressCandidates(coinType)) {
+			const out = await fetchPoolsPage(addr)
+			if (out.kind === 'ok') {
+				body = out.body
+				break
+			}
+			if (out.kind === 'empty') {
+				// Token known but no pools listed — try next address form.
+				continue
+			}
+			if (out.kind === 'rate_limited') sawRateLimit = true
+			else sawNetwork = true
+		}
+
+		if (body?.data?.length) {
+			const picked = pickBestPool(body.data, tokenSymbol, body.included)
+			if (picked) {
+				setCached(coinType, picked)
+				return { ok: true, pool: picked }
+			}
+		}
+
+		// Gecko empty / 429 / error → DexScreener (does not share GT quota).
+		const ds = await resolveViaDexScreener(coinType, tokenSymbol)
+		if (ds) {
+			setCached(coinType, ds)
+			return { ok: true, pool: ds }
+		}
+
+		if (sawRateLimit) return { ok: false, reason: 'rate_limited' }
+		if (sawNetwork) return { ok: false, reason: 'network' }
+		return { ok: false, reason: 'not_found' }
+	} catch (e) {
+		console.warn('[tokenChartPool]', tokenSymbol, e)
+		const ds = await resolveViaDexScreener(coinType, tokenSymbol).catch(() => null)
+		if (ds) {
+			setCached(coinType, ds)
+			return { ok: true, pool: ds }
+		}
+		return { ok: false, reason: 'network' }
+	}
+}
+
+/** @deprecated Prefer {@link resolveTokenChartPoolResult} for error reasons. */
 export async function resolveTokenChartPool(
 	coinType: string,
 	tokenSymbol: string,
 ): Promise<TokenChartPool | null> {
-	const cached = getCached(coinType)
-	if (cached) return cached
-
-	try {
-		let body: PoolsResponse | null = null
-		for (const addr of geckoTokenAddressCandidates(coinType)) {
-			body = await fetchPoolsPage(addr)
-			if (body?.data?.length) break
-		}
-		const pools = body?.data ?? []
-		if (pools.length === 0) return null
-
-		const picked = pickBestPool(pools, tokenSymbol, body?.included)
-		if (picked) setCached(coinType, picked)
-		return picked
-	} catch (e) {
-		console.warn('[tokenChartPool]', tokenSymbol, e)
-		return null
-	}
+	const r = await resolveTokenChartPoolResult(coinType, tokenSymbol)
+	return r.ok ? r.pool : null
 }

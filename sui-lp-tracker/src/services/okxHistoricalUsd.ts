@@ -5,15 +5,11 @@
  * after / before: after — записи НОВІШІ порогового ts? Ні — «earlier than», before — newer. Беремо обидві гілки навколо цілі.
  */
 import { okxPriceInfoByCoinType, okxSignedGet } from '@/services/spotPrice/okxDexApi'
-import { normalizeCoinTypeForMatch } from '@/utils/suiCoinType'
+import { isNativeSuiCoinType, normalizeCoinTypeForMatch } from '@/utils/suiCoinType'
+
+export { isNativeSuiCoinType } from '@/utils/suiCoinType'
 
 const CHAIN_SUI = '784'
-
-const NATIVE_SUI_NORM = normalizeCoinTypeForMatch('0x2::sui::SUI')
-
-export function isNativeSuiCoinType(coinType: string): boolean {
-	return normalizeCoinTypeForMatch(coinType) === NATIVE_SUI_NORM
-}
 
 /** Параметр `tokenAddress` для Wallet API: "" = native Sui. */
 export function okxWalletTokenAddressParam(coinType: string): string {
@@ -161,6 +157,7 @@ export async function okxDexHistoricalClosestUsd(
 ): Promise<{ usdPerToken: number; quoteAsOfUnixSec: number } | null> {
 	if (!Number.isFinite(timestampSec) || timestampSec <= 0) return null
 	const targetMs = Math.floor(timestampSec * 1000)
+	let fallback: { usdPerToken: number; quoteAsOfUnixSec: number; outside: number } | null = null
 
 	for (const bar of DEX_BARS_CASCADE) {
 		const barDurationMs = OKX_BAR_DURATION_MS[bar] ?? 3_600_000
@@ -180,14 +177,23 @@ export async function okxDexHistoricalClosestUsd(
 			// not just the open moment. Only Pyth provides genuine second-accurate prices.
 			const openSec = Math.floor(cand.tsMs / 1000)
 			const midpointOffsetSec = Math.floor(barDurationMs / 2000)
-			return {
+			const quote = {
 				usdPerToken: cand.close,
 				quoteAsOfUnixSec: openSec + midpointOffsetSec,
 			}
+			const openMs = cand.tsMs
+			const closeMs = openMs + barDurationMs
+			const outside = Math.max(0, openMs - targetMs, targetMs - closeMs)
+			// An unfinished 1Dutc candle is dropped (confirm=0), so the previous day is the
+			// first hit and can be many hours after its close. Keep looking for a finer bar
+			// that actually covers the event. Remember this quote only as a fallback.
+			if (outside === 0) return quote
+			if (fallback == null || outside < fallback.outside) fallback = { ...quote, outside }
 		}
 	}
 
-	return null
+	if (!fallback) return null
+	return { usdPerToken: fallback.usdPerToken, quoteAsOfUnixSec: fallback.quoteAsOfUnixSec }
 }
 
 function walletPriceTimeToMs(raw: string): number | null {

@@ -61,27 +61,6 @@ describe('clmmRangeFromOpenPosition', () => {
 		expect(r!.position01).toBeCloseTo(0.5, 5)
 		expect(r!.inRange).toBe(true)
 	})
-
-	it('DEFI: zero-liquidity position in tick band is not in range (empty, not active)', () => {
-		const da = 9
-		const db = 6
-		const sqrt = TickMath.tickIndexToSqrtPriceX64(0).toString(10)
-		const r = clmmRangeFromOpenPosition({
-			tickLower: -100,
-			tickUpper: 100,
-			currentTick: 0,
-			currentSqrtPrice: sqrt,
-			tokenA: 'SUI',
-			tokenB: 'USDC',
-			tokenADecimals: da,
-			tokenBDecimals: db,
-			status: 'in_range',
-			liquidity: '0',
-			lifecycleStatus: 'empty',
-		})
-		expect(r).not.toBeNull()
-		expect(r!.inRange).toBe(false)
-	})
 })
 
 describe('rangeEdgePercentVsPrice', () => {

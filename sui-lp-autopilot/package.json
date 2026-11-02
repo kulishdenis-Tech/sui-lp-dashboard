@@ -1,0 +1,27 @@
+{
+  "name": "sui-lp-autopilot",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SUI LP Autopilot — Cetus DLMM BUY/SELL strategies with guarded custody",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "postinstall": "node ./scripts/fix-noble-curves-exports.mjs",
+    "build": "npm run build -w @autopilot/engine && npm run build -w @autopilot/cetus && npm run build -w @autopilot/db && npm run build -w @autopilot/bot",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b --pretty false",
+    "bot": "npm run start -w @autopilot/bot",
+    "db:migrate": "npm run migrate -w @autopilot/db"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.9"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

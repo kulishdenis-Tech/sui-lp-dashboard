@@ -173,8 +173,28 @@ export function isLocalNeedleSpike(totalUSD: number, neighbors: number[]): boole
 	return true
 }
 
+/** A bucket "collapsed" when it loses most of its own value, not a few percent. */
+const INCOMPLETE_COLLAPSE_FRACTION = 0.6
+/** The other bucket is still loaded when it moves less than this. */
+const INCOMPLETE_STABLE_FRACTION = 0.15
+
+function bucketCollapsed(prev: number, next: number): boolean {
+	if (!(prev >= 800)) return false
+	const nextPos = Number.isFinite(next) ? Math.max(0, next) : 0
+	return nextPos <= prev * (1 - INCOMPLETE_COLLAPSE_FRACTION)
+}
+
+function bucketStable(prev: number, next: number): boolean {
+	if (!(prev > 0)) return true
+	const nextPos = Number.isFinite(next) ? next : 0
+	const drop = Math.max(0, prev - nextPos) / prev
+	return drop < INCOMPLETE_STABLE_FRACTION
+}
+
 /**
- * Incomplete load vs previous point: total dips while LP or lending alone collapses.
+ * Incomplete load vs previous point: one of LP or lending disappears while the
+ * other stays. A lending-heavy portfolio can move several percent in that one
+ * bucket; that is a real change and must be saved.
  * Used at save-time (no future neighbor yet).
  */
 export function looksLikeIncompleteLoad(
@@ -186,12 +206,50 @@ export function looksLikeIncompleteLoad(
 	const totalDrop = prevTotal - snap.totalUSD
 	if (totalDrop / prevTotal < SNAPSHOT_V_NEEDLE_MIN_DROP) return false
 
-	const lpDrop = Math.max(0, prev.lpUSD - snap.lpUSD)
-	const lendDrop = Math.max(0, prev.lendingNetUSD - snap.lendingNetUSD)
-	const componentDrop = lpDrop + lendDrop
-	if (componentDrop < 800) return false
-	// Most of the $ drop comes from one incomplete bucket, not a broad market move.
-	return componentDrop >= totalDrop * 0.75
+	const lpCollapsed = bucketCollapsed(prev.lpUSD, snap.lpUSD)
+	const lendCollapsed = bucketCollapsed(prev.lendingNetUSD, snap.lendingNetUSD)
+	const lpStable = bucketStable(prev.lpUSD, snap.lpUSD)
+	const lendStable = bucketStable(prev.lendingNetUSD, snap.lendingNetUSD)
+
+	if (lendCollapsed && lpStable) return true
+	if (lpCollapsed && lendStable) return true
+	return false
+}
+
+export type SnapshotSkipReason = 'non-finite' | 'outlier' | 'local-needle' | 'incomplete-load'
+
+/** Why a snapshot must not be written, or null when it should be saved. */
+export function snapshotSkipReason(
+	snap: PortfolioSnapshot,
+	recentHistory: PortfolioSnapshot[],
+): SnapshotSkipReason | null {
+	if (!Number.isFinite(snap.totalUSD) || snap.totalUSD <= 0) return 'non-finite'
+
+	const recentTotals = finitePositiveTotals(recentHistory)
+	if (recentTotals.length === 0) return null
+
+	const baseline = robustBaseline(recentTotals)
+	if (isOutlierTotalUsd(snap.totalUSD, baseline)) {
+		if (
+			recentHistory.length <= BOOTSTRAP_MAX_SNAPS &&
+			snap.totalUSD > baseline * SNAPSHOT_OUTLIER_MAX_RATIO &&
+			snap.lendingNetUSD > 0 &&
+			snap.lpUSD > 0
+		) {
+			return null
+		}
+		return 'outlier'
+	}
+
+	const recentNeighbors = recentTotals.slice(-6)
+	if (isLocalNeedleSpike(snap.totalUSD, recentNeighbors)) return 'local-needle'
+
+	const prev = recentHistory
+		.filter((s) => Number.isFinite(s.totalUSD) && s.totalUSD > 0)
+		.at(-1)
+	if (prev && looksLikeIncompleteLoad(snap, prev)) return 'incomplete-load'
+
+	return null
 }
 
 /** IDs of snapshots removed by {@link sanitizePortfolioSnapshots}. */
@@ -205,43 +263,33 @@ export function shouldSaveSnapshot(
 	snap: PortfolioSnapshot,
 	recentHistory: PortfolioSnapshot[],
 ): boolean {
-	const recentTotals = finitePositiveTotals(recentHistory)
-	if (recentTotals.length === 0) return true
-
-	const baseline = robustBaseline(recentTotals)
-	if (isOutlierTotalUsd(snap.totalUSD, baseline)) {
-		// Allow first corrected totals after under-reported server snapshots.
-		if (
-			recentHistory.length <= BOOTSTRAP_MAX_SNAPS &&
-			snap.totalUSD > baseline * SNAPSHOT_OUTLIER_MAX_RATIO &&
-			snap.lendingNetUSD > 0 &&
-			snap.lpUSD > 0
-		) {
-			return true
-		}
-		return false
-	}
-
-	const recentNeighbors = recentTotals.slice(-6)
-	if (isLocalNeedleSpike(snap.totalUSD, recentNeighbors)) return false
-
-	const prev = recentHistory
-		.filter((s) => Number.isFinite(s.totalUSD) && s.totalUSD > 0)
-		.at(-1)
-	if (prev && looksLikeIncompleteLoad(snap, prev)) return false
-
-	return true
+	return snapshotSkipReason(snap, recentHistory) === null
 }
 
-/** Merge server + local snapshots by `hourBucket` (prefer higher `ts` for same bucket). */
+/**
+ * Prefer a proven-complete sample over incomplete for the same bucket.
+ * When completeness ties, prefer the later observation (`observedAtMs` then `ts`).
+ */
+function preferSnapshot(a: PortfolioSnapshot, b: PortfolioSnapshot): PortfolioSnapshot {
+	const aComplete = a.incomplete === false
+	const bComplete = b.incomplete === false
+	if (aComplete && !bComplete) return a
+	if (bComplete && !aComplete) return b
+	const aObs = a.observedAtMs ?? a.ts
+	const bObs = b.observedAtMs ?? b.ts
+	return bObs >= aObs ? b : a
+}
+
+/** Merge server + local snapshots by `hourBucket` (complete beats incomplete). */
 export function mergeSnapshotsByBucket(
 	...groups: PortfolioSnapshot[][]
 ): PortfolioSnapshot[] {
 	const byBucket = new Map<number, PortfolioSnapshot>()
 	for (const group of groups) {
 		for (const s of group) {
+			if (!Number.isFinite(s.hourBucket) || !Number.isFinite(s.totalUSD)) continue
 			const prev = byBucket.get(s.hourBucket)
-			if (!prev || s.ts >= prev.ts) byBucket.set(s.hourBucket, s)
+			byBucket.set(s.hourBucket, prev ? preferSnapshot(prev, s) : s)
 		}
 	}
 	return [...byBucket.values()].sort((a, b) => a.hourBucket - b.hourBucket)

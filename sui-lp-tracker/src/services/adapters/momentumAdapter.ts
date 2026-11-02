@@ -16,7 +16,7 @@ export const momentumAdapter: DexAdapter = {
 		try {
 			return await getMomentumPositions(wallet)
 		} catch (e) {
-			// eslint-disable-next-line no-console
+			 
 			console.error('[momentumAdapter] getOpenPositions failed', e)
 			return []
 		}
@@ -30,7 +30,7 @@ export const momentumAdapter: DexAdapter = {
 				: undefined
 			return await getMomentumClosedPositions(wallet, preScanned)
 		} catch (e) {
-			// eslint-disable-next-line no-console
+			 
 			console.error('[momentumAdapter] getClosedPositions failed', e)
 			return []
 		}

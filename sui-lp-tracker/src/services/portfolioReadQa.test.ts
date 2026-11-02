@@ -101,7 +101,7 @@ describe('advisor STALE flags', () => {
 			tickLower: 0,
 			tickUpper: 0,
 			status: 'in_range',
-		} as OpenPosition
+		} as unknown as OpenPosition
 
 		loadAllPortfolioLpSources.mockResolvedValue({
 			loads: [],
@@ -134,7 +134,7 @@ describe('advisor STALE flags', () => {
 					tickLower: 0,
 					tickUpper: 0,
 					status: 'in_range',
-				} as OpenPosition,
+				} as unknown as OpenPosition,
 			],
 			incomplete: false,
 		})
@@ -153,7 +153,7 @@ describe('open position key parity (mocked loaders)', () => {
 			protocol: 'bluefin',
 			poolId: '0x1',
 			pair: 'SUI/USDC',
-		} as OpenPosition
+		} as unknown as OpenPosition
 		const a = sortedOpenPositionKeys([row])
 		const b = sortedOpenPositionKeys([{ ...row }])
 		expect(a).toEqual(b)

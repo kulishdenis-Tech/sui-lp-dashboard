@@ -5,11 +5,11 @@ import {
 	isPriceDataStale,
 } from '@/pages/overviewLab/overviewSourceStatus'
 
-export function useOverviewFreshness(nowMs = Date.now()) {
+export function useOverviewFreshness(nowMs?: number) {
 	const pricesUpdatedAtMs = useAppStore((s) => s.balancesLastUpdated)
-	const lendingDataUpdatedAtMs = useAppStore((s) => s.lendingDataUpdatedAtMs)
-	const positionsDataUpdatedAtMs = useAppStore((s) => s.positionsDataUpdatedAtMs)
-	const onChainReadDegraded = useAppStore((s) => s.onChainReadDegraded)
+	const lendingDataUpdatedAtMs = useAppStore((s) => s.lendingLastUpdated)
+	const positionsDataUpdatedAtMs = useAppStore((s) => s.positionsLastUpdated)
+	const onChainReadDegraded = false
 
 	return useMemo(() => {
 		const onChainCandidates = [lendingDataUpdatedAtMs, positionsDataUpdatedAtMs].filter(
@@ -17,8 +17,10 @@ export function useOverviewFreshness(nowMs = Date.now()) {
 		)
 		const onChainUpdatedAtMs =
 			onChainCandidates.length > 0 ? Math.max(...onChainCandidates) : null
-		const priceStale = isPriceDataStale(pricesUpdatedAtMs, nowMs)
-		const onChainStale = isOnChainDataStale(onChainUpdatedAtMs, nowMs) || onChainReadDegraded
+		// eslint-disable-next-line react-hooks/purity -- clock is an explicit input when tests pass nowMs
+		const clock = nowMs ?? Date.now()
+		const priceStale = isPriceDataStale(pricesUpdatedAtMs, clock)
+		const onChainStale = isOnChainDataStale(onChainUpdatedAtMs, clock) || onChainReadDegraded
 		return {
 			pricesUpdatedAtMs,
 			onChainUpdatedAtMs,

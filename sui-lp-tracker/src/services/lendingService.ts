@@ -1,8 +1,8 @@
 /**
  * AlphaLend (= Bluefin Lend) lending integration.
  *
- * Uses @alphafi/alphalend-sdk via a browser-compatible shim for
- * @mysten/sui/graphql/schemas/latest (see vite.config.ts alias).
+ * AlphaLend 4 reads portfolios through Sui GraphQL (`AlphalendClient`).
+ * The `@mysten/sui/client` Vite alias stays for Momentum's CLMM SDK.
  */
 import type {
 	LendingSnapshot,
@@ -23,6 +23,26 @@ async function getClient() {
 	const { AlphalendClient } = await import('@alphafi/alphalend-sdk')
 	_client = new AlphalendClient('mainnet')
 	return _client
+}
+
+/** Market metadata + APR. stSUI APR is an extra HTTP call inside the SDK. */
+const MARKET_DATA_TTL_MS = 5 * 60 * 1000
+let marketDataCache: { ts: number; rows: SdkMarketData[] } | null = null
+
+async function loadMarketRows(client: {
+	getAllMarkets: () => Promise<unknown[] | undefined>
+}, force: boolean): Promise<SdkMarketData[]> {
+	if (!force && marketDataCache && Date.now() - marketDataCache.ts < MARKET_DATA_TTL_MS) {
+		return marketDataCache.rows
+	}
+	const marketsRaw = await client.getAllMarkets()
+	const rows: SdkMarketData[] = []
+	for (const m of marketsRaw ?? []) {
+		const row = m as { getMarketData?: () => Promise<SdkMarketData> }
+		rows.push((await row.getMarketData?.()) ?? (m as SdkMarketData))
+	}
+	marketDataCache = { ts: Date.now(), rows }
+	return rows
 }
 
 // ── Types inferred from SDK (no d.ts published yet) ──────────────────────────
@@ -107,29 +127,29 @@ function extractAprParts(apr: SdkAprObject | undefined): AprParts {
 
 export async function getLendingPositions(
 	walletAddress: string,
+	options?: { forceRefresh?: boolean },
 ): Promise<LendingSnapshot> {
+	// Drop SDK singleton so market.price / portfolio USD are not reused across Refresh
+	// (Chrome especially can keep a long-lived tab + cached client state).
+	if (options?.forceRefresh) {
+		_client = null
+		marketDataCache = null
+	}
 	const client = await getClient()
 
-	// Fetch in parallel: markets for metadata, portfolio for position data
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const [marketsRaw, portfolios]: [any[], SdkPortfolio[] | undefined] =
+	// Markets are cached for a few minutes. Portfolio is always read fresh.
+	const [marketRows, portfolios]: [SdkMarketData[], SdkPortfolio[] | undefined] =
 		await Promise.all([
-			client.getAllMarkets(),
+			loadMarketRows(client, Boolean(options?.forceRefresh)),
 			client.getUserPortfolio(walletAddress),
 		])
 
 	if (!portfolios || portfolios.length === 0) return EMPTY_SNAP
 
-	// Build market lookup by marketId (number key)
 	const marketByIdRaw = new Map<number, SdkMarketData>()
-	if (marketsRaw) {
-		for (const m of marketsRaw) {
-			// getMarketData() returns the enriched view with APRs
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const data: SdkMarketData = await (m as any).getMarketData?.() ?? m
-			const id = Number(data.marketId)
-			if (!Number.isNaN(id)) marketByIdRaw.set(id, data)
-		}
+	for (const data of marketRows) {
+		const id = Number(data.marketId)
+		if (!Number.isNaN(id)) marketByIdRaw.set(id, data)
 	}
 
 	// Use first portfolio (single position per wallet is common in AlphaLend)

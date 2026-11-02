@@ -1,34 +1,16 @@
 /**
- * usePortfolioHistory
+ * usePortfolioHistory — read-only history consumption for Overview.
+ * Snapshot persistence lives in `usePortfolioSnapshotWriter` (single AppLayout mount).
  *
- * Reads current portfolio state from appStore, auto-saves snapshots every 15 minutes
- * to IndexedDB, and returns historical snapshots for the selected time range.
- *
- * Saving logic:
- *   1. On-load save: fires when all data finishes loading.
- *      Saves with `ts = bucket` so the chart point lands on a clean 15-min mark.
- *   2. Scheduled save: a timer fires at the next exact :00/:15/:30/:45 boundary,
- *      then repeats every 15 min — no full reload, just snapshots the current store.
- *      This is the primary mechanism when the tab stays open.
- *   3. Visibility save: fires when the browser tab becomes visible after being
- *      hidden/minimised. Fixes: browser throttles setTimeout in background tabs,
- *      so overnight saves are missed. On tab focus we immediately save the current
- *      state if the bucket has advanced since the last save.
- *
- *   Each bucket is upserted, so late on-load data is overwritten by the
- *   scheduled save that fires at the exact boundary.
- *   Keeps up to 90 days; older records pruned on mount.
+ * Stale-while-revalidate: keep showing the last good series until a new load
+ * succeeds. Only clear on address change / disconnect (or hard failure with no prior data).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCurrentAccount } from '@mysten/dapp-kit'
 import { useAppStore } from '@/store/appStore'
 import { getEffectiveWalletAddress } from '@/utils/walletAddress'
-import { buildPortfolioSnapshot } from '@/utils/portfolioSnapshotBuild'
 import {
-	deleteSnapshotsByIds,
 	getSnapshots,
-	pruneOldSnapshots,
-	saveSnapshot,
 	type PortfolioHistoryRange,
 	type PortfolioSnapshot,
 } from '@/services/portfolioSnapshotIdb'
@@ -36,15 +18,21 @@ import {
 	findOutlierSnapshotIds,
 	mergeSnapshotsByBucket,
 	sanitizePortfolioSnapshots,
-	shouldSaveSnapshot,
 } from '@/utils/portfolioSnapshotSanitize'
 import {
 	fetchAllServerSnapshots,
 	fetchServerSnapshots,
 	uploadSnapshotsToServer,
 } from '@/services/serverSnapshotsApi'
+import { subscribePortfolioHistoryChanged } from '@/hooks/portfolioHistoryEvents'
 
 export type TimeRange = PortfolioHistoryRange
+
+/** Re-export live parts builder for Overview history UI (no write side-effects). */
+export {
+	livePortfolioParts,
+	type LivePortfolioParts,
+} from '@/utils/portfolioSnapshotBuild'
 
 const RANGE_MS: Record<TimeRange, number> = {
 	'24h': 24 * 60 * 60 * 1000,
@@ -53,238 +41,178 @@ const RANGE_MS: Record<TimeRange, number> = {
 	all: 0,
 }
 
-const PRUNE_AFTER_MS = 90 * 24 * 60 * 60 * 1000
-/** Snapshot interval — 15 minutes. `setTimeout` targets exact :00/:15/:30/:45 boundaries. */
 const INTERVAL_MS = 15 * 60 * 1000
 
 export type PortfolioHistoryResult = {
-	/** Range-filtered snapshots for the chart. */
 	snapshots: PortfolioSnapshot[]
-	/**
-	 * All snapshots for the wallet regardless of selected range.
-	 * Used by delta stat cards (24h/7d/30d Δ) so they always have a
-	 * reference point even when the chart is zoomed into a short window.
-	 */
 	allSnapshots: PortfolioSnapshot[]
 	isLoading: boolean
+	/** True after the first successful load for the current address (avoids skeleton on poll). */
+	hasLoadedOnce: boolean
+	loadError: string | null
 	range: TimeRange
 	setRange: (r: TimeRange) => void
+	/** Re-run history load for the current address + range (Retry). */
+	reload: () => void
 }
 
-/** Build a snapshot from current store state. Returns null if data isn't ready. */
-function buildSnapshot(walletAddr: string): PortfolioSnapshot | null {
-	const state = useAppStore.getState()
-	return buildPortfolioSnapshot(walletAddr, state)
+function filterByRange(all: PortfolioSnapshot[], range: TimeRange, now = Date.now()): PortfolioSnapshot[] {
+	if (range === 'all') return all
+	const fromMs = now - RANGE_MS[range]
+	return all.filter((s) => s.ts >= fromMs && s.ts <= now + INTERVAL_MS)
 }
 
 export function usePortfolioHistory(): PortfolioHistoryResult {
-	const netWorth = useAppStore((s) => s.netWorth)
-	const isLoadingPositions = useAppStore((s) => s.isLoadingPositions)
-	const isLoadingLending = useAppStore((s) => s.isLoadingLending)
-	const isLoadingBalances = useAppStore((s) => s.isLoadingBalances)
 	const manualViewAddress = useAppStore((s) => s.manualViewAddress)
 	const account = useCurrentAccount()
+	const walletAddr = getEffectiveWalletAddress(manualViewAddress, account?.address ?? null)
 
 	const [range, setRange] = useState<TimeRange>('24h')
 	const [snapshots, setSnapshots] = useState<PortfolioSnapshot[]>([])
 	const [allSnapshots, setAllSnapshots] = useState<PortfolioSnapshot[]>([])
 	const [isLoading, setIsLoading] = useState(true)
+	const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
+	const [loadError, setLoadError] = useState<string | null>(null)
 
-	const prunedRef = useRef<string | null>(null)
-	const lastOnLoadBucketRef = useRef<string | null>(null)
-	const walletAddrRef = useRef<string | null>(null)
-	const lastVisibilityBucketRef = useRef<string | null>(null)
+	const loadGenRef = useRef(0)
+	const walletAddrRef = useRef<string | null>(walletAddr)
+	const rangeRef = useRef(range)
+	const loadedAddrRef = useRef<string | null>(null)
+	const allSnapshotsRef = useRef<PortfolioSnapshot[]>([])
+	walletAddrRef.current = walletAddr
+	rangeRef.current = range
+	allSnapshotsRef.current = allSnapshots
 
-	const walletAddr = getEffectiveWalletAddress(manualViewAddress, account?.address ?? null)
+	const loadHistory = useCallback(async (addr: string, rangeId: TimeRange, soft = false) => {
+		const myGen = ++loadGenRef.current
+		const isStale = () =>
+			myGen !== loadGenRef.current ||
+			walletAddrRef.current !== addr ||
+			rangeRef.current !== rangeId
 
-	// ── Load history from IDB ─────────────────────────────────────────────────
-	// Always fetch ALL snapshots so that delta stat cards (24h/7d/30d Δ) have a
-	// reference point even when the chart is zoomed to a short range. Filter for
-	// the chart display in memory — IDB reads are fast for the ~8 k records we keep.
-	const loadHistory = useCallback(
-		async (addr: string) => {
-			setIsLoading(true)
-			try {
-				const [serverAll, serverRange] = await Promise.all([
-					fetchAllServerSnapshots(addr),
-					fetchServerSnapshots(addr, range),
-				])
+		const keepPrior = soft && loadedAddrRef.current === addr && allSnapshotsRef.current.length > 0
 
-				const localRaw = await getSnapshots(addr).catch(() => [] as PortfolioSnapshot[])
-				const localAll = sanitizePortfolioSnapshots(localRaw)
+		if (!keepPrior) setIsLoading(true)
+		setLoadError(null)
+		try {
+			const [serverAll, serverRange] = await Promise.all([
+				fetchAllServerSnapshots(addr),
+				fetchServerSnapshots(addr, rangeId),
+			])
+			if (isStale()) return
 
-				if (serverAll && serverAll.length > 0) {
-					// Merge server + local by hourBucket so browser 15-min saves still
-					// appear when GitHub Actions cron is delayed on a private repo.
-					const mergedRaw = mergeSnapshotsByBucket(serverAll, localAll)
-					const outlierIds = findOutlierSnapshotIds(mergedRaw)
-					if (outlierIds.length > 0) {
-						await deleteSnapshotsByIds(outlierIds).catch(console.error)
-					}
-					const all = sanitizePortfolioSnapshots(mergedRaw)
-					setAllSnapshots(all)
-					const now = Date.now()
-					const fromMs = range === 'all' ? 0 : now - RANGE_MS[range]
-					const filtered =
-						range === 'all'
-							? all
-							: all.filter((s) => s.ts >= fromMs && s.ts <= now + INTERVAL_MS)
-					const rangeMerged = mergeSnapshotsByBucket(
-						serverRange ?? [],
-						localAll.filter((s) => range === 'all' || (s.ts >= fromMs && s.ts <= now + INTERVAL_MS)),
-					)
-					setSnapshots(
-						sanitizePortfolioSnapshots(
-							rangeMerged.length > 0 ? rangeMerged : filtered,
-						),
-					)
+			const localRaw = await getSnapshots(addr).catch(() => [] as PortfolioSnapshot[])
+			if (isStale()) return
+			const localAll = sanitizePortfolioSnapshots(localRaw)
 
-					// Backfill local 15-min points that never reached Supabase (GHA gaps).
-					const serverIds = new Set(serverAll.map((s) => s.id))
-					const missing = all
-						.filter((s) => !serverIds.has(s.id))
-						.slice(-40)
-					if (missing.length > 0) {
-						void uploadSnapshotsToServer(missing).catch(() => {})
-					}
-					return
-				}
-
-				const raw = localRaw
-
-				// One-time purge: delete spike snapshots already stored in IDB.
-				const outlierIds = findOutlierSnapshotIds(raw)
-				if (outlierIds.length > 0) {
-					await deleteSnapshotsByIds(outlierIds).catch(console.error)
-				}
-
-				const all = sanitizePortfolioSnapshots(
-					outlierIds.length > 0
-						? raw.filter((s) => !outlierIds.includes(s.id))
-						: raw,
-				)
+			if (serverAll && serverAll.length > 0) {
+				const mergedRaw = mergeSnapshotsByBucket(serverAll, localAll)
+				const all = sanitizePortfolioSnapshots(mergedRaw)
+				if (isStale()) return
 				setAllSnapshots(all)
 				const now = Date.now()
-				const fromMs = range === 'all' ? 0 : now - RANGE_MS[range]
-				setSnapshots(range === 'all' ? all : all.filter((s) => s.ts >= fromMs && s.ts <= now + INTERVAL_MS))
-			} catch {
+				const fromMs = rangeId === 'all' ? 0 : now - RANGE_MS[rangeId]
+				const filtered = filterByRange(all, rangeId, now)
+				const rangeMerged = mergeSnapshotsByBucket(
+					serverRange ?? [],
+					localAll.filter((s) => rangeId === 'all' || (s.ts >= fromMs && s.ts <= now + INTERVAL_MS)),
+				)
+				setSnapshots(
+					sanitizePortfolioSnapshots(rangeMerged.length > 0 ? rangeMerged : filtered),
+				)
+				loadedAddrRef.current = addr
+				setHasLoadedOnce(true)
+
+				const serverIds = new Set(serverAll.map((s) => s.id))
+				const missing = all.filter((s) => !serverIds.has(s.id)).slice(-40)
+				if (missing.length > 0) {
+					void uploadSnapshotsToServer(missing).catch(() => {})
+				}
+				return
+			}
+
+			const outlierIds = findOutlierSnapshotIds(localRaw)
+			const all = sanitizePortfolioSnapshots(
+				outlierIds.length > 0 ? localRaw.filter((s) => !outlierIds.includes(s.id)) : localRaw,
+			)
+			if (isStale()) return
+			setAllSnapshots(all)
+			setSnapshots(filterByRange(all, rangeId))
+			loadedAddrRef.current = addr
+			setHasLoadedOnce(true)
+		} catch (e) {
+			if (isStale()) return
+			setLoadError(e instanceof Error ? e.message : 'History load failed')
+			// Soft refresh / prior data: keep last good series visible.
+			if (!keepPrior) {
 				setAllSnapshots([])
 				setSnapshots([])
-			} finally {
-				setIsLoading(false)
+				loadedAddrRef.current = null
+				setHasLoadedOnce(false)
 			}
-		},
-		[range],
-	)
-
-	async function persistSnapshot(snap: PortfolioSnapshot, addr: string) {
-		const recent = sanitizePortfolioSnapshots(await getSnapshots(addr))
-		if (!shouldSaveSnapshot(snap, recent)) {
-			const baseline = recent.at(-1)?.totalUSD ?? 0
-			console.warn(
-				`[portfolio] skipped outlier snapshot $${snap.totalUSD.toLocaleString()} vs baseline ~$${baseline.toLocaleString()}`,
-			)
-			return
+		} finally {
+			if (!isStale()) setIsLoading(false)
 		}
-		await saveSnapshot(snap)
-		// Mirror to Supabase for watchlist wallets (no-op / 403 otherwise).
-		void uploadSnapshotsToServer(snap).catch(() => {})
-		if (walletAddrRef.current === addr) await loadHistory(addr)
-	}
-
-	// ── On-load save (fires when data finishes loading) ───────────────────────
-	const isAllLoaded =
-		!isLoadingPositions && !isLoadingLending && !isLoadingBalances && netWorth !== null
+	}, [])
 
 	useEffect(() => {
-		if (!isAllLoaded || !walletAddr) return
-
-		walletAddrRef.current = walletAddr
-		const hourBucket = currentHourBucket()
-		const bucketKey = `${walletAddr}|${hourBucket}`
-
-		// Skip if we already wrote this bucket this session
-		if (lastOnLoadBucketRef.current === bucketKey) return
-		lastOnLoadBucketRef.current = bucketKey
-
-		const snap = buildSnapshot(walletAddr)
-		if (!snap) return
-
-		void persistSnapshot(snap, walletAddr).catch(console.error)
-
-		if (prunedRef.current !== walletAddr) {
-			prunedRef.current = walletAddr
-			pruneOldSnapshots(walletAddr, Date.now() - PRUNE_AFTER_MS).catch(console.error)
-		}
-	}, [isAllLoaded, netWorth, walletAddr, loadHistory])
-
-	// ── Scheduled save at exact hour boundaries ───────────────────────────────
-	useEffect(() => {
-		if (!walletAddr) return
-		walletAddrRef.current = walletAddr
-		let timeoutId: ReturnType<typeof setTimeout>
-
-		const scheduleSave = () => {
-			const now = Date.now()
-			const nextBoundary = Math.ceil((now + 1) / INTERVAL_MS) * INTERVAL_MS
-			const delay = nextBoundary - now
-
-			timeoutId = setTimeout(() => {
-				const addr = walletAddrRef.current
-				if (!addr) {
-					scheduleSave()
-					return
-				}
-				const snap = buildSnapshot(addr)
-				if (snap) {
-					lastOnLoadBucketRef.current = null
-					void persistSnapshot(snap, addr).catch(console.error)
-				}
-				scheduleSave()
-			}, delay)
-		}
-
-		scheduleSave()
-		return () => clearTimeout(timeoutId)
-	}, [walletAddr, loadHistory])
-
-	// ── Visibility change: save + reload when the tab becomes visible again ──────
-	// Fixes: when the browser tab is in the background/minimised, setTimeout gets
-	// throttled by the browser and scheduled saves never fire. When the user
-	// returns to the tab we immediately snapshot the current state (if the
-	// 15-min bucket has advanced since the last save) so no data is missed.
-	useEffect(() => {
-		const onVisibilityChange = () => {
-			if (document.hidden) return
-			const addr = walletAddrRef.current
-			if (!addr) return
-			const bucket = currentHourBucket()
-			const bucketKey = `${addr}|${bucket}`
-			// Skip if we already saved this exact bucket from this handler
-			if (lastVisibilityBucketRef.current === bucketKey) return
-			lastVisibilityBucketRef.current = bucketKey
-			const snap = buildSnapshot(addr)
-			if (!snap) return
-			// Allow the on-load guard to re-fire for the new bucket
-			lastOnLoadBucketRef.current = null
-			void persistSnapshot(snap, addr).catch(console.error)
-		}
-
-		document.addEventListener('visibilitychange', onVisibilityChange)
-		return () => document.removeEventListener('visibilitychange', onVisibilityChange)
-	}, [loadHistory])
-
-	// ── Reload history when range / address changes ───────────────────────────
-	useEffect(() => {
-		walletAddrRef.current = walletAddr
 		if (!walletAddr) {
+			loadGenRef.current += 1
+			loadedAddrRef.current = null
 			setAllSnapshots([])
 			setSnapshots([])
 			setIsLoading(false)
+			setHasLoadedOnce(false)
+			setLoadError(null)
 			return
 		}
-		void loadHistory(walletAddr)
+
+		const prevLoaded = loadedAddrRef.current
+		if (prevLoaded != null && prevLoaded !== walletAddr) {
+			// Wallet switch — drop the previous address immediately.
+			setAllSnapshots([])
+			setSnapshots([])
+			setHasLoadedOnce(false)
+			setLoadError(null)
+			loadedAddrRef.current = null
+			void loadHistory(walletAddr, range, false)
+			return
+		}
+
+		if (prevLoaded === walletAddr) {
+			// Same address (range change / remount): keep series, refilter, soft reload.
+			setSnapshots(filterByRange(allSnapshotsRef.current, range))
+			void loadHistory(walletAddr, range, true)
+			return
+		}
+
+		// First load for this address in this hook instance.
+		void loadHistory(walletAddr, range, false)
 	}, [range, walletAddr, loadHistory])
 
-	return { snapshots, allSnapshots, isLoading, range, setRange }
+	// Writer saved a point — soft reload (do not blank the chart).
+	useEffect(() => {
+		if (!walletAddr) return
+		return subscribePortfolioHistoryChanged((addr) => {
+			if (addr !== walletAddrRef.current) return
+			void loadHistory(addr, rangeRef.current, true)
+		})
+	}, [walletAddr, loadHistory])
+
+	const reload = useCallback(() => {
+		if (!walletAddrRef.current) return
+		const soft = loadedAddrRef.current === walletAddrRef.current && allSnapshotsRef.current.length > 0
+		void loadHistory(walletAddrRef.current, rangeRef.current, soft)
+	}, [loadHistory])
+
+	return {
+		snapshots,
+		allSnapshots,
+		isLoading,
+		hasLoadedOnce,
+		loadError,
+		range,
+		setRange,
+		reload,
+	}
 }

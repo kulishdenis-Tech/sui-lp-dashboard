@@ -86,6 +86,32 @@ describe('portfolioSnapshotSanitize', () => {
 		expect(shouldSaveSnapshot({ ...snap(4, Number.NaN), totalUSD: Number.NaN }, [snap(1, 100_000)])).toBe(false)
 	})
 
+	it('saves a real lending move and skips a wiped lending bucket', () => {
+		const prev = {
+			...snap(1, 215_561),
+			lpUSD: 31_133,
+			lendingNetUSD: 184_213,
+			walletUSD: 215,
+			totalUSD: 215_561,
+		}
+		const live = {
+			...snap(2, 191_087),
+			lpUSD: 29_308,
+			lendingNetUSD: 161_747,
+			walletUSD: 32,
+			totalUSD: 191_087,
+		}
+		const wiped = {
+			...snap(3, 31_165),
+			lpUSD: 31_133,
+			lendingNetUSD: 0,
+			walletUSD: 32,
+			totalUSD: 31_165,
+		}
+		expect(shouldSaveSnapshot(live, [prev])).toBe(true)
+		expect(shouldSaveSnapshot(wiped, [prev])).toBe(false)
+	})
+
 	it('keeps corrected latest after short under-reported bootstrap history', () => {
 		const history = [
 			snap(1, 1_353),

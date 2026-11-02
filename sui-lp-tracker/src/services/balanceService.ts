@@ -4,20 +4,31 @@ import { suiClient } from './suiClient'
 import { formatTokenAmount } from '@/utils/formatting'
 import { type Row, type ResolveSpotsOptions, resolveSpots } from '@/services/spotPrice/resolveSpots'
 import { seedFromCache } from '@/services/spotPrice/currentSpotCache'
+import { amountsFromCoinMetadata } from '@/services/coinBalanceAmount'
+import { resolveCoinMetadata } from '@/services/coinMetadata'
 import { MOMENTUM_LST_TYPES } from '@/utils/constants'
 import { mapPool } from '@/utils/concurrency'
 import { RPC_CONCURRENCY } from '@/utils/constants'
-import Decimal from 'decimal.js'
+import { withRpcBackoff } from '@/utils/rpcBackoff'
 
 type WithMeta = Awaited<ReturnType<typeof loadBalancesWithMetadata>>
+
+/** Parallel metadata bursts are a common PublicNode 429 trigger during loadAll. */
+const BALANCE_META_CONCURRENCY = Math.min(4, RPC_CONCURRENCY)
 
 async function loadBalancesWithMetadata(
 	walletAddress: string,
 	client: SuiJsonRpcClient,
 ) {
-	const balances = await client.getAllBalances({ owner: walletAddress })
-	return mapPool(balances, RPC_CONCURRENCY, async (b) => {
-		const meta = await client.getCoinMetadata({ coinType: b.coinType })
+	// gRPC compat maps listBalances → getAllBalances; Mysten public, no API key.
+	const balances = await withRpcBackoff(
+		() => client.getAllBalances({ owner: walletAddress }),
+		{ label: 'wallet-balances', retries: 4, baseMs: 700 },
+	)
+	return mapPool(balances, BALANCE_META_CONCURRENCY, async (b) => {
+		const meta = await resolveCoinMetadata(client, b.coinType, {
+			allowNetworkFallback: b.totalBalance !== '0',
+		})
 		return { b, meta }
 	})
 }
@@ -59,15 +70,16 @@ function usdPerOneUsdc(spots: Map<string, Row>, withMeta: WithMeta): number {
 function buildTokenRows(withMeta: WithMeta, spots: Map<string, Row>): TokenBalance[] {
 	const usdPerUsdc = usdPerOneUsdc(spots, withMeta)
 	const out: TokenBalance[] = withMeta.map(({ b, meta }) => {
-		const decimals = meta?.decimals ?? 0
+		const amounts = amountsFromCoinMetadata(b.totalBalance, meta?.decimals)
+		const decimals = amounts.decimals
 		const raw = BigInt(b.totalBalance)
-		const human = new Decimal(b.totalBalance).div(new Decimal(10).pow(decimals)).toNumber()
-		const sp = spots.get(b.coinType) ?? emptyRow()
+		const human = amounts.humanBalance
+		const sp = amounts.decimalsKnown ? (spots.get(b.coinType) ?? emptyRow()) : emptyRow()
 		const price = sp.price
 		const priceUSDC =
 			price != null && Number.isFinite(price) && usdPerUsdc > 0 ? price / usdPerUsdc : null
 		const valueUSD = price != null && Number.isFinite(price) ? human * price : null
-		const symbol = meta?.symbol ?? symbolFromType(b.coinType)
+		const symbol = meta?.symbol || symbolFromType(b.coinType)
 		const scallop =
 			(symbol.toLowerCase().startsWith('s') && coinTypeScallopLike(b.coinType)) || undefined
 		const mom =
@@ -75,7 +87,7 @@ function buildTokenRows(withMeta: WithMeta, spots: Map<string, Row>): TokenBalan
 		return {
 			coinType: b.coinType,
 			symbol,
-			name: meta?.name ?? symbol,
+			name: meta?.name || symbol,
 			decimals,
 			description: meta?.description ?? undefined,
 			iconUrl: meta?.iconUrl ?? null,
@@ -114,18 +126,11 @@ export async function getWalletBalance(
 	onPartial?: (rows: TokenBalance[]) => void,
 	options?: WalletBalanceOptions,
 ): Promise<TokenBalance[]> {
-	let withMeta: Awaited<ReturnType<typeof loadBalancesWithMetadata>>
-	try {
-		withMeta = await loadBalancesWithMetadata(walletAddress, client)
-	} catch {
-		// Single retry after 1 s — handles transient Vite dev-proxy / RPC blips.
-		await new Promise((r) => setTimeout(r, 1000))
-		withMeta = await loadBalancesWithMetadata(walletAddress, client)
-	}
+	const withMeta = await loadBalancesWithMetadata(walletAddress, client)
 	const types = withMeta.map(({ b }) => b.coinType)
 	const symbolByType: SymbolByType = (ct) => {
 		const row = withMeta.find((x) => x.b.coinType === ct)
-		return row?.meta?.symbol ?? symbolFromType(ct)
+		return row?.meta?.symbol || symbolFromType(ct)
 	}
 
 	if (onPartial) {

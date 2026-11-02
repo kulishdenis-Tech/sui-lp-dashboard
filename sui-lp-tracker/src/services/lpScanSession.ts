@@ -83,13 +83,13 @@ export async function ensureLpWalletScanSession(
 		try {
 			bluefin = await scanBluefinWalletAllPositionEvents(wallet)
 		} catch (e) {
-			// eslint-disable-next-line no-console
+			 
 			console.warn('[lpScanSession] Bluefin wallet scan failed — continuing with empty raw', e)
 		}
 		try {
 			momentum = await scanMomentumWalletAllPositionEvents(wallet)
 		} catch (e) {
-			// eslint-disable-next-line no-console
+			 
 			console.warn('[lpScanSession] Momentum wallet scan failed — continuing with empty raw', e)
 		}
 		const session: LpWalletScanSession = {

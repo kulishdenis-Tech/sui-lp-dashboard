@@ -6,7 +6,7 @@ import {
 	invalidateTokenIconUrl,
 	logTokenIconImageErrorOnce,
 } from '@/services/spotPrice/okxTokenIcon'
-import { getSyncTokenIconUrl, resolveEffectiveCoinType } from '@/services/spotPrice/tokenIconResolve'
+import { getSyncTokenIconUrl, isDiscardedChainIconUrl, resolveEffectiveCoinType } from '@/services/spotPrice/tokenIconResolve'
 import { isNativeSuiCoinType } from '@/services/okxHistoricalUsd'
 
 function hashHue(symbol: string): string {
@@ -74,10 +74,6 @@ export function TokenIconOkx({
 		[coinType, symbol],
 	)
 
-	if (effectiveCoinType && isNativeSuiCoinType(effectiveCoinType)) {
-		return <NativeSuiTokenIcon title={title ?? symbol} />
-	}
-
 	const [skipChainIcon, setSkipChainIcon] = useState(false)
 	useEffect(() => {
 		setSkipChainIcon(false)
@@ -89,7 +85,12 @@ export function TokenIconOkx({
 
 	useEffect(() => {
 		const c = chainIconUrl?.trim()
-		if (c && /^https?:\/\//i.test(c) && !skipChainIcon) {
+		if (
+			c &&
+			/^https?:\/\//i.test(c) &&
+			!skipChainIcon &&
+			!isDiscardedChainIconUrl(c)
+		) {
 			setSrc(c)
 			return
 		}
@@ -117,6 +118,10 @@ export function TokenIconOkx({
 			cancelled = true
 		}
 	}, [chainIconUrl, effectiveCoinType, symbol, skipChainIcon])
+
+	if (effectiveCoinType && isNativeSuiCoinType(effectiveCoinType)) {
+		return <NativeSuiTokenIcon title={title ?? symbol} />
+	}
 
 	if (src) {
 		return (

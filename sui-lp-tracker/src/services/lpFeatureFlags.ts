@@ -70,3 +70,12 @@ export function getBluefinPositionClosedAssistPages(): number {
 		return 100
 	}
 }
+
+/** `VITE_LOCAL_UNCLAIMED=1` — Cetus fee-growth unclaimed (inspect fallback if ticks missing). Default off until parity. */
+export function isLocalUnclaimedEnabled(): boolean {
+	try {
+		return envTruthy(import.meta.env.VITE_LOCAL_UNCLAIMED as string | undefined)
+	} catch {
+		return false
+	}
+}

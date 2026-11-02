@@ -16,7 +16,7 @@ export const bluefinAdapter: DexAdapter = {
 		try {
 			return await getBluefinSpotPositions(wallet)
 		} catch (e) {
-			// eslint-disable-next-line no-console
+			 
 			console.error('[bluefinAdapter] getOpenPositions failed', e)
 			return []
 		}
@@ -30,7 +30,7 @@ export const bluefinAdapter: DexAdapter = {
 				: undefined
 			return await getBluefinClosedPositions(wallet, preScanned)
 		} catch (e) {
-			// eslint-disable-next-line no-console
+			 
 			console.error('[bluefinAdapter] getClosedPositions failed', e)
 			return []
 		}

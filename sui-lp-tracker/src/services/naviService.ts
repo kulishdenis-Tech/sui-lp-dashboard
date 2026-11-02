@@ -17,6 +17,10 @@
  *  4. Claimable rewards:
  *     SDK → getUserAvailableLendingRewards (on-chain devInspect via incentive_v3_getter)
  *     Note: REST /api/navi/user/rewards is claimed-history style data, not claimable balances.
+ *
+ *  5. Cashflow (net deposited in coin units, interest + rewards in USD):
+ *     REST → /api/navi/user/transactions  (SDK getTransactions)
+ *     @see https://sdk.naviprotocol.io/lending/account
  */
 import type {
 	LendingSnapshot,
@@ -24,14 +28,16 @@ import type {
 	BorrowPosition,
 	CollateralInfo,
 	LendingRewardToClaim,
+	LendingCashflowUsd,
 } from '@/types'
 import { getCurrentSpot } from '@/services/spotPrice/currentSpotCache'
 import { extFetchUrl } from '@/utils/externalFetchUrl'
-import { resolveBrowserRpcUrl } from '@/utils/suiRpcUrl'
+import { suiClient } from '@/services/suiClient'
+import { getDashboardSuiClient } from '@/rpc/dashboardPool'
 import { enrichSupplyLiquidationPrices, normalizeLiquidationThresholdFactor } from '@/utils/supplyLiquidationPrice'
 
 const NAVI_ORIGIN = 'https://open-api.naviprotocol.io'
-const SDK_VER = '1.4.3'
+const SDK_VER = '2.0.12'
 
 function naviUrl(path: string): string {
 	const p = path.startsWith('/') ? path : `/${path}`
@@ -40,7 +46,7 @@ function naviUrl(path: string): string {
 
 function naviLog(...args: unknown[]): void {
 	if (import.meta.env.DEV) {
-		// eslint-disable-next-line no-console
+		 
 		console.log('[Navi]', ...args)
 	}
 }
@@ -86,12 +92,15 @@ function normalizeType(ct: string): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _poolCache: { ts: number; data: any[] } | null = null
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchPools(): Promise<any[]> {
+async function fetchPools(forceRefresh = false): Promise<any[]> {
 	const now = Date.now()
-	if (_poolCache && now - _poolCache.ts < 5 * 60_000) return _poolCache.data
+	if (!forceRefresh && _poolCache && now - _poolCache.ts < 5 * 60_000) return _poolCache.data
 	const url = naviUrl(`/api/navi/pools?env=prod&sdk=${SDK_VER}&market=main`)
 	naviLog('fetching pools:', url)
-	const res = await fetch(url, { signal: AbortSignal.timeout(15_000) })
+	const res = await fetch(url, {
+		signal: AbortSignal.timeout(15_000),
+		cache: forceRefresh ? 'no-store' : 'default',
+	})
 	if (!res.ok) throw new Error(`Navi pools API ${res.status}`)
 	const json = await res.json()
 	const data = json.data ?? []
@@ -103,12 +112,15 @@ async function fetchPools(): Promise<any[]> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _cfgCache: { ts: number; data: any } | null = null
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchConfig(): Promise<any> {
+async function fetchConfig(forceRefresh = false): Promise<any> {
 	const now = Date.now()
-	if (_cfgCache && now - _cfgCache.ts < 10 * 60_000) return _cfgCache.data
+	if (!forceRefresh && _cfgCache && now - _cfgCache.ts < 10 * 60_000) return _cfgCache.data
 	const url = naviUrl(`/api/navi/config?env=prod&sdk=${SDK_VER}&market=main`)
 	naviLog('fetching config:', url)
-	const res = await fetch(url, { signal: AbortSignal.timeout(15_000) })
+	const res = await fetch(url, {
+		signal: AbortSignal.timeout(15_000),
+		cache: forceRefresh ? 'no-store' : 'default',
+	})
 	if (!res.ok) throw new Error(`Navi config API ${res.status}`)
 	const json = await res.json()
 	const data = json.data
@@ -131,8 +143,8 @@ async function fetchRewards(
 ): Promise<LendingRewardToClaim[]> {
 	try {
 		const { getUserAvailableLendingRewards } = await import('@naviprotocol/lending')
-		const { SuiJsonRpcClient } = await import('@mysten/sui/jsonRpc')
-		const client = new SuiJsonRpcClient({ url: resolveBrowserRpcUrl(), network: 'mainnet' })
+		// SDK requires a Core-capable JSON-RPC client (`client.core`); portfolio reads use gRPC compat.
+		const client = getDashboardSuiClient()
 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const rawRewards: any[] = await getUserAvailableLendingRewards(walletAddress, {
@@ -221,55 +233,25 @@ function parseUserState(raw: number[]): Array<{
 
 // ── Sui JSON-RPC: devInspectTransactionBlock ──────────────────────────────────
 
-async function buildGetUserStateTxBytes(
+async function inspectUserState(
 	uiGetter: string,
 	storageId: string,
 	userAddress: string,
-): Promise<string> {
-	naviLog('building tx for devInspect', { uiGetter, storageId, userAddress })
-
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any> {
+	naviLog('devInspect get_user_state via gRPC compat', { uiGetter, storageId, userAddress })
 	const { Transaction } = await import('@mysten/sui/transactions')
-	const { SuiJsonRpcClient } = await import('@mysten/sui/jsonRpc')
-
-	const client = new SuiJsonRpcClient({ url: resolveBrowserRpcUrl(), network: 'mainnet' })
+	const client = suiClient
 	const tx = new Transaction()
 	tx.moveCall({
 		target: `${uiGetter}::getter_unchecked::get_user_state`,
 		arguments: [tx.object(storageId), tx.pure.address(userAddress)],
 	})
-	// build() serializes as TransactionKind bytes
-	const bytes = await tx.build({ client, onlyTransactionKind: true })
-	naviLog('tx built, bytes length:', bytes.length)
-	return btoa(String.fromCharCode(...bytes))
-}
-
-async function devInspect(
-	txBase64: string,
-	sender: string,
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Promise<any> {
-	naviLog('calling sui_devInspectTransactionBlock')
-	const rpcUrl = resolveBrowserRpcUrl()
-	const res = await fetch(rpcUrl, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({
-			jsonrpc: '2.0',
-			id: 1,
-			method: 'sui_devInspectTransactionBlock',
-			params: [sender, txBase64, null, null],
-		}),
-		signal: AbortSignal.timeout(30_000),
+	const data = await client.devInspectTransactionBlock({
+		transactionBlock: tx,
+		sender: userAddress,
 	})
-	if (!res.ok) throw new Error(`Sui RPC ${res.status}`)
-	const data = await res.json()
-	naviLog('devInspect response keys:', Object.keys(data))
-	if (data.error) {
-		console.error('[Navi] devInspect RPC error:', data.error)
-	}
-	if (data.result) {
-		naviLog('devInspect results count:', data.result?.results?.length)
-	}
+	naviLog('devInspect results count:', data?.results?.length, 'error:', data?.error)
 	return data
 }
 
@@ -290,19 +272,176 @@ function bignumToHuman(amount: bigint, decimals = 9): number {
 	return Number(whole) + Number(frac) / Number(scale)
 }
 
+type NaviTx = {
+	type?: string
+	status?: string
+	timestamp?: string
+	coinChanges?: Array<{ symbol?: string; amount?: string; value?: number | string }>
+}
+
+type NaviTxPage = { data?: NaviTx[]; cursor?: string }
+
+function symKey(symbol: string): string {
+	return symbol.trim().toUpperCase()
+}
+
+/** Signed raw amount → human units. Amount strings can exceed Number.MAX_SAFE_INTEGER. */
+function signedHuman(amount: string, decimals: number): number {
+	const trimmed = amount.trim()
+	const neg = trimmed.startsWith('-')
+	const digits = trimmed.replace(/^[+-]/, '')
+	if (!/^\d+$/.test(digits)) return 0
+	const scale = 10n ** BigInt(Math.max(0, decimals))
+	const bi = BigInt(digits)
+	const human = Number(bi / scale) + Number(bi % scale) / Number(scale)
+	return neg ? -human : human
+}
+
+/**
+ * Wallet coin-change history.
+ * Supply/withdraw amounts are the wallet delta (deposit is negative).
+ * Borrow is positive, repay is negative.
+ * `claim reward` rows carry USD `value` at the claim and are not principal.
+ * @see https://sdk.naviprotocol.io/lending/account
+ */
+type NaviCashflowTokens = {
+	deposited: Map<string, number>
+	borrowed: Map<string, number>
+	claimedRewardsUSD: number
+	priceBySymbol: Map<string, number>
+}
+
+let naviCashflowCache: { address: string; ts: number; value: NaviCashflowTokens } | null = null
+let naviCashflowInflight: { address: string; promise: Promise<NaviCashflowTokens> } | null = null
+
+async function loadNaviCashflow(
+	address: string,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	pools: any[],
+	forceRefresh = false,
+): Promise<{
+	deposited: Map<string, number>
+	borrowed: Map<string, number>
+	claimedRewardsUSD: number
+	priceBySymbol: Map<string, number>
+} | null> {
+	const now = Date.now()
+	if (
+		!forceRefresh &&
+		naviCashflowCache &&
+		naviCashflowCache.address === address &&
+		now - naviCashflowCache.ts < 60_000
+	) {
+		return naviCashflowCache.value
+	}
+	if (!forceRefresh && naviCashflowInflight?.address === address) return naviCashflowInflight.promise
+
+	const run = loadNaviCashflowUncached(address, pools)
+	naviCashflowInflight = { address, promise: run }
+	try {
+		const value = await run
+		naviCashflowCache = { address, ts: Date.now(), value }
+		return value
+	} finally {
+		if (naviCashflowInflight?.promise === run) naviCashflowInflight = null
+	}
+}
+
+async function loadNaviCashflowUncached(
+	address: string,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	pools: any[],
+): Promise<NaviCashflowTokens> {
+	const priceBySymbol = new Map<string, number>()
+	const decimalsBySymbol = new Map<string, number>()
+	for (const pool of pools) {
+		const symbol = pool.token?.symbol as string | undefined
+		if (!symbol) continue
+		const key = symKey(symbol)
+		const decimals = Number(pool.token?.decimals ?? 9)
+		decimalsBySymbol.set(key, Number.isFinite(decimals) ? decimals : 9)
+		const price = n(pool.oracle?.price)
+		if (price > 0) priceBySymbol.set(key, price)
+	}
+
+	const rows: NaviTx[] = []
+	const seenCursors = new Set<string>()
+	let cursor = ''
+	for (let page = 0; page < 40; page++) {
+		const q = new URLSearchParams({ userAddress: address, sdk: SDK_VER })
+		if (cursor) q.set('cursor', cursor)
+		const url = naviUrl(`/api/navi/user/transactions?${q}`)
+		let json: { data?: NaviTxPage } | null = null
+		let lastErr: unknown
+		for (let attempt = 0; attempt < 2; attempt++) {
+			try {
+				const res = await fetch(url, { signal: AbortSignal.timeout(20_000) })
+				if (!res.ok) throw new Error(`Navi transactions API ${res.status}`)
+				json = (await res.json()) as { data?: NaviTxPage }
+				break
+			} catch (err) {
+				lastErr = err
+			}
+		}
+		if (!json) {
+			if (page === 0) throw lastErr
+			break
+		}
+		const batch = json.data?.data ?? []
+		rows.push(...batch)
+		const next = json.data?.cursor ?? ''
+		if (!next || next.startsWith('no_more') || batch.length === 0 || seenCursors.has(next)) break
+		seenCursors.add(next)
+		cursor = next
+	}
+
+	const deposited = new Map<string, number>()
+	const borrowed = new Map<string, number>()
+	let claimedRewardsUSD = 0
+	const add = (map: Map<string, number>, key: string, amount: number) => {
+		map.set(key, (map.get(key) ?? 0) + amount)
+	}
+
+	for (const tx of rows) {
+		if (tx.status && tx.status !== 'success') continue
+		const type = (tx.type ?? '').toLowerCase()
+		for (const change of tx.coinChanges ?? []) {
+			const key = symKey(change.symbol ?? '')
+			if (!key) continue
+			if (type === 'claim reward') {
+				const value = Number(change.value)
+				if (Number.isFinite(value)) claimedRewardsUSD += value
+				continue
+			}
+			const decimals = decimalsBySymbol.get(key)
+			if (decimals == null || change.amount == null) continue
+			const human = signedHuman(String(change.amount), decimals)
+			if (type === 'supply' || type === 'withdraw') add(deposited, key, -human)
+			else if (type === 'borrow' || type === 'repay') add(borrowed, key, human)
+		}
+	}
+
+	return { deposited, borrowed, claimedRewardsUSD, priceBySymbol }
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 export async function getNaviPositions(
 	walletAddress: string,
+	options?: { forceRefresh?: boolean },
 ): Promise<LendingSnapshot> {
 	naviLog('getNaviPositions called for:', walletAddress)
+	const force = options?.forceRefresh === true
+	if (force) {
+		_poolCache = null
+		_cfgCache = null
+	}
 
 	// Fetch pool data and config in parallel (REST)
-	const [pools, cfg] = await Promise.all([fetchPools(), fetchConfig()])
+	const [pools, cfg] = await Promise.all([fetchPools(force), fetchConfig(force)])
 
 	if (!pools || pools.length === 0) {
-		console.warn('[Navi] no pools returned, returning empty')
-		return EMPTY_NAVI_SNAP
+		throw new Error('Navi pools unavailable (not a confirmed empty position list)')
 	}
 
 	// Build maps keyed by numeric id
@@ -332,23 +471,24 @@ export async function getNaviPositions(
 		throw new Error('Navi config missing uiGetter/storage')
 	}
 
-	const txBase64 = await buildGetUserStateTxBytes(uiGetter, storageId, walletAddress)
-	const rpcResult = await devInspect(txBase64, walletAddress)
+	const rpcResult = await inspectUserState(uiGetter, storageId, walletAddress)
 
 	if (rpcResult.error) {
 		throw new Error(`Navi devInspect error: ${JSON.stringify(rpcResult.error)}`)
 	}
 
-	const returnValues: number[][] =
-		rpcResult.result?.results?.[0]?.returnValues?.map(
-			(rv: [number[], string]) => rv[0],
-		) ?? []
+	const rawReturn =
+		rpcResult.results?.[0]?.returnValues ??
+		rpcResult.result?.results?.[0]?.returnValues ??
+		[]
+	const returnValues: number[][] = rawReturn.map((rv: [number[] | Uint8Array, string]) =>
+		Array.from(rv[0] ?? []),
+	)
 
 	console.log('[Navi] returnValues count:', returnValues.length)
 
 	if (returnValues.length === 0) {
-		console.warn('[Navi] no returnValues from devInspect — wallet has no Navi positions or RPC issue')
-		return EMPTY_NAVI_SNAP
+		throw new Error('Navi devInspect returned no values (unavailable, not confirmed zero borrows)')
 	}
 
 	const userStates = parseUserState(returnValues[0])
@@ -531,6 +671,49 @@ export async function getNaviPositions(
 
 	// ── Claimable rewards (SDK devInspect — same source as Navi UI) ──────────
 	const rewardsToClaim = await fetchRewards(walletAddress, priceByType, symbolByType).catch(() => [])
+	const unclaimedUSD = rewardsToClaim.reduce((s, r) => s + r.valueUSD, 0)
+	const loaded = await loadNaviCashflow(walletAddress, pools, force).catch((err) => {
+		console.warn('[Navi] cashflow history failed', err)
+		return null
+	})
+	let cashflowUsd: LendingCashflowUsd | null = null
+	if (loaded) {
+		let supplyInterestUSD = 0
+		const seenSupply = new Set<string>()
+		for (const s of suppliesWithLiq) {
+			const key = symKey(s.asset)
+			seenSupply.add(key)
+			const net = loaded.deposited.get(key) ?? 0
+			s.netDeposited = net
+			const px = s.currentAmount > 0 ? s.currentValueUSD / s.currentAmount : (loaded.priceBySymbol.get(key) ?? 0)
+			supplyInterestUSD += (s.currentAmount - net) * px
+		}
+		for (const [coin, net] of loaded.deposited) {
+			if (seenSupply.has(coin)) continue
+			supplyInterestUSD += -net * (loaded.priceBySymbol.get(coin) ?? 0)
+		}
+		let borrowInterestUSD = 0
+		const seenBorrow = new Set<string>()
+		for (const b of borrows) {
+			const key = symKey(b.asset)
+			seenBorrow.add(key)
+			const net = loaded.borrowed.get(key) ?? 0
+			b.netBorrowed = net
+			const px = b.currentDebt > 0 ? b.currentDebtUSD / b.currentDebt : (loaded.priceBySymbol.get(key) ?? 0)
+			borrowInterestUSD += (b.currentDebt - net) * px
+		}
+		for (const [coin, net] of loaded.borrowed) {
+			if (seenBorrow.has(coin)) continue
+			borrowInterestUSD += -net * (loaded.priceBySymbol.get(coin) ?? 0)
+		}
+		cashflowUsd = {
+			supplyInterestUSD,
+			borrowInterestUSD,
+			claimedRewardsUSD: loaded.claimedRewardsUSD,
+			resultUSD: supplyInterestUSD - borrowInterestUSD + loaded.claimedRewardsUSD + unclaimedUSD,
+			usedSpotPrice: false,
+		}
+	}
 
 	console.log('[Navi] final snapshot: supplies=%d borrows=%d netValueUSD=%s',
 		suppliesWithLiq.length, borrows.length, netValueUSD.toFixed(2))
@@ -545,6 +728,7 @@ export async function getNaviPositions(
 		netAPR,
 		dailyEarningsUSD,
 		rewardsToClaim,
+		cashflowUsd,
 		protocol: 'Navi',
 	}
 }

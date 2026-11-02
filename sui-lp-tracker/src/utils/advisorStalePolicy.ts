@@ -23,7 +23,11 @@ export function markLendingSnapshotStale(
 }
 
 export function resolveAdvisorStateDeadlineMs(): number {
-	const raw = Number(process.env.SUI_LP_ADVISOR_STATE_DEADLINE_MS ?? 28_000)
+	const fromProcess =
+		typeof process !== 'undefined' && process.env
+			? process.env.SUI_LP_ADVISOR_STATE_DEADLINE_MS
+			: undefined
+	const raw = Number(fromProcess ?? 28_000)
 	return Number.isFinite(raw) && raw >= 5_000 && raw <= 120_000 ? raw : 28_000
 }
 

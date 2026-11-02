@@ -30,3 +30,16 @@ dist-ssr
 .vercel
 .env*
 supabase/*.setup.sql
+
+# Arbitrage discovery runtime cache (rewritten by arb:scan-once)
+src/arbitrage/discovery/discoveredPools.cache.json
+
+# Local runtime data (activity export, research logs, parity dumps, …)
+data/
+
+# Temp files
+*.tmp
+
+
+!.env.example
+

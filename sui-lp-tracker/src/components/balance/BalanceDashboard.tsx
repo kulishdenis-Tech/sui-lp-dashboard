@@ -3,9 +3,14 @@ import { useTokenClassification } from '@/hooks/useTokenClassification'
 import { TokenRow } from '@/components/balance/TokenRow'
 import { HiddenTokensSection } from '@/components/balance/HiddenTokensSection'
 import { SkeletonCard } from '@/components/ui/SkeletonCard'
-import { TooltipIconButton } from '@/components/ui/Tooltip'
+import { Tooltip, TooltipIconButton } from '@/components/ui/Tooltip'
 import { HIDE_BALANCE_VALUE_BELOW_USD } from '@/utils/constants'
-import { appTableShell } from '@/design/appPrimitives'
+import {
+	appTableShell,
+	appTableHeadRow,
+	appTableHeadLabel,
+	appTableHeadLabelSort,
+} from '@/design/appPrimitives'
 import type { ClassifiedTokenBalance } from '@/types'
 import { useCallback, useMemo, useState } from 'react'
 import {
@@ -42,110 +47,77 @@ function SortableTableHead({
 			<span className="text-sky-400/90" aria-hidden>
 				{sort.dir === 'asc' ? '↑' : '↓'}
 			</span>
-		) : null
+		) : (
+			<span className="inline-block w-3" aria-hidden />
+		)
 
-	const thBtn =
-		'min-w-0 text-left font-normal normal-case tracking-normal text-slate-500 hover:text-slate-300'
-	const thNum =
-		'min-w-0 text-right font-normal normal-case tracking-normal text-slate-500 hover:text-slate-300'
+	const thClass = 'px-2 py-2 align-middle text-center'
+	const headBtn = `${appTableHeadLabelSort} inline-flex items-center justify-center gap-0.5`
 
-	const numCol = (
-		col: BalanceSortCol,
-		label: string,
-		tip: string,
-		aria: string,
-		extraThClass = 'px-2 py-2 text-right',
-	) => (
+	const sortCol = (col: BalanceSortCol, label: string, tip: string) => (
 		<th
 			scope="col"
-			className={extraThClass}
+			className={thClass}
 			aria-sort={
 				sort.col === col ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined
 			}
 		>
-			<div className="flex justify-end">
-				<span className="inline-flex items-start">
-					<button type="button" className={thNum} onClick={() => onSort(col)}>
-						{label} <span className="inline-block w-3">{arrow(col)}</span>
+			<div className="flex items-center justify-center">
+				<Tooltip tip={tip} className="inline-flex items-center justify-center">
+					<button type="button" className={headBtn} onClick={() => onSort(col)}>
+						{label}
+						{arrow(col)}
 					</button>
-					<TooltipIconButton tip={tip} aria-label={aria} className="translate-y-px" />
-				</span>
+				</Tooltip>
 			</div>
 		</th>
 	)
 
 	return (
 		<thead>
-			<tr className="border-b border-slate-700 text-xs text-slate-500">
-				<th
-					scope="col"
-					className="py-2 pr-3 text-left"
-					aria-sort={
-						sort.col === 'token'
-							? sort.dir === 'asc'
-								? 'ascending'
-								: 'descending'
-							: undefined
-					}
-				>
-					<div className="flex justify-start">
-						<span className="inline-flex items-start">
-							<button type="button" className={thBtn} onClick={() => onSort('token')}>
-								Token <span className="inline-block w-3">{arrow('token')}</span>
-							</button>
-							<TooltipIconButton
-								tip="Symbol, verification state, and coin type link (Suiscan)."
-								aria-label="About Token column"
-								className="translate-y-px"
-							/>
-						</span>
+			<tr className={appTableHeadRow}>
+				{sortCol(
+					'token',
+					'Token',
+					'Symbol, verification state, and coin type link (Suiscan).',
+				)}
+				<th scope="col" className={thClass}>
+					<div className="flex items-center justify-center">
+						<Tooltip
+							tip="Display name from coin metadata when available."
+							className="inline-flex items-center justify-center"
+						>
+							<span className={`${appTableHeadLabel} inline-flex items-center justify-center`}>
+								Name
+							</span>
+						</Tooltip>
 					</div>
 				</th>
-				<th scope="col" className="px-2 py-2 text-left">
-					<span className="inline-flex items-center text-slate-500">
-						<span>Name</span>
-						<TooltipIconButton
-							tip="Display name from coin metadata when available."
-							aria-label="About Name column"
-						/>
-					</span>
-				</th>
-				{numCol(
+				{sortCol(
 					'price',
 					'Price (USD)',
 					'Spot USD price from the app price pipeline (OKX DEX and fallbacks).',
-					'About Price column',
 				)}
-				{numCol(
+				{sortCol(
 					'change5m',
 					'5m',
 					'OKX price change over the last 5 minutes. Alert fires above +5%.',
-					'About 5m column',
 				)}
-				{numCol(
+				{sortCol(
 					'change1h',
 					'1h',
 					'OKX price change over the last hour. Alert fires above +5%.',
-					'About 1h column',
 				)}
-				{numCol(
+				{sortCol(
 					'change24h',
 					'24h',
 					'Approximate 24h price change (OKX or fallback feeds).',
-					'About 24h column',
 				)}
-				{numCol(
-					'balance',
-					'Balance',
-					'On-chain token balance in human-readable units.',
-					'About Balance column',
-				)}
-				{numCol(
+				{sortCol('balance', 'Balance', 'On-chain token balance in human-readable units.')}
+				{sortCol(
 					'value',
 					'USD',
 					'USD value = balance × spot price (same price as Price column).',
-					'About USD column',
-					'pl-2 py-2 text-right',
 				)}
 			</tr>
 		</thead>
@@ -228,11 +200,11 @@ export function BalanceDashboard() {
 							onChange={(e) => setHideBelow01(e.target.checked)}
 							className="rounded border-slate-600"
 						/>
-						Hide Low Asset
+						Hide Assets Below ${HIDE_BALANCE_VALUE_BELOW_USD}
 					</label>
 					<TooltipIconButton
-						tip={`Hides token rows with USD value below $${HIDE_BALANCE_VALUE_BELOW_USD} in the tokens table (they stay in Hidden).`}
-						aria-label="About Hide Low Asset"
+						tip={`Hides token rows with USD value below $${HIDE_BALANCE_VALUE_BELOW_USD} in the tokens table (spam/dust/no-price stay under Hidden). Totals still include visible portfolio policy.`}
+						aria-label="About Hide Assets Below threshold"
 						className="text-slate-500"
 					/>
 				</div>
@@ -287,7 +259,7 @@ export function BalanceDashboard() {
 					{bucket && nPriced === 0 && tokenBalances.length > 0 && !loadingState ? (
 						<p className="text-sm text-amber-200/90">
 							{hideBelow01
-								? 'All rows are &lt; $0.1 or in Hidden — turn off Hide Low Asset to show small balances in the table.'
+								? 'All rows are below $0.10 or in Hidden — turn off Hide Assets Below $0.10 to show small balances in the table.'
 								: 'No priced rows — check Hidden.'}
 						</p>
 					) : null}

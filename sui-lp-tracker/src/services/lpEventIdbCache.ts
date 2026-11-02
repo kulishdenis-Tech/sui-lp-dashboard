@@ -66,7 +66,7 @@ export type ClosedPosTxCacheEntry = {
 const _memLp = new Map<string, LpCacheEntry>()
 const _memClosedTx = new Map<string, ClosedPosTxCacheEntry>()
 
-function useMemoryIdb(): boolean {
+function memoryIdbEnabled(): boolean {
 	if ((globalThis as { __SUI_LP_MEMORY_IDB__?: boolean }).__SUI_LP_MEMORY_IDB__) return true
 	return typeof indexedDB === 'undefined'
 }
@@ -115,7 +115,7 @@ export async function loadClosedPosTxEntries(
 	positionIds: string[],
 ): Promise<Map<string, ClosedPosTxCacheEntry>> {
 	if (positionIds.length === 0) return new Map()
-	if (useMemoryIdb()) {
+	if (memoryIdbEnabled()) {
 		const out = new Map<string, ClosedPosTxCacheEntry>()
 		for (const id of positionIds) {
 			const entry = _memClosedTx.get(`${walletNorm}|${id}`)
@@ -157,7 +157,7 @@ export async function loadClosedPosTxEntries(
  * Fire-and-forget safe (errors are swallowed — next load will re-scan).
  */
 export async function saveClosedPosTxEntry(entry: ClosedPosTxCacheEntry): Promise<void> {
-	if (useMemoryIdb()) {
+	if (memoryIdbEnabled()) {
 		_memClosedTx.set(entry.id, entry)
 		return
 	}
@@ -179,7 +179,7 @@ export async function loadLpCacheEntry(
 	protocol: 'bluefin' | 'momentum' | 'cetus',
 ): Promise<LpCacheEntry | null> {
 	const key = `${walletNorm}|${protocol}`
-	if (useMemoryIdb()) {
+	if (memoryIdbEnabled()) {
 		return _memLp.get(key) ?? null
 	}
 	try {
@@ -196,7 +196,7 @@ export async function loadLpCacheEntry(
 }
 
 export async function saveLpCacheEntry(entry: LpCacheEntry): Promise<void> {
-	if (useMemoryIdb()) {
+	if (memoryIdbEnabled()) {
 		_memLp.set(entry.id, entry)
 		return
 	}
@@ -221,7 +221,7 @@ export async function deleteLpCacheEntry(
 	protocol: 'bluefin' | 'momentum' | 'cetus',
 ): Promise<void> {
 	const key = `${walletNorm}|${protocol}`
-	if (useMemoryIdb()) {
+	if (memoryIdbEnabled()) {
 		_memLp.delete(key)
 		return
 	}

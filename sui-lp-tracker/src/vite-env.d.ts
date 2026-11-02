@@ -1,25 +1,23 @@
 /// <reference types="vite/client" />
 
-declare const __APP_VERSION__: string
-declare const __GIT_HASH__: string
-declare const __BUILD_DATE__: string
-
 // Polyfill: Buffer is injected globally in main.tsx for @alphafi/alphalend-sdk compatibility.
+// `var` is the ambient form that types globalThis.Buffer. `let` does not.
+// eslint-disable-next-line no-var
 declare var Buffer: typeof import('buffer').Buffer
 
 interface ImportMetaEnv {
 	readonly VITE_SUI_RPC_URL: string
+	/** Comma-separated extra dashboard JSON-RPC URLs (browser: only hosts already in the /ext proxy). */
+	readonly VITE_SUI_RPC_URLS?: string
+	/** Hard timeout for a single dashboard RPC attempt (ms). */
+	readonly VITE_SUI_RPC_TIMEOUT_MS?: string
+	/** `1` — local CLMM fee-growth unclaimed (Cetus); inspect fallback if ticks missing. */
+	readonly VITE_LOCAL_UNCLAIMED?: string
 	/** Optional — free CoinGecko Demo key: https://www.coingecko.com/en/api */
 	readonly VITE_COINGECKO_API_KEY?: string
 	/** Власне JSON (allowlist) у форматі Suiet, якщо репо GitHub недоступне */
 	readonly VITE_SUIET_COIN_LIST_URL?: string
-	/** OKX Web3 / DEX — публічний API key (OK-ACCESS-KEY) */
-	readonly VITE_OKX_API_KEY?: string
-	/** Секрет для підпису REST (небезпечно у Vite-клієнті; для prod — бекенд) */
-	readonly VITE_OKX_SECRET_KEY?: string
-	/** Passphrase ключа API OKX */
-	readonly VITE_OKX_PASSPHRASE?: string
-	/** Таймаут однієї спроби OKX price-info, мс (5s–300s; за замовч. 60000). */
+	/** Таймаут однієї спроби OKX (документація; проксі `/api/okx` використовує 30s). */
 	readonly VITE_OKX_TIMEOUT_MS?: string
 	/** Додаткові спроби після невдачі (0–5; за замовч. 2 → усього 3 POST). */
 	readonly VITE_OKX_RETRIES?: string
@@ -44,3 +42,7 @@ interface ImportMetaEnv {
 interface ImportMeta {
 	readonly env: ImportMetaEnv
 }
+
+declare const __APP_VERSION__: string
+declare const __GIT_HASH__: string
+declare const __BUILD_DATE__: string

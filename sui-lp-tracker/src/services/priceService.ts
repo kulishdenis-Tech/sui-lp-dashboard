@@ -104,7 +104,7 @@ export async function getUsdPerTokenAtTimestamp(
 	}
 
 	/* 1) Pyth benchmarks (ціна на обрану секунду). */
-	let pythPx: number | null = null
+	let pythPx: number | null
 	try {
 		pythPx = asPositive(await getPythBenchmarkUsd(tokenSymbol, tsSec))
 	} catch {
@@ -133,7 +133,7 @@ export async function getUsdPerTokenAtTimestamp(
 	}
 
 	/* 4) GeckoTerminal OHLCV. */
-	let poolId: string | null = null
+	let poolId: string | null
 	try {
 		poolId = await getTopPoolForToken(coinType)
 	} catch {

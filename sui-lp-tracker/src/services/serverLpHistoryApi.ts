@@ -2,7 +2,7 @@ import type { ClosedPosition, PositionEvent } from '@/types'
 import {
 	clientRowToClosedPosition,
 	type ClientLpHistoryPosition,
-} from '../../api/_lib/supabaseLpHistory'
+} from '@/services/lpHistoryClient'
 
 export type ServerLpHistoryResponse = {
 	wallet: string

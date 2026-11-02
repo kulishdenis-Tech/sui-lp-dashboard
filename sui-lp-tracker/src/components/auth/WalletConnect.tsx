@@ -1,51 +1,62 @@
 import { ConnectModal, useCurrentAccount, useDisconnectWallet } from '@mysten/dapp-kit'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { clearAwAuth, getAwAuthAddress, revokeAwSession } from '@/pages/autopilot/autoWithdrawStore'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
 import { shortAddress } from '@/utils/formatting'
 import { useAppStore } from '@/store/appStore'
-import { useState, type FormEvent } from 'react'
 import { isClientWatchWallet } from '@/config/watchWallets'
 import { VisitsPanel } from '@/components/admin/VisitsPanel'
+import {
+	appBtnPrimary,
+	appHeaderChip,
+	appHeaderChipGhost,
+} from '@/design/appPrimitives'
+
+function AdminVisitsButton({ address }: { address: string }) {
+	const [open, setOpen] = useState(false)
+	if (!isClientWatchWallet(address)) return null
+	return (
+		<>
+			<button
+				type="button"
+				className={appHeaderChipGhost}
+				aria-label="Open visits log"
+				onClick={() => setOpen(true)}
+			>
+				Visits
+			</button>
+			<VisitsPanel viewer={address} open={open} onClose={() => setOpen(false)} />
+		</>
+	)
+}
 
 function PastedAddressBar() {
 	const { address, clearManualView } = useWalletAuth()
-	const [visitsOpen, setVisitsOpen] = useState(false)
 	if (!address) return null
-	const canOpenVisits = isClientWatchWallet(address)
 	return (
-		<div className="flex flex-nowrap items-center gap-2">
-			{canOpenVisits ? (
-				<>
-					<button
-						type="button"
-						className="shrink-0 rounded border border-violet-500/40 bg-violet-950/50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-200 hover:border-violet-400/60 hover:text-violet-100"
-						title="Visits"
-						aria-label="Open visits"
-						onClick={() => setVisitsOpen(true)}
-					>
-						Read-only
-					</button>
-					<VisitsPanel viewer={address} open={visitsOpen} onClose={() => setVisitsOpen(false)} />
-				</>
-			) : (
-				<span className="rounded border border-violet-500/40 bg-violet-950/50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-200">
-					Read-only
-				</span>
-			)}
-			<span className="whitespace-nowrap font-mono text-sm text-sky-200">{shortAddress(address)}</span>
-			<button
-				type="button"
-				className="whitespace-nowrap text-xs text-slate-500 underline hover:text-slate-300"
-				onClick={() => clearManualView()}
+		<div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
+			<span
+				className={`${appHeaderChip} gap-2`}
+				title="Viewing a pasted address without wallet signing"
 			>
-				Clear address
+				<span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+					<span className="sm:hidden">Viewing</span>
+					<span className="hidden sm:inline">Viewing Address</span>
+				</span>
+				<span className="font-mono font-normal tabular-nums text-slate-100">
+					{shortAddress(address)}
+				</span>
+			</span>
+			<AdminVisitsButton address={address} />
+			<button type="button" className={appHeaderChipGhost} onClick={() => clearManualView()}>
+				Clear
 			</button>
 		</div>
 	)
 }
 
-import { appBtnPrimary } from '@/design/appPrimitives'
-
-/** Primary header CTA — alias на `appBtnPrimary` (Connect / Refresh). */
+/** Primary header CTA — alias to `appBtnPrimary` (Connect / Refresh). */
+// eslint-disable-next-line react-refresh/only-export-components
 export const connectBtnClass = appBtnPrimary
 
 function WalletOrPaste() {
@@ -86,8 +97,8 @@ function WalletOrPaste() {
 				className="flex flex-1 flex-col gap-1 sm:min-w-[280px]"
 				onSubmit={onPasteSubmit}
 			>
-				<label className="text-xs text-slate-500" htmlFor="manual-addr">
-					Paste Sui address (read-only, no extension)
+				<label className="text-xs text-slate-400" htmlFor="manual-addr">
+					Paste Sui address (view only, no extension)
 				</label>
 				<div className="flex gap-2">
 					<input
@@ -113,40 +124,29 @@ function WalletOrPaste() {
 	)
 }
 
-/** Tiny dormant chip — opens visits log only for watchlist connected wallets. */
-function HiddenVisitsChip({ address }: { address: string }) {
-	const [open, setOpen] = useState(false)
-	if (!isClientWatchWallet(address)) return null
-	return (
-		<>
-			<button
-				type="button"
-				className="shrink-0 rounded border border-slate-700/80 bg-slate-900/40 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-slate-600 hover:border-slate-600 hover:text-slate-400"
-				title="Visits"
-				aria-label="Open visits"
-				onClick={() => setOpen(true)}
-			>
-				Read-only
-			</button>
-			<VisitsPanel viewer={address} open={open} onClose={() => setOpen(false)} />
-		</>
-	)
-}
-
-/** `useDisconnectWallet` only in this branch — not in `useWalletAuth` (avoids React 19 + useMutation max-depth). */
+/** Connected wallet branch — Visits is admin-only, never labeled as capability status. */
 function ConnectedWalletRow() {
 	const { mutate: disconnectFromKit } = useDisconnectWallet()
 	const acc = useCurrentAccount()
 	const address = acc?.address
 	if (!address) return null
 	return (
-		<div className="flex items-center gap-2">
-			<HiddenVisitsChip address={address} />
-			<span className="font-mono text-sm text-sky-200">{shortAddress(address)}</span>
+		<div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
+			<span className={`${appHeaderChip} gap-2`} title="Wallet connected for signing">
+				<span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+					<span className="sm:hidden">Connected</span>
+					<span className="hidden sm:inline">Connected Wallet</span>
+				</span>
+				<span className="font-mono font-normal tabular-nums text-slate-100">
+					{shortAddress(address)}
+				</span>
+			</span>
+			<AdminVisitsButton address={address} />
 			<button
 				type="button"
-				className="text-xs text-slate-500 underline hover:text-slate-300"
+				className={appHeaderChipGhost}
 				onClick={() => {
+					void revokeAwSession()
 					useAppStore.getState().clearPortfolio()
 					disconnectFromKit()
 				}}
@@ -160,6 +160,20 @@ function ConnectedWalletRow() {
 function WalletBlock() {
 	const { address, isManualView } = useWalletAuth()
 	const acc = useCurrentAccount()
+	const prevAddr = useRef<string | null>(null)
+	useEffect(() => {
+		const next = acc?.address?.toLowerCase() ?? null
+		const prev = prevAddr.current
+		prevAddr.current = next
+		if (prev && next && prev !== next) {
+			void revokeAwSession()
+		} else if (prev && !next) {
+			clearAwAuth()
+		} else if (next) {
+			const authed = getAwAuthAddress()?.toLowerCase() ?? null
+			if (authed && authed !== next) void revokeAwSession()
+		}
+	}, [acc?.address])
 
 	if (!address) {
 		return <WalletOrPaste />

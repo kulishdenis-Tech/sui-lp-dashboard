@@ -1,6 +1,7 @@
 import { MmtSDK, TickMath, Utils } from '@mmt-finance/clmm-sdk'
 import type { OpenPosition } from '@/types'
 import { suiClient, getRpcUrl } from '@/services/suiClient'
+import { getDashboardSuiClient } from '@/rpc/dashboardPool'
 import {
 	momentumUserRowsFromOwnedRpc,
 	scanMomentumOwnedPositionIds,
@@ -19,17 +20,17 @@ import BN from 'bn.js'
 function mmtSdkMainnet(): MmtSDK | null {
 	try {
 		/**
-		 * peer `@mmt-finance/clmm-sdk`: `@mysten/sui` ^1.x робить `new SuiClient(...)` із `@mysten/sui/client`.
-		 * У нашому дереві `@mysten/sui` 2.x клас `SuiClient` уже не експортують — викид при конструкторі SDK → порожній Momentum без fallback.
-		 * Передаємо read-only JSON-RPC клієнт проєкту як `client`, щоб транспорт однаковий із `suix_*` ончейн.
+		 * peer `@mmt-finance/clmm-sdk` still expects JSON-RPC `SuiClient`.
+		 * Portfolio reads use gRPC compat (`suiClient`); Momentum SDK keeps a
+		 * dedicated pooled JSON-RPC client until MMT accepts gRPC.
 		 */
 		return MmtSDK.NEW({
 			network: 'mainnet',
 			suiClientUrl: getRpcUrl(),
-			client: suiClient as never,
+			client: getDashboardSuiClient() as never,
 		})
 	} catch (e) {
-		// eslint-disable-next-line no-console
+		 
 		console.warn('MmtSDK.NEW failed — Momentum open positions unavailable', e)
 		return null
 	}
@@ -61,7 +62,7 @@ async function getCachedAllTokens(sdk: NonNullable<ReturnType<typeof mmtSdkMainn
 }
 const MAX_SANE_HUMAN_TOKENS = 1e18
 
-export type MomentumPositionsOptions = { forceRefreshPrices?: boolean }
+export type MomentumPositionsOptions = { forceRefreshPrices?: boolean; incremental?: boolean }
 
 function i32ToSigned(n: number): number {
 	if (n > 0x7fffffff) return n - 0x1_0000_0000
@@ -178,12 +179,12 @@ export async function getMomentumPositions(
 			getCachedAllTokens(sdk),
 		])
 	} catch (e) {
-		// eslint-disable-next-line no-console
+		 
 		console.warn('Momentum Pool.getAllPools/getAllTokens failed', e)
 		return []
 	}
 
-	let fromSdk: MomentumUserPosRow[] = []
+	let fromSdk: MomentumUserPosRow[]
 	try {
 		fromSdk = (await sdk.Position.getAllUserPositions(
 			walletAddress,
@@ -191,7 +192,7 @@ export async function getMomentumPositions(
 			tokensData,
 		)) as MomentumUserPosRow[]
 	} catch (e) {
-		// eslint-disable-next-line no-console
+		 
 		console.warn('Momentum getAllUserPositions failed', e)
 		fromSdk = []
 	}
@@ -200,7 +201,7 @@ export async function getMomentumPositions(
 	try {
 		fromRpc = await momentumUserRowsFromOwnedRpc(walletAddress, sdk, poolsData, tokensData)
 	} catch (e2) {
-		// eslint-disable-next-line no-console
+		 
 		console.warn('Momentum RPC fallback (owned objects) failed', e2)
 	}
 
@@ -217,7 +218,7 @@ export async function getMomentumPositions(
 	if (!rawRows.length) return []
 
 	const poolIdsHint = [...new Set(rawRows.map((r) => String(r.poolId).trim()))]
-	let poolsHydrated = poolsData
+	let poolsHydrated: typeof poolsData
 	try {
 		const byNorm = await hydrateMomentumPoolsByApiId(sdk, poolsData, poolIdsHint)
 		poolsHydrated = [...byNorm.values()]
@@ -473,7 +474,7 @@ export async function fetchMomentumPoolPairMeta(poolRaw: string): Promise<Bluefi
 	}
 	const sdk = mmtSdkMainnet()
 	if (!sdk) return null
-	let poolsData: PoolsData = []
+	let poolsData: PoolsData
 	try {
 		poolsData = await getCachedAllPools(sdk)
 	} catch {

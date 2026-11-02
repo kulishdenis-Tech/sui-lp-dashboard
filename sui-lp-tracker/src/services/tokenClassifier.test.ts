@@ -69,6 +69,17 @@ describe('tokenClassifier', () => {
 		expect(c.reason).not.toMatch(/^trusted_oracle:/)
 	})
 
+	it('hides Cetus vault LP coins from the main wallet table', () => {
+		const t = balance({
+			coinType: '0xb490d6fa9ead588a9d72da07a02914da42f6b5b1339b8118a90011a42b67a44f::lp_token::LP_TOKEN',
+			symbol: 'LP_TOKEN',
+			name: 'LP Token',
+		})
+		const c = classifyTokenBalance(t, new Map(), new Set())
+		expect(c.status).toBe('spam')
+		expect(c.reason).toBe('cetus_vault_lp')
+	})
+
 	it('keeps verified tokens without price in mainVerified bucket', () => {
 		const row: ClassifiedTokenBalance = {
 			...balance({ coinType: '0x2::sui::SUI', symbol: 'SUI' }),

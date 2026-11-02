@@ -182,12 +182,12 @@ function RewardsCell({ p }: { p: OpenPosition }) {
 function Stat({ label, value, tip }: { label: string; value: string; tip?: string }) {
 	return (
 		<AppCard density="compact" className="h-full">
-			<p className="flex flex-wrap items-center text-[10px] font-medium uppercase tracking-wider text-slate-500">
+			<div className="flex flex-wrap items-center text-[10px] font-medium uppercase tracking-wider text-slate-500">
 				<span className="leading-snug">{label}</span>
 				{tip ? (
 					<TooltipIconButton tip={tip} aria-label={`About ${label}`} className="translate-y-px" />
 				) : null}
-			</p>
+			</div>
 			<p className="mt-0.5 font-mono tabular-money text-lg text-slate-100">{value}</p>
 		</AppCard>
 	)

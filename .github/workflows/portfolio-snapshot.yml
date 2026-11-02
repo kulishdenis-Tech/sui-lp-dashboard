@@ -5,12 +5,11 @@ name: Portfolio snapshot
 
 on:
   schedule:
-    # Off-peak minute within the hour — backup only if Supabase dispatch missed.
-    - cron: '22 * * * *'
+    - cron: "22 * * * *"
   workflow_dispatch:
     inputs:
       force:
-        description: 'Bypass 90m dedupe (FORCE_SNAPSHOT=1)'
+        description: "Bypass 90m dedupe (FORCE_SNAPSHOT=1)"
         type: boolean
         default: true
 
@@ -22,17 +21,14 @@ jobs:
   snapshot:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: sui-lp-tracker
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
           cache: npm
-          cache-dependency-path: sui-lp-tracker/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -50,15 +46,12 @@ jobs:
           OKX_API_KEY: ${{ secrets.OKX_API_KEY }}
           OKX_SECRET_KEY: ${{ secrets.OKX_SECRET_KEY }}
           OKX_PASSPHRASE: ${{ secrets.OKX_PASSPHRASE }}
-          # Default gRPC+GraphQL (app default). Residual JSON-RPC uses VITE_SUI_RPC_URL / Suiet.
           FORCE_SNAPSHOT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force && '1' || '' }}
-        run: npm run snapshot:once
+        run: npm run snapshot:once -w sui-lp-tracker
 
       - name: Retry snapshot
         if: steps.snap.outcome == 'failure'
         env:
-          SUI_DATA_TRANSPORT: jsonrpc
-          VITE_SUI_DATA_TRANSPORT: jsonrpc
           WATCH_WALLETS: ${{ secrets.WATCH_WALLETS }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -71,4 +64,4 @@ jobs:
           FORCE_SNAPSHOT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force && '1' || '' }}
         run: |
           sleep 20
-          npm run snapshot:once
+          npm run snapshot:once -w sui-lp-tracker

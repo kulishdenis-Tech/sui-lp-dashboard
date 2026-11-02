@@ -1,0 +1,184 @@
+﻿param(
+	[Parameter(Mandatory = $true)]
+	[string]$Root
+)
+
+$ErrorActionPreference = 'Stop'
+$Root = (Resolve-Path $Root).Path
+Set-Location $Root
+
+$Tracker = Join-Path $Root 'sui-lp-tracker'
+$Auto = Join-Path $Root 'sui-lp-autopilot'
+$BotDir = Join-Path $Auto 'packages\bot'
+$DbFile = Join-Path $BotDir 'data\autopilot.db.json'
+$LogDir = Join-Path $Root '_local\logs'
+$Port = 5180
+$ApiPort = 5191
+$Url = "http://localhost:$Port/"
+$Marker = 'Projects\SUI Dashboard'
+
+function Fail([string]$Message) {
+	Write-Host ""
+	Write-Host "ERROR: $Message" -ForegroundColor Red
+	exit 1
+}
+
+function Get-Listener([int]$LocalPort) {
+	$conn = Get-NetTCPConnection -LocalPort $LocalPort -State Listen -ErrorAction SilentlyContinue |
+		Select-Object -First 1
+	if (-not $conn) { return $null }
+	$proc = Get-CimInstance Win32_Process -Filter "ProcessId=$($conn.OwningProcess)"
+	[pscustomobject]@{
+		Pid = [int]$conn.OwningProcess
+		CommandLine = [string]$proc.CommandLine
+	}
+}
+
+function Test-OurProcess([string]$CommandLine) {
+	if (-not $CommandLine) { return $false }
+	return $CommandLine -like "*$Marker*"
+}
+
+function Start-HiddenNode {
+	param(
+		[Parameter(Mandatory = $true)][string]$NodeExe,
+		[Parameter(Mandatory = $true)][string[]]$ArgumentList,
+		[Parameter(Mandatory = $true)][string]$WorkingDirectory,
+		[Parameter(Mandatory = $true)][string]$StdoutPath,
+		[Parameter(Mandatory = $true)][string]$StderrPath
+	)
+	# Windows PowerShell 5.1 does not quote ArgumentList items. Pre-quote paths
+	# that contain spaces so "SUI Dashboard" stays one argv entry.
+	$quoted = foreach ($arg in $ArgumentList) {
+		if ($arg -match '[\s"]') { '"' + ($arg -replace '"', '\"') + '"' } else { $arg }
+	}
+	Start-Process -FilePath $NodeExe -ArgumentList $quoted -WorkingDirectory $WorkingDirectory -WindowStyle Hidden -RedirectStandardOutput $StdoutPath -RedirectStandardError $StderrPath | Out-Null
+}
+
+function Wait-Http([string]$Uri, [int]$Seconds) {
+	$deadline = (Get-Date).AddSeconds($Seconds)
+	while ((Get-Date) -lt $deadline) {
+		try {
+			$res = Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec 3
+			if ($res.StatusCode -ge 200 -and $res.StatusCode -lt 500) { return $true }
+		} catch {
+			# keep polling until the listener answers
+		}
+		Start-Sleep -Seconds 1
+	}
+	return $false
+}
+
+function Test-AutopilotDistStale {
+	$dist = Join-Path $BotDir 'dist\main.js'
+	if (-not (Test-Path $dist)) { return $true }
+	$distTime = (Get-Item $dist).LastWriteTimeUtc
+	$srcRoots = @(
+		(Join-Path $Auto 'packages\engine\src'),
+		(Join-Path $Auto 'packages\cetus\src'),
+		(Join-Path $Auto 'packages\db\src'),
+		(Join-Path $Auto 'packages\bot\src')
+	)
+	foreach ($dir in $srcRoots) {
+		if (-not (Test-Path $dir)) { continue }
+		$newer = Get-ChildItem $dir -Recurse -File -Filter *.ts |
+			Where-Object { $_.LastWriteTimeUtc -gt $distTime } |
+			Select-Object -First 1
+		if ($newer) { return $true }
+	}
+	return $false
+}
+
+if (-not (Test-Path (Join-Path $Tracker 'package.json'))) {
+	Fail "Не знайдено sui-lp-tracker\package.json у $Root"
+}
+if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+	Fail 'npm не знайдено в PATH.'
+}
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+	Fail 'node не знайдено в PATH.'
+}
+
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+New-Item -ItemType Directory -Force -Path (Split-Path $DbFile) | Out-Null
+
+if (-not (Test-Path (Join-Path $Root 'node_modules'))) {
+	Write-Host 'Встановлюю залежності (npm install)...'
+	& npm install
+	if ($LASTEXITCODE -ne 0) { Fail "npm install завершився з кодом $LASTEXITCODE" }
+}
+
+$trackerListen = Get-Listener $Port
+if ($trackerListen -and -not (Test-OurProcess $trackerListen.CommandLine)) {
+	Fail "Порт $Port зайнятий іншим процесом PID $($trackerListen.Pid). Це не SUI Dashboard 2.0.0 з цієї папки. Процес не зупинено.`n$($trackerListen.CommandLine)"
+}
+
+$botListen = Get-Listener $ApiPort
+if ($botListen -and -not (Test-OurProcess $botListen.CommandLine)) {
+	Fail "Порт $ApiPort зайнятий іншим процесом PID $($botListen.Pid). Це не бот цієї папки. Процес не зупинено.`n$($botListen.CommandLine)"
+}
+
+$env:DATABASE_URL = "file:$DbFile"
+$env:AUTOPILOT_MODE = 'MONITOR_ONLY'
+$env:API_PORT = "$ApiPort"
+
+if (-not $botListen) {
+	if (Test-AutopilotDistStale) {
+		Write-Host 'Збираю autopilot (engine → cetus → db → bot). Старий dist не використовується.'
+		& npm run build:autopilot
+		if ($LASTEXITCODE -ne 0) { Fail "Збірка autopilot завершилася з кодом $LASTEXITCODE" }
+		if (-not (Test-Path (Join-Path $BotDir 'dist\main.js'))) {
+			Fail 'Після збірки немає packages\bot\dist\main.js'
+		}
+	} else {
+		Write-Host 'dist бота новіший за source — перезбірка не потрібна.'
+	}
+
+	$node = (Get-Command node).Source
+	$botMain = Join-Path $BotDir 'dist\main.js'
+	$botOut = Join-Path $LogDir 'bot-5191.log'
+	$botErr = Join-Path $LogDir 'bot-5191.err.log'
+	Write-Host "Запускаю бота на 127.0.0.1:$ApiPort (MONITOR_ONLY, без вікна)."
+	Start-HiddenNode -NodeExe $node -ArgumentList @($botMain) -WorkingDirectory $BotDir -StdoutPath $botOut -StderrPath $botErr
+	if (-not (Wait-Http "http://127.0.0.1:$ApiPort/api/auto-withdraw/status" 45)) {
+		$tail = ''
+		if (Test-Path $botErr) { $tail = (Get-Content $botErr -Tail 30) -join "`n" }
+		Fail "Бот не відповів на http://127.0.0.1:$ApiPort/api/auto-withdraw/status за 45 с.`n$tail"
+	}
+	Write-Host "Бот готовий: http://127.0.0.1:$ApiPort/"
+} else {
+	Write-Host "Бот цієї збірки вже слухає порт $ApiPort (PID $($botListen.Pid)) — другий екземпляр не запускаю."
+}
+
+if (-not $trackerListen) {
+	$node = (Get-Command node).Source
+	$vite = Join-Path $Root 'node_modules\vite\bin\vite.js'
+	if (-not (Test-Path $vite)) {
+		$vite = Join-Path $Tracker 'node_modules\vite\bin\vite.js'
+	}
+	if (-not (Test-Path $vite)) { Fail "Не знайдено vite.js. Запустіть npm install у $Root" }
+	$viteOut = Join-Path $LogDir 'vite-5180.log'
+	$viteErr = Join-Path $LogDir 'vite-5180.err.log'
+	Write-Host "Запускаю tracker на $Url (без вікна)."
+	Start-HiddenNode -NodeExe $node -ArgumentList @($vite, '--host', '--port', "$Port", '--strictPort') -WorkingDirectory $Tracker -StdoutPath $viteOut -StderrPath $viteErr
+	if (-not (Wait-Http $Url 60)) {
+		$tail = ''
+		if (Test-Path $viteErr) { $tail = (Get-Content $viteErr -Tail 40) -join "`n" }
+		Fail "Tracker не відповів на $Url за 60 с.`n$tail"
+	}
+	Write-Host "Tracker готовий: $Url"
+} else {
+	Write-Host "Tracker цієї збірки вже слухає порт $Port (PID $($trackerListen.Pid))."
+	try {
+		Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 5 | Out-Null
+	} catch {
+		Fail "Порт $Port слухає наш процес, але $Url не відповідає."
+	}
+}
+
+Start-Process $Url
+Write-Host ""
+Write-Host "SUI Dashboard 2.0.0 відкрито: $Url"
+Write-Host "Бот: http://127.0.0.1:$ApiPort/  режим MONITOR_ONLY"
+Write-Host "База: $DbFile"
+exit 0

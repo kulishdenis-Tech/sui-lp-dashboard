@@ -10,6 +10,8 @@ export type DbPortfolioSnapshot = {
 	lending_net_usd: number
 	wallet_usd: number
 	total_usd: number
+	/** false = complete series. Partial loads must not clear this back from false. */
+	incomplete?: boolean
 }
 
 let _client: SupabaseClient | null = null
@@ -39,6 +41,7 @@ export type ClientPortfolioSnapshot = {
 	lendingNetUSD: number
 	walletUSD: number
 	totalUSD: number
+	incomplete?: boolean
 }
 
 export function rowToSnapshot(row: DbPortfolioSnapshot): ClientPortfolioSnapshot {
@@ -52,6 +55,7 @@ export function rowToSnapshot(row: DbPortfolioSnapshot): ClientPortfolioSnapshot
 		lendingNetUSD: row.lending_net_usd,
 		walletUSD: row.wallet_usd,
 		totalUSD: row.total_usd,
+		incomplete: row.incomplete === true,
 	}
 }
 
@@ -66,5 +70,6 @@ export function snapshotToRow(s: ClientPortfolioSnapshot): DbPortfolioSnapshot {
 		lending_net_usd: s.lendingNetUSD,
 		wallet_usd: s.walletUSD,
 		total_usd: s.totalUSD,
+		incomplete: s.incomplete === true,
 	}
 }

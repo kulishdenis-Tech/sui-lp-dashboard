@@ -31,8 +31,11 @@ async function getAftermathSdk(): Promise<Aftermath | null> {
 	if (_sdkInflight) return _sdkInflight
 	_sdkInflight = (async () => {
 		try {
-			const a = new Aftermath('MAINNET')
-			await a.init({ fullnodeUrl: getRpcUrl() })
+			// Aftermath SDK still speaks JSON-RPC only (separate from gRPC portfolio path).
+			const a = await Aftermath.create({
+				network: 'MAINNET',
+				fullnodeUrl: getRpcUrl(),
+			})
 			_sdk = a
 			return a
 		} catch (err) {

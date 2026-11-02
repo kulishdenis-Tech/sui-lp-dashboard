@@ -10,10 +10,21 @@ export const PROXY_HOST_TO_ORIGIN: Record<string, string> = {
 	'dapi.api.sui-prod.bluefin.io': 'https://dapi.api.sui-prod.bluefin.io',
 	'swap.api.sui-prod.bluefin.io': 'https://swap.api.sui-prod.bluefin.io',
 	'open-api.naviprotocol.io': 'https://open-api.naviprotocol.io',
-	// SUI JSON-RPC fullnode — proxied in prod so browser calls stay same-origin
+	'api.current.finance': 'https://api.current.finance',
+	// SUI JSON-RPC — proxied in prod so browser calls stay same-origin
 	// (avoids Chrome extension fetch interception that breaks getAllBalances)
+	// Mysten public fullnode JSON-RPC deprecated Jul 2026; keep host for old env,
+	// PublicNode is the current default (see src/utils/suiRpcUrl.ts).
 	'fullnode.mainnet.sui.io': 'https://fullnode.mainnet.sui.io',
-	'sui-grpc.publicnode.com': 'https://sui-grpc.publicnode.com:443',
+	'sui-rpc.publicnode.com': 'https://sui-rpc.publicnode.com',
+	'sui.publicnode.com': 'https://sui.publicnode.com',
+	'rpc-mainnet.suiscan.xyz': 'https://rpc-mainnet.suiscan.xyz',
+	'mainnet.suiet.app': 'https://mainnet.suiet.app',
+	'sui.api.onfinality.io': 'https://sui.api.onfinality.io',
+	'api-sui.cetus.zone': 'https://api-sui.cetus.zone',
+	'haedal.xyz': 'https://haedal.xyz',
+	'www.haedal.xyz': 'https://www.haedal.xyz',
+	'ws.stsui.com': 'https://ws.stsui.com',
 }
 
 export function isAllowedProxyHost(host: string): boolean {

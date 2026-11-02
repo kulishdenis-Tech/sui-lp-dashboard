@@ -127,6 +127,14 @@ export const HARDCODED_VERIFIED: SuietCoin[] = [
 		tags: ['bridge'],
 	},
 	{
+		type: '0xd0e89b2af5e4910726fbcd8b8dd37bb79b29e5f83f7491bca830e94f7f226d29::eth::ETH',
+		symbol: 'ETH',
+		name: 'ETH by Sui Bridge',
+		decimals: 8,
+		iconUrl: 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png',
+		tags: ['bridge'],
+	},
+	{
 		type: '0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC',
 		symbol: 'LBTC',
 		name: 'Lombard Staked BTC',

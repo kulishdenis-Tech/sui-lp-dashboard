@@ -85,6 +85,12 @@ export interface OpenPosition {
 	id: string
 	protocol: LpProtocol
 	poolId: string
+	/** Optional coin type of the LP receipt when a venue exposes one. */
+	lpTokenType?: string
+	/** Read succeeded from cache after a failed refresh. */
+	readStale?: boolean
+	/** Epoch ms of the last successful refresh for this row. */
+	lastSuccessAtMs?: number
 	pair: string
 	tokenA: string
 	tokenB: string
@@ -182,10 +188,6 @@ export interface OpenPosition {
 	aprEstimatePct: number
 	/** Сканування історії обірвано (ліміт сторінок / RPC). */
 	historyPartial?: boolean
-	/** Row kept from last good read after source refresh failed. */
-	readStale?: boolean
-	/** Epoch ms of last successful refresh (for STALE UI). */
-	lastSuccessAtMs?: number
 	/** Bluefin: деталізація unclaimed (fee/reward) з on-chain + spot. */
 	bluefinUnclaimed?: BluefinUnclaimedSnapshot
 	/**
@@ -400,13 +402,8 @@ export interface SupplyPosition {
 	currentAmount: number
 	earnedInterest: number
 	earnedInterestUSD: number
-	/**
-	 * Total supply APR shown in the table (decimal fraction).
-	 * Current: base + reward when both known. AlphaLend SDK: interest + staking + rewards combined.
-	 * Do not add `supplyRewardAPR` again in UI when `aprBreakdown` is present.
-	 */
 	supplyAPR: number
-	/** Reward component only (decimal fraction). Omit when rewards unknown. */
+	/** Total reward APR on top of base interest (e.g. BLUE incentives). */
 	supplyRewardAPR?: number
 	/** Optional per-component breakdown for tooltip display. */
 	aprBreakdown?: {
@@ -486,9 +483,9 @@ export interface LendingCashflowUsd {
 	/** Claimed liquidity-mining rewards, USD at the claim. */
 	claimedRewardsUSD: number
 	/** Pending claimable LM rewards at spot (included in resultUSD). */
-	unclaimedRewardsUSD: number
+	unclaimedRewardsUSD?: number
 	/** Supply interest − borrow interest + claimed rewards (excludes unclaimed). */
-	realizedUSD: number
+	realizedUSD?: number
 	/** Supply interest − borrow interest + claimed rewards + unclaimed rewards. */
 	resultUSD: number
 	/** A claimed reward fell back to the current spot price. */
@@ -522,11 +519,10 @@ export interface LendingSnapshot {
 	rewardsToClaim: LendingRewardToClaim[]
 	/** Protocol name, e.g. 'Scallop' */
 	protocol: string
-	/** Last good on-chain read; HF/Liq alerts require metricsLive. */
+	/** False when this snapshot is a cache shown after a failed refresh. */
+	metricsLive?: boolean
 	readStale?: boolean
 	lastSuccessAtMs?: number
-	/** When false, HF / liquidation UI is STALE and P0 alerts are suppressed. */
-	metricsLive?: boolean
 }
 
 export type SpotSource =
@@ -614,8 +610,8 @@ export interface NetWorthSnapshot {
 	netLendingUSD: number
 	/** `wallet + LP + netLending` = true net worth. */
 	totalNetUSD: number
-	/** Verified total (excludes UNVERIFIED STALE > 30 min). */
+	/** Verified total (excludes UNVERIFIED STALE older than 30 min). */
 	verifiedTotalNetUSD?: number
-	/** STALE positions older than 30 min — not in verifiedTotalNetUSD. */
+	/** STALE positions older than 30 min — not included in verifiedTotalNetUSD. */
 	unverifiedUSD?: number
 }

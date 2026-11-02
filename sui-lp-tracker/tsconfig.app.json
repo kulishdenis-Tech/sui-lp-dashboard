@@ -2,7 +2,12 @@
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@autopilot/engine": ["../sui-lp-autopilot/packages/engine/src/index.ts"],
+      "@autopilot/cetus/policy": ["../sui-lp-autopilot/packages/cetus/src/txPolicy.ts"],
+      "@autopilot/cetus/clmmPolicy": ["../sui-lp-autopilot/packages/cetus/src/clmmTxPolicy.ts"],
+      "@autopilot/cetus/bluefinPolicy": ["../sui-lp-autopilot/packages/cetus/src/bluefinTxPolicy.ts"],
+      "@autopilot/cetus/autoWithdrawPolicy": ["../sui-lp-autopilot/packages/cetus/src/autoWithdrawTxPolicy.ts"]
     },
     "strict": true,
     "target": "es2023",

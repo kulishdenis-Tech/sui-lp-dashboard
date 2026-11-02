@@ -6,8 +6,14 @@ import { geckoTokenPricesBatch } from './geckoSimpleBatch'
 import { geckoTokenDetail } from './geckoTokenDetail'
 import { dexScreenerPrice } from './dexScreenerSpot'
 import { dexpPaprikaPrice } from './dexpPaprikaSpot'
-import { isOkxDexConfigured, okxPriceInfoByCoinType } from './okxDexApi'
-import { getCurrentSpot, setCurrentSpot, seedForNetworkRefetch } from './currentSpotCache'
+import { isOkxDexConfigured, okxPriceInfoByCoinType, okxEthereumShortWindowForBridgedEth } from './okxDexApi'
+import {
+	getCurrentSpot,
+	getFreshMemSpot,
+	patchCurrentSpotMeta,
+	setCurrentSpot,
+	seedForNetworkRefetch,
+} from './currentSpotCache'
 
 import { mapPool } from '@/utils/concurrency'
 
@@ -26,9 +32,22 @@ export type Row = {
 	priceSource: SpotSource
 }
 
+/**
+ * Persist rows into spot cache. Cache hits (fresh mem, same price) only patch
+ * change windows — never refresh `observedAt` / TTL.
+ */
 function syncSpotCacheFromOut(out: Map<string, Row>) {
 	for (const [ct, row] of out) {
 		if (row.price == null) continue
+		const fresh = getFreshMemSpot(ct)
+		if (fresh && fresh.price === row.price && fresh.source === row.priceSource) {
+			patchCurrentSpotMeta(ct, {
+				change24h: row.change24h,
+				change5m: row.change5m ?? null,
+				change1h: row.change1h ?? null,
+			})
+			continue
+		}
 		setCurrentSpot(ct, {
 			price: row.price,
 			change24h: row.change24h,
@@ -110,6 +129,9 @@ export async function resolveSpots(
 		}
 	}
 
+	/* Early pass: fill 5m/1h for tokens that already have a price (OKX / mem seed). */
+	await fillShortWindowGaps(out, coinTypes)
+
 	let work = coinTypes.filter((ct) => out.get(ct)?.price == null)
 	if (work.length) {
 		/* Один batch CG замість N×DexScreener для відомих символів (SUI, NS, DEEP…). */
@@ -120,6 +142,8 @@ export async function resolveSpots(
 	if (work.length === 0) {
 		await fill24hGaps(out, symbolByType)
 		await applyCoingeckoSpotOverlay(out, coinTypes, symbolByType)
+		/* Late pass: CG-only prices never went through DexScreener short windows above. */
+		await fillShortWindowGaps(out, coinTypes)
 		syncSpotCacheFromOut(out)
 		return out
 	}
@@ -130,9 +154,21 @@ export async function resolveSpots(
 		work.forEach((c, j) => {
 			const d = parts[j]!
 			if (d?.price) {
-				const row: Row = { price: d.price, change24h: d.change24h, priceSource: 'dexscreener' }
+				const row: Row = {
+					price: d.price,
+					change24h: d.change24h,
+					change5m: d.change5m,
+					change1h: d.change1h,
+					priceSource: 'dexscreener',
+				}
 				out.set(c, row)
-				setCurrentSpot(c, { price: row.price!, change24h: row.change24h, source: 'dexscreener' })
+				setCurrentSpot(c, {
+					price: row.price!,
+					change24h: row.change24h,
+					change5m: row.change5m,
+					change1h: row.change1h,
+					source: 'dexscreener',
+				})
 			}
 		})
 	}
@@ -144,9 +180,21 @@ export async function resolveSpots(
 		for (const c of still) {
 			const a = af[c]
 			if (a?.price) {
-				const row: Row = { price: a.price, change24h: a.change24h, priceSource: 'aftermath' }
+				const row: Row = {
+					price: a.price,
+					change24h: a.change24h,
+					change5m: null,
+					change1h: null,
+					priceSource: 'aftermath',
+				}
 				out.set(c, row)
-				setCurrentSpot(c, { price: row.price!, change24h: row.change24h, source: 'aftermath' })
+				setCurrentSpot(c, {
+					price: row.price!,
+					change24h: row.change24h,
+					change5m: null,
+					change1h: null,
+					source: 'aftermath',
+				})
 			}
 		}
 	}
@@ -158,8 +206,20 @@ export async function resolveSpots(
 		for (const c of still) {
 			const p = gBatch[c]
 			if (p != null) {
-				out.set(c, { price: p, change24h: null, priceSource: 'geckoterminal' })
-				setCurrentSpot(c, { price: p, change24h: null, source: 'geckoterminal' })
+				out.set(c, {
+					price: p,
+					change24h: null,
+					change5m: null,
+					change1h: null,
+					priceSource: 'geckoterminal',
+				})
+				setCurrentSpot(c, {
+					price: p,
+					change24h: null,
+					change5m: null,
+					change1h: null,
+					source: 'geckoterminal',
+				})
 			}
 		}
 	}
@@ -174,10 +234,28 @@ export async function resolveSpots(
 			chunk.forEach((c, j) => {
 				const p = results[j]!
 				if (p?.price) {
-					out.set(c, { price: p.price, change24h: p.change24h, priceSource: 'dexpaprika' })
-					setCurrentSpot(c, { price: p.price, change24h: p.change24h, source: 'dexpaprika' })
+					out.set(c, {
+						price: p.price,
+						change24h: p.change24h,
+						change5m: null,
+						change1h: null,
+						priceSource: 'dexpaprika',
+					})
+					setCurrentSpot(c, {
+						price: p.price,
+						change24h: p.change24h,
+						change5m: null,
+						change1h: null,
+						source: 'dexpaprika',
+					})
 				} else {
-					out.set(c, { price: null, change24h: null, priceSource: 'unavailable' })
+					out.set(c, {
+						price: null,
+						change24h: null,
+						change5m: null,
+						change1h: null,
+						priceSource: 'unavailable',
+					})
 				}
 			})
 		}
@@ -185,6 +263,8 @@ export async function resolveSpots(
 
 	await fill24hGaps(out, symbolByType)
 	await applyCoingeckoSpotOverlay(out, coinTypes, symbolByType)
+	/* Late pass after Aftermath/Gecko/DexPaprika — they omit 5m/1h. */
+	await fillShortWindowGaps(out, coinTypes)
 	syncSpotCacheFromOut(out)
 	return out
 }
@@ -226,16 +306,96 @@ async function applyCoingeckoSpotOverlay(
 				: null
 		const existing = out.get(ct)
 		if (!existing?.price) {
-			/* No price yet — use CoinGecko as fallback. */
+			/* No price yet — use CoinGecko as fallback (5m/1h filled later by DexScreener). */
 			out.set(ct, { price: row.usd, change24h: cgChange, priceSource: 'coingecko' })
-			setCurrentSpot(ct, { price: row.usd, change24h: cgChange, source: 'coingecko' })
+			setCurrentSpot(ct, {
+				price: row.usd,
+				change24h: cgChange,
+				change5m: null,
+				change1h: null,
+				source: 'coingecko',
+			})
 		} else {
 			/* Price already set by a real-time source — only patch 24h change if missing. */
 			if (existing.change24h == null && cgChange != null) {
 				out.set(ct, { ...existing, change24h: cgChange })
-				setCurrentSpot(ct, { price: existing.price, change24h: cgChange, source: existing.priceSource })
+				setCurrentSpot(ct, {
+					price: existing.price,
+					change24h: cgChange,
+					change5m: existing.change5m ?? null,
+					change1h: existing.change1h ?? null,
+					source: existing.priceSource,
+				})
 			}
 		}
+	}
+}
+
+function coinTypesNeedingShortWindow(out: Map<string, Row>): string[] {
+	return [...out.entries()]
+		.filter(([, r]) => {
+			if (r.price == null) return false
+			// Missing only — OKX `0` is a real flat window; do not block return on DexScreener.
+			return r.change5m == null || r.change1h == null
+		})
+		.map(([ct]) => ct)
+}
+
+/**
+ * Patch missing 5m/1h: Ethereum OKX for bridged ETH, then DexScreener.
+ * Bridged ETH with idle Sui `0` always gets an Ethereum WETH short-window pass.
+ */
+async function fillShortWindowGaps(out: Map<string, Row>, coinTypes: string[]) {
+	const withPrice = coinTypes.filter((ct) => out.get(ct)?.price != null)
+	if (!withPrice.length) return
+
+	try {
+		const ethWin = await okxEthereumShortWindowForBridgedEth(withPrice)
+		for (const [ct, w] of ethWin) {
+			const cur = out.get(ct)
+			if (!cur?.price) continue
+			// Bridged ETH: replace missing or idle-zero 5m from Ethereum WETH.
+			const change5m =
+				cur.change5m == null || cur.change5m === 0 ? (w.change5m ?? cur.change5m) : cur.change5m
+			const change1h = cur.change1h ?? w.change1h ?? null
+			if (change5m === cur.change5m && change1h === cur.change1h) continue
+			const next: Row = { ...cur, change5m, change1h }
+			out.set(ct, next)
+			setCurrentSpot(ct, {
+				price: next.price!,
+				change24h: next.change24h,
+				change5m: next.change5m,
+				change1h: next.change1h,
+				source: next.priceSource,
+			})
+		}
+	} catch {
+		/* optional */
+	}
+
+	const still = coinTypesNeedingShortWindow(out).filter((ct) => coinTypes.includes(ct))
+	if (!still.length) return
+	try {
+		const parts = await mapPool(still, DEXSCREENER_CONCURRENCY, dexScreenerPrice)
+		still.forEach((ct, j) => {
+			const d = parts[j]
+			const cur = out.get(ct)
+			if (!d || !cur?.price) return
+			const change5m = cur.change5m ?? d.change5m ?? null
+			const change1h = cur.change1h ?? d.change1h ?? null
+			if (change5m === cur.change5m && change1h === cur.change1h) return
+			const next: Row = { ...cur, change5m, change1h }
+			out.set(ct, next)
+			setCurrentSpot(ct, {
+				price: next.price!,
+				change24h: next.change24h,
+				change5m: next.change5m,
+				change1h: next.change1h,
+				source: next.priceSource,
+			})
+		})
+	} catch {
+		/* DexScreener optional — keep OKX / existing short windows */
 	}
 }
 

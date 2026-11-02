@@ -15,6 +15,7 @@ create table if not exists public.portfolio_snapshots (
 	lending_net_usd double precision not null default 0,
 	wallet_usd double precision not null default 0,
 	total_usd double precision not null default 0,
+	incomplete boolean not null default false,
 	created_at timestamptz not null default now()
 );
 

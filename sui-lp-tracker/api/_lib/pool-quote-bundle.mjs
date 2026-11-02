@@ -538,10 +538,13 @@ function effectivePrice(amountInHuman, amountOutHuman) {
 
 // src/utils/suiRpcUrl.ts
 var DEFAULT_MAINNET_JSON_RPC_URL = "https://mainnet.suiet.app";
-var DEPRECATED_MYSTEN_JSON_RPC_HOSTS = /* @__PURE__ */ new Set([
+var DEPRECATED_JSON_RPC_HOSTS = /* @__PURE__ */ new Set([
   "fullnode.mainnet.sui.io",
   "fullnode.testnet.sui.io",
-  "fullnode.devnet.sui.io"
+  "fullnode.devnet.sui.io",
+  "sui-rpc.publicnode.com",
+  "sui.publicnode.com",
+  "sui.api.onfinality.io"
 ]);
 var RPC_HOST_ALIASES = {
   "sui.publicnode.com": DEFAULT_MAINNET_JSON_RPC_URL
@@ -556,7 +559,7 @@ function normalizeSuiRpcUrl(url) {
   try {
     const u = new URL(url);
     const host = u.hostname.toLowerCase();
-    if (DEPRECATED_MYSTEN_JSON_RPC_HOSTS.has(host)) {
+    if (DEPRECATED_JSON_RPC_HOSTS.has(host)) {
       return DEFAULT_MAINNET_JSON_RPC_URL;
     }
     const alias = RPC_HOST_ALIASES[host];

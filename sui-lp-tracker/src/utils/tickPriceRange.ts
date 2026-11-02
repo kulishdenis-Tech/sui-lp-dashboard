@@ -1,6 +1,5 @@
 import { TickMath } from '@mmt-finance/clmm-sdk'
 import BN from 'bn.js'
-import { isEmptyLpPosition } from '@/utils/lpLifecycle'
 
 /**
  * MMT: price = B per 1 A (token A = coin a, B = coin b) — як у TickMath.sqrtPriceX64ToPrice.
@@ -22,18 +21,6 @@ export type ClmmRangeDisplay = {
 
 const sqDigits = (s: string) => /^\d+$/.test(s)
 
-function clmmEffectiveInRange(
-	p: Pick<
-		Parameters<typeof clmmRangeFromOpenPosition>[0],
-		'status' | 'liquidity' | 'lifecycleStatus' | 'priceCurrentOverride'
-	>,
-	priceDerivedInRange: boolean,
-): boolean {
-	if (isEmptyLpPosition(p)) return false
-	if (p.priceCurrentOverride != null) return priceDerivedInRange
-	return p.status === 'in_range'
-}
-
 export function clmmRangeFromOpenPosition(p: {
 	tickLower: number
 	tickUpper: number
@@ -44,8 +31,6 @@ export function clmmRangeFromOpenPosition(p: {
 	tokenADecimals: number
 	tokenBDecimals: number
 	status: 'in_range' | 'out_of_range'
-	liquidity?: string
-	lifecycleStatus?: 'active' | 'empty' | 'unknown'
 	/** Direct price override (B per A) — used for synthetic closed positions where sqrtPrice is unavailable. */
 	priceCurrentOverride?: number
 	/** Full range prices (B per A) — Cetus DLMM; skips TickMath. */
@@ -60,13 +45,12 @@ export function clmmRangeFromOpenPosition(p: {
 		if (min <= 0 || max <= 0 || pCur <= 0) return null
 		const span = max - min
 		const position01 = span > 0 ? (pCur - min) / span : 0.5
-		const priceDerivedInRange = pCur >= min && pCur <= max
 		return {
 			priceMin: min,
 			priceMax: max,
 			priceCurrent: pCur,
 			position01,
-			inRange: clmmEffectiveInRange(p, priceDerivedInRange),
+			inRange: p.status === 'in_range',
 			priceLabel: `${p.tokenB} / ${p.tokenA}`,
 		}
 	}
@@ -103,8 +87,12 @@ export function clmmRangeFromOpenPosition(p: {
 	}
 	const span = max - min
 	const position01 = span > 0 ? (pCur - min) / span : 0.5
-	const priceDerivedInRange = pCur >= min && pCur <= max
-	const inRange = clmmEffectiveInRange(p, priceDerivedInRange)
+	// When priceCurrentOverride is provided (closed position), derive inRange from price position.
+	// Otherwise honour the on-chain status flag.
+	const inRange =
+		p.priceCurrentOverride != null
+			? pCur >= min && pCur <= max
+			: p.status === 'in_range'
 	return {
 		priceMin: min,
 		priceMax: max,

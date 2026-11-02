@@ -42,12 +42,6 @@ const STABLECOIN_SYMS = new Set([
 
 export type CetusDlmmPositionsOptions = { forceRefreshPrices?: boolean }
 
-/** DLMM list guard — empty only when discovery succeeded; errors propagate to snapshot boundary. */
-export function requireDlmmOwnerRows<T>(rows: T[] | undefined, err: unknown): T[] {
-	if (err) throw err instanceof Error ? err : new Error(String(err))
-	return rows ?? []
-}
-
 type CoinMeta = { symbol: string; decimals: number; iconUrl: string | null }
 
 function symbolFromCoinType(ct: string): string {
@@ -98,8 +92,17 @@ function feeFractionFromRaw(raw: string | undefined): number {
 }
 
 /**
+ * Discovery failure is an error, not an empty portfolio.
+ * Callers that want a soft UI (appStore) must catch. Snapshot registry must not.
+ */
+export function requireDlmmOwnerRows<T>(rows: T[] | undefined, err: unknown): T[] {
+	if (err) throw err instanceof Error ? err : new Error(String(err))
+	return rows ?? []
+}
+
+/**
  * Returns open Cetus DLMM positions for `walletAddress`.
- * Failures return `[]` so CLMM/vault loads stay independent.
+ * `getOwnerPositionList` failures throw so empty ≠ RPC error.
  */
 export async function getCetusDlmmPositions(
 	walletAddress: string,
@@ -108,14 +111,14 @@ export async function getCetusDlmmPositions(
 	const sdk = getCetusDlmmSdk()
 	// Official: setSenderAddress before fee/reward inspect payloads.
 	sdk.setSenderAddress(walletAddress)
-	let rows: Awaited<ReturnType<typeof sdk.Position.getOwnerPositionList>>
+	let listed: Awaited<ReturnType<typeof sdk.Position.getOwnerPositionList>> | undefined
+	let listErr: unknown
 	try {
-		rows = await sdk.Position.getOwnerPositionList(walletAddress)
+		listed = await sdk.Position.getOwnerPositionList(walletAddress)
 	} catch (e) {
-		// eslint-disable-next-line no-console
-		console.warn('[cetus-dlmm] getOwnerPositionList failed', e)
-		return []
+		listErr = e
 	}
+	const rows = requireDlmmOwnerRows(listed, listErr)
 	if (!rows.length) return []
 
 	const poolCache = new Map<string, Awaited<ReturnType<typeof sdk.Pool.getPool>>>()
@@ -270,7 +273,7 @@ export async function getCetusDlmmPositions(
 				},
 			})
 		} catch (e) {
-			// eslint-disable-next-line no-console
+			 
 			console.warn('[cetus-dlmm] position map failed', pos.id?.slice?.(0, 10), e)
 		}
 	}
@@ -314,7 +317,7 @@ export async function getCetusDlmmPositions(
 				p.unclaimedRewardRows = rows
 			}
 		} catch (e) {
-			// eslint-disable-next-line no-console
+			 
 			console.warn('[cetus-dlmm] fetchPositionFeeAndReward failed', e)
 		}
 	}

@@ -6,6 +6,7 @@ import type {
 	TokenBalance,
 } from '@/types'
 import { JUNK_COIN_TYPE_DENYLIST } from '@/config/junkTokens'
+import { isCetusVaultLpCoinType } from '@/utils/cetusVault'
 import { MIN_UNVERIFIED_VALUE_USD, PROTOCOL_TOKEN_VERIFIED } from '@/utils/constants'
 import {
 	blocklistCovers,
@@ -22,6 +23,7 @@ const NORM_PROTOCOL = new Set(
 /** Без ручного allowlist: ті ж оракули, що й більшість експлорерів (після Suiet/DEX) */
 const TRUSTED_SPOT_SOURCES: ReadonlySet<SpotSource> = new Set([
 	'okx',
+	'cetus',
 	'dexscreener',
 	'aftermath',
 	'geckoterminal',
@@ -84,6 +86,9 @@ export function classifyTokenBalance(
 
 	if (JUNK_COIN_TYPE_DENYLIST.has(coinType)) {
 		return { coinType, status: 'spam', metadata: meta, reason: 'denylist' }
+	}
+	if (isCetusVaultLpCoinType(coinType) || isCetusVaultLpCoinType(normalizeCoinType(coinType))) {
+		return { coinType, status: 'spam', metadata: meta, reason: 'cetus_vault_lp' }
 	}
 	if (JUNK_COIN_TYPE_DENYLIST.has(normalizeCoinType(coinType))) {
 		return { coinType, status: 'spam', metadata: meta, reason: 'denylist' }

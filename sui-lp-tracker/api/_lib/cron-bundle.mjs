@@ -23,7 +23,7 @@ if (!globalThis.Buffer) {
 }
 
 // src/services/server/loadPortfolioSnapshot.ts
-import { normalizeSuiAddress as normalizeSuiAddress15 } from "@mysten/sui/utils";
+import { normalizeSuiAddress as normalizeSuiAddress17 } from "@mysten/sui/utils";
 
 // src/utils/deploymentOrigin.ts
 function deploymentOrigin() {
@@ -53,22 +53,33 @@ var HOST_PREFIX = {
   "dapi.api.sui-prod.bluefin.io": "/ext/bf-dapi",
   "swap.api.sui-prod.bluefin.io": "/ext/bf-swap",
   "open-api.naviprotocol.io": "/ext/navi",
-  // SUI JSON-RPC fullnode — same-origin proxy to prevent Chrome extension interception
-  "fullnode.mainnet.sui.io": "/ext/sui-rpc",
-  "sui-grpc.publicnode.com": "/ext/sui-grpc-publicnode"
+  "api.current.finance": "/ext/current",
+  // SUI JSON-RPC — distinct same-origin proxies so the dashboard pool can
+  // fail over across public nodes without CORS (Mysten fullnode JSON-RPC deprecated).
+  // Paths must NOT share a prefix (Vite proxy matches by path prefix).
+  "sui-rpc.publicnode.com": "/ext/sui-rpc",
+  "sui.publicnode.com": "/ext/sui-rpc",
+  "rpc-mainnet.suiscan.xyz": "/ext/sui-suiscan",
+  "mainnet.suiet.app": "/ext/sui-suiet",
+  "sui.api.onfinality.io": "/ext/sui-onfinality",
+  // Mysten public gRPC-Web + GraphQL (default dashboard transport; no API key).
+  "fullnode.mainnet.sui.io": "/ext/sui-grpc-web",
+  "graphql.mainnet.sui.io": "/ext/sui-graphql",
+  // Optional BlockVision gRPC-Web (Lite+ key via VITE_BLOCKVISION_API_KEY).
+  "sui-mainnet-grpc-web.blockvision.org": "/ext/sui-grpc-bv",
+  "sui-mainnet-graphql.blockvision.org": "/ext/sui-graphql-bv",
+  "api-sui.cetus.zone": "/ext/cetus-api",
+  "haedal.xyz": "/ext/haedal",
+  "www.haedal.xyz": "/ext/haedal",
+  // AlphaLend SDK fetches stSUI staking APR directly; the host has no CORS for the dashboard origin.
+  "ws.stsui.com": "/ext/stsui"
 };
 function extFetchUrl(absoluteUrl) {
-  return extFetchUrlWithContext(absoluteUrl, {
-    inBrowser: typeof window !== "undefined",
-    dev: !!import.meta.env?.DEV
-  });
-}
-function extFetchUrlWithContext(absoluteUrl, ctx) {
   try {
     const u = new URL(absoluteUrl);
     if (!HOST_PREFIX[u.host]) return absoluteUrl;
-    if (!ctx.inBrowser) return absoluteUrl;
-    if (ctx.dev) {
+    if (typeof window === "undefined") return absoluteUrl;
+    if (import.meta.env?.DEV) {
       const prefix = HOST_PREFIX[u.host];
       return `${prefix}${u.pathname}${u.search}`;
     }
@@ -1838,11 +1849,8 @@ var suiClient = new Proxy({}, {
     return val;
   }
 });
-function defaultRpcUrl() {
-  return typeof window === "undefined" ? resolveServerSuiRpcUrl() : resolveBrowserRpcUrl();
-}
 function getRpcUrl() {
-  return defaultRpcUrl();
+  return getDashboardRpcPool().activeUrl();
 }
 
 // src/utils/formatting.ts
@@ -2046,8 +2054,10 @@ async function getSdk() {
   if (inFlight2) return inFlight2;
   inFlight2 = (async () => {
     try {
-      const a = new Aftermath("MAINNET");
-      await a.init({ fullnodeUrl: getRpcUrl() });
+      const a = await Aftermath.create({
+        network: "MAINNET",
+        fullnodeUrl: getRpcUrl()
+      });
       sdk = a;
       return a;
     } catch {
@@ -2240,6 +2250,14 @@ function normalizeCoinTypeForMatch(coinType) {
   }
 }
 var NATIVE_SUI_COIN_TYPE = normalizeCoinTypeForMatch("0x2::sui::SUI");
+var OKX_NATIVE_SUI_TOKEN_ADDRESS = "0x2::sui::SUI";
+function isNativeSuiCoinType(coinType) {
+  return normalizeCoinTypeForMatch(coinType) === NATIVE_SUI_COIN_TYPE;
+}
+function okxPriceInfoTokenAddress(coinType) {
+  if (isNativeSuiCoinType(coinType)) return OKX_NATIVE_SUI_TOKEN_ADDRESS;
+  return normalizeCoinTypeForMatch(coinType);
+}
 
 // src/services/spotPrice/dexScreenerSpot.ts
 var DS = "https://api.dexscreener.com";
@@ -2273,10 +2291,14 @@ function pickBest(pairs, coinTypeNorm) {
 function parsePair(top) {
   const price = parseFloat(String(top.priceUsd ?? ""));
   if (!Number.isFinite(price) || price <= 0) return null;
-  const h = top.priceChange?.h24;
+  const m5 = top.priceChange?.m5;
+  const h1 = top.priceChange?.h1;
+  const h24 = top.priceChange?.h24;
   return {
     price,
-    change24h: h != null && Number.isFinite(h) ? h : null
+    change5m: m5 != null && Number.isFinite(m5) ? m5 : null,
+    change1h: h1 != null && Number.isFinite(h1) ? h1 : null,
+    change24h: h24 != null && Number.isFinite(h24) ? h24 : null
   };
 }
 function packageId(coinType) {
@@ -2297,7 +2319,7 @@ async function dexScreenerPrice(coinType) {
           const top = pickBest(pairs, norm2);
           if (top) {
             const p = parsePair(top);
-            if (p) return { price: p.price, change24h: p.change24h };
+            if (p) return p;
           }
         }
       }
@@ -2313,8 +2335,7 @@ async function dexScreenerPrice(coinType) {
     if (!pairs?.length) return null;
     const top = pickBest(pairs, norm2);
     if (!top) return null;
-    const p = parsePair(top);
-    return p ? { price: p.price, change24h: p.change24h } : null;
+    return parsePair(top);
   } catch {
     return null;
   }
@@ -2346,7 +2367,7 @@ async function dexpPaprikaPriceInner(coinType, symbol) {
     };
   };
   const enc = encodeURIComponent(want);
-  let q = await tryDetail(enc);
+  const q = await tryDetail(enc);
   if (q) return q;
   const su = extFetchUrl(
     `${DEXP}/search?query=${encodeURIComponent(symbol)}&networks=${encodeURIComponent("sui")}`
@@ -2386,7 +2407,6 @@ async function dexpPaprikaPriceInner(coinType, symbol) {
 var CHAIN_SUI = "784";
 var PRICE_INFO_PATH = "/api/v6/dex/market/price-info";
 var BATCH = 100;
-var DEFAULT_FETCH_TIMEOUT_MS = 12e3;
 var DEFAULT_FETCH_RETRIES = 2;
 var DEFAULT_RETRY_BACKOFF_MS = 1500;
 var OKX_CIRCUIT_OPEN_MS = 4 * 60 * 1e3;
@@ -2405,99 +2425,28 @@ function okxTripCircuit() {
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
-function okxFetchTimeoutMs() {
-  const v = import.meta.env.VITE_OKX_TIMEOUT_MS;
-  const n2 = v != null && v !== "" ? Number.parseInt(String(v), 10) : Number.NaN;
-  if (Number.isFinite(n2) && n2 >= 5e3 && n2 <= 3e5) return n2;
-  return DEFAULT_FETCH_TIMEOUT_MS;
-}
 function okxFetchExtraRetries() {
   const v = import.meta.env.VITE_OKX_RETRIES;
   const n2 = v != null && v !== "" ? Number.parseInt(String(v), 10) : Number.NaN;
   if (Number.isFinite(n2) && n2 >= 0 && n2 <= 5) return n2;
   return DEFAULT_FETCH_RETRIES;
 }
-function okxCreds() {
-  const key = import.meta.env.VITE_OKX_API_KEY || (typeof process !== "undefined" ? process.env.OKX_API_KEY ?? process.env.VITE_OKX_API_KEY : void 0);
-  const secret = import.meta.env.VITE_OKX_SECRET_KEY || (typeof process !== "undefined" ? process.env.OKX_SECRET_KEY ?? process.env.VITE_OKX_SECRET_KEY : void 0);
-  const pass = import.meta.env.VITE_OKX_PASSPHRASE || (typeof process !== "undefined" ? process.env.OKX_PASSPHRASE ?? process.env.VITE_OKX_PASSPHRASE : void 0);
-  if (typeof key === "string" && key.length > 0 && typeof secret === "string" && secret.length > 0 && typeof pass === "string" && pass.length > 0) {
-    return { key, secret, pass };
-  }
-  return null;
-}
-function okxTimestamp() {
-  return (/* @__PURE__ */ new Date()).toISOString();
-}
-async function hmacSha256Base642(secret, message) {
-  const te = new TextEncoder();
-  const k = await crypto.subtle.importKey(
-    "raw",
-    te.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const sig = await crypto.subtle.sign("HMAC", k, te.encode(message));
-  const b = new Uint8Array(sig);
-  let s = "";
-  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
-  return btoa(s);
-}
 function okxSuccess(j) {
   return j.code === "0" || j.code === 0;
-}
-function okxUrlOnWire(requestPath) {
-  return extFetchUrl(`https://web3.okx.com${requestPath.startsWith("/") ? requestPath : `/${requestPath}`}`);
 }
 async function okxSignedRequestOnce(method, pathWithQuery, bodyStr = "") {
   if (okxCircuitOpen()) return null;
   const path = pathWithQuery.startsWith("/") ? pathWithQuery : `/${pathWithQuery}`;
-  if (isProdBuild()) {
-    try {
-      const r = await okxProxyFetch(method, path, bodyStr);
-      const json = await r.json();
-      return { ok: r.ok, status: r.status, json };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (/ETIMEDOUT|AbortError|network|fetch/i.test(msg)) okxTripCircuit();
-      return null;
-    }
-  }
-  const creds = okxCreds();
-  if (!creds) return null;
-  const ts = okxTimestamp();
-  const pre = `${ts}${method}${path}${method === "POST" ? bodyStr : ""}`;
-  const sign = await hmacSha256Base642(creds.secret, pre);
-  const url = okxUrlOnWire(path);
-  const timeoutMs = okxFetchTimeoutMs();
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), timeoutMs);
   try {
-    const r = await fetch(url, {
-      method,
-      signal: ac.signal,
-      headers: {
-        ...method === "POST" ? { "Content-Type": "application/json" } : {},
-        "OK-ACCESS-KEY": creds.key,
-        "OK-ACCESS-SIGN": sign,
-        "OK-ACCESS-TIMESTAMP": ts,
-        "OK-ACCESS-PASSPHRASE": creds.pass
-      },
-      body: method === "POST" ? bodyStr : void 0
-    });
+    const r = await okxProxyFetch(method, path, bodyStr);
     const json = await r.json();
     return { ok: r.ok, status: r.status, json };
   } catch (e) {
-    const isAbort = e instanceof Error && e.name === "AbortError";
     const msg = e instanceof Error ? e.message : String(e);
-    if (isAbort || /ETIMEDOUT|ECONNREFUSED|ENOTFOUND/i.test(msg)) okxTripCircuit();
+    if (/ETIMEDOUT|AbortError|network|fetch|ECONNREFUSED|ENOTFOUND/i.test(msg)) okxTripCircuit();
     return null;
-  } finally {
-    clearTimeout(t);
   }
 }
-var lastOkx429LogAt = 0;
 async function okxSignedRequest(method, pathWithQuery, bodyStr = "") {
   const maxAttempts = 1 + okxFetchExtraRetries();
   let last = null;
@@ -2505,17 +2454,10 @@ async function okxSignedRequest(method, pathWithQuery, bodyStr = "") {
     last = await okxSignedRequestOnce(method, pathWithQuery, bodyStr);
     if (!last) return null;
     if (last.status !== 429) return last;
-    const backoffMs = 800 * (attempt + 1) * (attempt + 1);
-    const now2 = Date.now();
-    if (now2 - lastOkx429LogAt > 3e4) {
-      lastOkx429LogAt = now2;
-      console.warn("[OKX] 429 backoff", {
-        attempt: attempt + 1,
-        backoffMs,
-        path: pathWithQuery.split("?")[0]
-      });
+    const backoffMs = 400 * (attempt + 1) * (attempt + 1);
+    if (import.meta.env.DEV || typeof window === "undefined") {
+      console.warn("[OKX] 429 backoff", { attempt: attempt + 1, backoffMs, path: pathWithQuery.split("?")[0] });
     }
-    if (attempt >= 1) return last;
     await sleep(backoffMs);
   }
   return last;
@@ -2534,15 +2476,6 @@ function parseChangePct(s) {
   if (s == null || s === "") return null;
   const n2 = parseFloat(String(s).trim());
   return Number.isFinite(n2) ? n2 : null;
-}
-var OKX_PRICE_INFO_TTL_MS = (() => {
-  const raw = typeof process !== "undefined" ? process.env.OKX_PRICE_INFO_CACHE_MS : void 0;
-  const n2 = raw != null && raw !== "" ? Number.parseInt(String(raw), 10) : Number.NaN;
-  return Number.isFinite(n2) && n2 >= 5e3 && n2 <= 6e5 ? n2 : 6e4;
-})();
-var priceInfoCache = /* @__PURE__ */ new Map();
-function priceInfoCacheKey(coinType) {
-  return normalizeCoinTypeForMatch(coinType);
 }
 async function postPriceInfoChunk(bodyStr) {
   const extra = okxFetchExtraRetries();
@@ -2570,34 +2503,25 @@ async function postPriceInfoChunk(bodyStr) {
 async function okxPriceInfoByCoinType(coinTypes) {
   const out = /* @__PURE__ */ new Map();
   if (!isOkxDexConfigured() || coinTypes.length === 0) return out;
-  const unique = [...new Set(coinTypes.map((c) => c.trim()).filter(Boolean))];
-  const now2 = Date.now();
-  const needFetch = [];
-  for (const ct of unique) {
-    const hit = priceInfoCache.get(priceInfoCacheKey(ct));
-    if (hit && hit.expiresAt > now2) {
-      out.set(ct, hit.info);
-      continue;
-    }
-    needFetch.push(ct);
+  const originalsByNorm = /* @__PURE__ */ new Map();
+  for (const ct of coinTypes) {
+    const norm2 = normalizeCoinTypeForMatch(ct);
+    const arr = originalsByNorm.get(norm2) ?? [];
+    if (!arr.includes(ct)) arr.push(ct);
+    originalsByNorm.set(norm2, arr);
   }
-  if (needFetch.length === 0) return out;
-  const bodyTemplate = needFetch.map((tokenContractAddress) => ({
-    chainIndex: CHAIN_SUI,
-    tokenContractAddress
-  }));
-  for (let i = 0; i < bodyTemplate.length; i += BATCH) {
-    const chunk = bodyTemplate.slice(i, i + BATCH);
-    const bodyStr = JSON.stringify(chunk);
+  const uniqueNorms = [...originalsByNorm.keys()];
+  for (let i = 0; i < uniqueNorms.length; i += BATCH) {
+    const chunk = uniqueNorms.slice(i, i + BATCH);
+    const bodyStr = JSON.stringify(
+      chunk.map((norm2) => ({
+        chainIndex: CHAIN_SUI,
+        tokenContractAddress: okxPriceInfoTokenAddress(norm2)
+      }))
+    );
     const j = await postPriceInfoChunk(bodyStr);
     if (j == null) continue;
-    const normToCt = /* @__PURE__ */ new Map();
-    for (const b of chunk) {
-      const norm2 = normalizeCoinTypeForMatch(b.tokenContractAddress);
-      normToCt.set(norm2, b.tokenContractAddress);
-      const pkg = norm2.split("::")[0];
-      if (pkg && !normToCt.has(pkg)) normToCt.set(pkg, b.tokenContractAddress);
-    }
+    const bestByNorm = /* @__PURE__ */ new Map();
     if (import.meta.env.DEV) {
       console.debug("[OKX price-info] raw response:", JSON.stringify(j.data));
     }
@@ -2605,10 +2529,8 @@ async function okxPriceInfoByCoinType(coinTypes) {
       const p = parseFloat(String(row?.price ?? ""));
       if (!Number.isFinite(p) || p <= 0) continue;
       const raw = String(row.tokenContractAddress ?? "");
-      const normRaw = normalizeCoinTypeForMatch(raw);
-      const pkgRaw = normRaw.split("::")[0] ?? normRaw;
-      const ct = normToCt.get(normRaw) ?? normToCt.get(pkgRaw);
-      if (!ct) {
+      const normRaw = normalizeCoinTypeForMatch(raw || "0x2::sui::SUI");
+      if (!originalsByNorm.has(normRaw)) {
         if (import.meta.env.DEV) {
           console.warn("[OKX price-info] unmatched tokenContractAddress:", raw);
         }
@@ -2617,27 +2539,74 @@ async function okxPriceInfoByCoinType(coinTypes) {
       const change5m = parseChangePct(row.priceChange5M);
       const change1h = parseChangePct(row.priceChange1H);
       const change24h = parseChangePct(row.priceChange24H);
-      if (import.meta.env.DEV) {
-        console.debug(
-          `[OKX price-info] ${ct.split("::")[2] ?? ct} \u2192 $${p} 5m=${change5m} 1h=${change1h} 24h=${change24h}`
-        );
-      }
-      out.set(ct, { price: p, change5m, change1h, change24h });
-      priceInfoCache.set(priceInfoCacheKey(ct), {
-        info: { price: p, change5m, change1h, change24h },
-        expiresAt: now2 + OKX_PRICE_INFO_TTL_MS
+      const liq = parseFloat(String(row.liquidity ?? ""));
+      const txs24 = parseFloat(String(row.txs24H ?? ""));
+      const score = (Number.isFinite(liq) ? Math.log10(1 + Math.max(0, liq)) : 0) * 10 + (Number.isFinite(txs24) ? Math.min(txs24, 1e6) / 1e3 : 0) + (change5m != null || change1h != null || change24h != null ? 1 : 0);
+      const prev = bestByNorm.get(normRaw);
+      if (prev && prev.score >= score) continue;
+      bestByNorm.set(normRaw, {
+        price: p,
+        change5m,
+        change1h,
+        change24h,
+        score,
+        rawAddr: raw || "0x2::sui::SUI"
       });
     }
+    for (const [norm2, info] of bestByNorm) {
+      const originals = originalsByNorm.get(norm2) ?? [];
+      if (import.meta.env.DEV) {
+        console.debug(
+          `[OKX price-info] ${norm2.split("::")[2] ?? norm2} \u2192 $${info.price} 5m=${info.change5m} 1h=${info.change1h} 24h=${info.change24h}` + (info.rawAddr !== norm2 ? ` (req ${okxPriceInfoTokenAddress(norm2).slice(0, 18)}\u2026 echo ${info.rawAddr.slice(0, 18)}\u2026)` : "")
+        );
+      }
+      for (const ct of originals) {
+        out.set(ct, {
+          price: info.price,
+          change5m: info.change5m,
+          change1h: info.change1h,
+          change24h: info.change24h
+        });
+      }
+    }
   }
-  for (const ct of unique) {
-    if (out.has(ct)) continue;
-    const hit = priceInfoCache.get(priceInfoCacheKey(ct));
-    if (hit) out.set(ct, hit.info);
+  return out;
+}
+var CHAIN_ETH = "1";
+var ETHEREUM_WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+var SUI_BRIDGE_ETH = normalizeCoinTypeForMatch(
+  "0xd0e89b2af5e4910726fbcd8b8dd37bb79b29e5f83f7491bca830e94f7f226d29::eth::ETH"
+);
+var SUI_WORMHOLE_WETH = normalizeCoinTypeForMatch(
+  "0xaf8cd5edc19c4512f4259f0bee101a40d41ebed738ade5874359610ef8eeced5::coin::COIN"
+);
+function isBridgedEthLike(coinType) {
+  const n2 = normalizeCoinTypeForMatch(coinType);
+  return n2 === SUI_BRIDGE_ETH || n2 === SUI_WORMHOLE_WETH;
+}
+async function okxEthereumShortWindowForBridgedEth(coinTypes) {
+  const out = /* @__PURE__ */ new Map();
+  const targets = coinTypes.filter(isBridgedEthLike);
+  if (!targets.length || !isOkxDexConfigured()) return out;
+  const bodyStr = JSON.stringify([
+    { chainIndex: CHAIN_ETH, tokenContractAddress: ETHEREUM_WETH }
+  ]);
+  const j = await postPriceInfoChunk(bodyStr);
+  if (j == null) return out;
+  const row = j.data[0];
+  if (!row) return out;
+  const change5m = parseChangePct(row.priceChange5M);
+  const change1h = parseChangePct(row.priceChange1H);
+  for (const ct of targets) {
+    out.set(ct, { change5m, change1h });
+  }
+  if (import.meta.env.DEV) {
+    console.debug("[OKX eth-short] WETH \u2192", { change5m, change1h, for: targets.length });
   }
   return out;
 }
 function isOkxDexConfigured() {
-  return isProdBuild() || okxCreds() != null;
+  return true;
 }
 function isOkxCircuitOpen() {
   return okxCircuitOpen();
@@ -2743,6 +2712,17 @@ function setCurrentSpot(coinType, data) {
   mem.set(coinType, e);
   writePersisted(coinType, e);
 }
+function patchCurrentSpotMeta(coinType, patch) {
+  const e = mem.get(coinType) ?? getFromPersisted(coinType);
+  if (!e) return false;
+  if (patch.change24h !== void 0) e.change24h = patch.change24h;
+  if (patch.change5m !== void 0) e.change5m = patch.change5m;
+  if (patch.change1h !== void 0) e.change1h = patch.change1h;
+  e.lastReadAt = now();
+  mem.set(coinType, e);
+  writePersisted(coinType, e);
+  return true;
+}
 function seedFromCache(coinTypes) {
   const hits = /* @__PURE__ */ new Map();
   const missing = [];
@@ -2753,12 +2733,6 @@ function seedFromCache(coinTypes) {
   }
   return { hits, missing: [...new Set(missing)] };
 }
-function isCompleteSpotEntry(e) {
-  if (e.source === "okx" || e.source === "dexscreener") {
-    return e.change5m != null && e.change1h != null;
-  }
-  return true;
-}
 function seedForNetworkRefetch(coinTypes) {
   const freshHits = /* @__PURE__ */ new Map();
   const need = [];
@@ -2768,6 +2742,12 @@ function seedForNetworkRefetch(coinTypes) {
     else need.push(c);
   }
   return { freshHits, needNetwork: [...new Set(need)] };
+}
+function isCompleteSpotEntry(e) {
+  if (e.source === "okx" || e.source === "dexscreener") {
+    return e.change5m != null && e.change1h != null;
+  }
+  return true;
 }
 
 // src/utils/concurrency.ts
@@ -2791,6 +2771,15 @@ async function mapPool(items, limit, fn) {
 function syncSpotCacheFromOut(out) {
   for (const [ct, row] of out) {
     if (row.price == null) continue;
+    const fresh = getFreshMemSpot(ct);
+    if (fresh && fresh.price === row.price && fresh.source === row.priceSource) {
+      patchCurrentSpotMeta(ct, {
+        change24h: row.change24h,
+        change5m: row.change5m ?? null,
+        change1h: row.change1h ?? null
+      });
+      continue;
+    }
     setCurrentSpot(ct, {
       price: row.price,
       change24h: row.change24h,
@@ -2847,6 +2836,7 @@ async function resolveSpots(coinTypes, symbolByType, opts) {
     } catch {
     }
   }
+  await fillShortWindowGaps(out, coinTypes);
   let work = coinTypes.filter((ct) => out.get(ct)?.price == null);
   if (work.length) {
     await applyCoingeckoSpotOverlay(out, work, symbolByType);
@@ -2855,6 +2845,7 @@ async function resolveSpots(coinTypes, symbolByType, opts) {
   if (work.length === 0) {
     await fill24hGaps(out, symbolByType);
     await applyCoingeckoSpotOverlay(out, coinTypes, symbolByType);
+    await fillShortWindowGaps(out, coinTypes);
     syncSpotCacheFromOut(out);
     return out;
   }
@@ -2863,9 +2854,21 @@ async function resolveSpots(coinTypes, symbolByType, opts) {
     work.forEach((c, j) => {
       const d = parts[j];
       if (d?.price) {
-        const row = { price: d.price, change24h: d.change24h, priceSource: "dexscreener" };
+        const row = {
+          price: d.price,
+          change24h: d.change24h,
+          change5m: d.change5m,
+          change1h: d.change1h,
+          priceSource: "dexscreener"
+        };
         out.set(c, row);
-        setCurrentSpot(c, { price: row.price, change24h: row.change24h, source: "dexscreener" });
+        setCurrentSpot(c, {
+          price: row.price,
+          change24h: row.change24h,
+          change5m: row.change5m,
+          change1h: row.change1h,
+          source: "dexscreener"
+        });
       }
     });
   }
@@ -2875,9 +2878,21 @@ async function resolveSpots(coinTypes, symbolByType, opts) {
     for (const c of still) {
       const a = af[c];
       if (a?.price) {
-        const row = { price: a.price, change24h: a.change24h, priceSource: "aftermath" };
+        const row = {
+          price: a.price,
+          change24h: a.change24h,
+          change5m: null,
+          change1h: null,
+          priceSource: "aftermath"
+        };
         out.set(c, row);
-        setCurrentSpot(c, { price: row.price, change24h: row.change24h, source: "aftermath" });
+        setCurrentSpot(c, {
+          price: row.price,
+          change24h: row.change24h,
+          change5m: null,
+          change1h: null,
+          source: "aftermath"
+        });
       }
     }
   }
@@ -2887,8 +2902,20 @@ async function resolveSpots(coinTypes, symbolByType, opts) {
     for (const c of still) {
       const p = gBatch[c];
       if (p != null) {
-        out.set(c, { price: p, change24h: null, priceSource: "geckoterminal" });
-        setCurrentSpot(c, { price: p, change24h: null, source: "geckoterminal" });
+        out.set(c, {
+          price: p,
+          change24h: null,
+          change5m: null,
+          change1h: null,
+          priceSource: "geckoterminal"
+        });
+        setCurrentSpot(c, {
+          price: p,
+          change24h: null,
+          change5m: null,
+          change1h: null,
+          source: "geckoterminal"
+        });
       }
     }
   }
@@ -2901,16 +2928,35 @@ async function resolveSpots(coinTypes, symbolByType, opts) {
       chunk.forEach((c, j) => {
         const p = results[j];
         if (p?.price) {
-          out.set(c, { price: p.price, change24h: p.change24h, priceSource: "dexpaprika" });
-          setCurrentSpot(c, { price: p.price, change24h: p.change24h, source: "dexpaprika" });
+          out.set(c, {
+            price: p.price,
+            change24h: p.change24h,
+            change5m: null,
+            change1h: null,
+            priceSource: "dexpaprika"
+          });
+          setCurrentSpot(c, {
+            price: p.price,
+            change24h: p.change24h,
+            change5m: null,
+            change1h: null,
+            source: "dexpaprika"
+          });
         } else {
-          out.set(c, { price: null, change24h: null, priceSource: "unavailable" });
+          out.set(c, {
+            price: null,
+            change24h: null,
+            change5m: null,
+            change1h: null,
+            priceSource: "unavailable"
+          });
         }
       });
     }
   }
   await fill24hGaps(out, symbolByType);
   await applyCoingeckoSpotOverlay(out, coinTypes, symbolByType);
+  await fillShortWindowGaps(out, coinTypes);
   syncSpotCacheFromOut(out);
   return out;
 }
@@ -2934,13 +2980,78 @@ async function applyCoingeckoSpotOverlay(out, coinTypes, symbolByType) {
     const existing = out.get(ct);
     if (!existing?.price) {
       out.set(ct, { price: row.usd, change24h: cgChange, priceSource: "coingecko" });
-      setCurrentSpot(ct, { price: row.usd, change24h: cgChange, source: "coingecko" });
+      setCurrentSpot(ct, {
+        price: row.usd,
+        change24h: cgChange,
+        change5m: null,
+        change1h: null,
+        source: "coingecko"
+      });
     } else {
       if (existing.change24h == null && cgChange != null) {
         out.set(ct, { ...existing, change24h: cgChange });
-        setCurrentSpot(ct, { price: existing.price, change24h: cgChange, source: existing.priceSource });
+        setCurrentSpot(ct, {
+          price: existing.price,
+          change24h: cgChange,
+          change5m: existing.change5m ?? null,
+          change1h: existing.change1h ?? null,
+          source: existing.priceSource
+        });
       }
     }
+  }
+}
+function coinTypesNeedingShortWindow(out) {
+  return [...out.entries()].filter(([, r]) => {
+    if (r.price == null) return false;
+    return r.change5m == null || r.change1h == null;
+  }).map(([ct]) => ct);
+}
+async function fillShortWindowGaps(out, coinTypes) {
+  const withPrice = coinTypes.filter((ct) => out.get(ct)?.price != null);
+  if (!withPrice.length) return;
+  try {
+    const ethWin = await okxEthereumShortWindowForBridgedEth(withPrice);
+    for (const [ct, w] of ethWin) {
+      const cur = out.get(ct);
+      if (!cur?.price) continue;
+      const change5m = cur.change5m == null || cur.change5m === 0 ? w.change5m ?? cur.change5m : cur.change5m;
+      const change1h = cur.change1h ?? w.change1h ?? null;
+      if (change5m === cur.change5m && change1h === cur.change1h) continue;
+      const next = { ...cur, change5m, change1h };
+      out.set(ct, next);
+      setCurrentSpot(ct, {
+        price: next.price,
+        change24h: next.change24h,
+        change5m: next.change5m,
+        change1h: next.change1h,
+        source: next.priceSource
+      });
+    }
+  } catch {
+  }
+  const still = coinTypesNeedingShortWindow(out).filter((ct) => coinTypes.includes(ct));
+  if (!still.length) return;
+  try {
+    const parts = await mapPool(still, DEXSCREENER_CONCURRENCY, dexScreenerPrice);
+    still.forEach((ct, j) => {
+      const d = parts[j];
+      const cur = out.get(ct);
+      if (!d || !cur?.price) return;
+      const change5m = cur.change5m ?? d.change5m ?? null;
+      const change1h = cur.change1h ?? d.change1h ?? null;
+      if (change5m === cur.change5m && change1h === cur.change1h) return;
+      const next = { ...cur, change5m, change1h };
+      out.set(ct, next);
+      setCurrentSpot(ct, {
+        price: next.price,
+        change24h: next.change24h,
+        change5m: next.change5m,
+        change1h: next.change1h,
+        source: next.priceSource
+      });
+    });
+  } catch {
   }
 }
 function coinTypesNeeding24h(out) {
@@ -2998,12 +3109,392 @@ async function fill24hGaps(out, symbolByType) {
   }
 }
 
-// src/services/balanceService.ts
+// src/services/coinBalanceAmount.ts
 import Decimal2 from "decimal.js";
+var MAX_COIN_DECIMALS = 18;
+function amountsFromCoinMetadata(totalBalance, decimals) {
+  if (typeof decimals !== "number" || !Number.isInteger(decimals) || decimals < 0 || decimals > MAX_COIN_DECIMALS) {
+    return { decimals: 0, humanBalance: 0, decimalsKnown: false };
+  }
+  let humanBalance;
+  try {
+    humanBalance = new Decimal2(totalBalance).div(new Decimal2(10).pow(decimals)).toNumber();
+  } catch {
+    return { decimals, humanBalance: 0, decimalsKnown: false };
+  }
+  if (!Number.isFinite(humanBalance)) {
+    return { decimals, humanBalance: 0, decimalsKnown: false };
+  }
+  return { decimals, humanBalance, decimalsKnown: true };
+}
+
+// src/config/hardcodedVerifiedCoins.ts
+var HARDCODED_VERIFIED = [
+  {
+    type: "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI",
+    symbol: "SUI",
+    name: "Sui",
+    decimals: 9,
+    iconUrl: "https://coin-images.coingecko.com/coins/images/26375/large/sui-ocean-square.png",
+    tags: ["native"]
+  },
+  {
+    type: "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
+    symbol: "USDC",
+    name: "USD Coin (Native)",
+    decimals: 6,
+    iconUrl: "https://coin-images.coingecko.com/coins/images/6319/large/usdc.png",
+    tags: ["native", "stablecoin"]
+  },
+  {
+    type: "0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN",
+    symbol: "USDC",
+    name: "USD Coin (Wormhole)",
+    decimals: 6,
+    iconUrl: "https://coin-images.coingecko.com/coins/images/6319/large/usdc.png",
+    tags: ["bridge", "stablecoin"]
+  },
+  {
+    type: "0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN",
+    symbol: "USDT",
+    name: "Tether USD",
+    decimals: 6,
+    iconUrl: "https://coin-images.coingecko.com/coins/images/325/large/Tether.png",
+    tags: ["bridge", "stablecoin"]
+  },
+  {
+    type: "0x375f70cf2ae4c6a1be136734bae85e1db1f125af768cc55e9fd2b84418fe692c::usdt::USDT",
+    symbol: "USDT",
+    name: "Tether (legacy)",
+    decimals: 6,
+    iconUrl: "https://coin-images.coingecko.com/coins/images/325/large/Tether.png",
+    tags: ["bridge", "stablecoin"]
+  },
+  {
+    type: "0x960b531667636f39e85867775f52f6b1f220a058c4de786905bdf761e06a56bb::usdy::USDY",
+    symbol: "USDY",
+    name: "Ondo US Dollar Yield",
+    decimals: 6,
+    iconUrl: "https://coin-images.coingecko.com/coins/images/31050/large/usdy.png",
+    tags: ["stablecoin"]
+  },
+  {
+    type: "0x2053d08c1e2bd02791056171aab0fd12bd7cd7efad2ab8f6b9c8902f14df2ff2::ausd::AUSD",
+    symbol: "AUSD",
+    name: "Agora USD",
+    decimals: 6,
+    iconUrl: "",
+    tags: ["stablecoin"]
+  },
+  {
+    type: "0xf325ce1300e8dac124071d3152c5c5ee6174914f8bc2161e88329cf579246efc::afsui::AFSUI",
+    symbol: "afSUI",
+    name: "Aftermath Staked SUI",
+    decimals: 9,
+    iconUrl: "https://aftermath.finance/afsui-icon.png",
+    tags: ["lst"]
+  },
+  {
+    type: "0x83556891f4a0f233ce7b05cfe7f957d4020492a34f5405b2cb9377d060bef4bf::spring_sui::SPRING_SUI",
+    symbol: "stSUI",
+    name: "Spring Staked SUI",
+    decimals: 9,
+    iconUrl: "https://coin-images.coingecko.com/coins/images/51233/large/Token_%281%29.png?1730446421",
+    tags: ["lst"]
+  },
+  {
+    type: "0xd1b72982e40348d069bb1ff701e634c117bb5f741f44dff91e472d3b01461e55::stsui::STSUI",
+    symbol: "stSUI",
+    name: "AlphaFi Staked SUI",
+    decimals: 9,
+    iconUrl: "https://coin-images.coingecko.com/coins/images/54211/large/b_r2Ps67_400x400.png",
+    tags: ["lst"]
+  },
+  {
+    type: "0x2b6602099970374cf58a2a1b9d96f005fccceb81e92eb059873baf420eb6c717::x_sui::X_SUI",
+    symbol: "xSUI",
+    name: "Momentum Staked SUI",
+    decimals: 9,
+    iconUrl: "https://coin-images.coingecko.com/coins/images/54113/large/xsui.png",
+    tags: ["lst"]
+  },
+  {
+    type: "0x549e8b69270defbfafd4f94e17ec44cdbdd99820b33bda2278dea3b9a32d3f55::cert::CERT",
+    symbol: "vSUI",
+    name: "Volo Staked SUI",
+    decimals: 9,
+    iconUrl: "",
+    tags: ["lst"]
+  },
+  {
+    type: "0x790f258062909e3a0ffc78b3c53ac2f62d7084c3bab95644bdeb05add7250001::super_sui::SUPER_SUI",
+    symbol: "superSUI",
+    name: "Mstable Super SUI",
+    decimals: 9,
+    iconUrl: "",
+    tags: ["lst"]
+  },
+  {
+    type: "0x26b3bc67befc214058ca78ea9a2690298d731a2d4309485ec3d40198063c4abc::wbtc::WBTC",
+    symbol: "WBTC",
+    name: "Wrapped Bitcoin",
+    decimals: 8,
+    iconUrl: "https://coin-images.coingecko.com/coins/images/7598/large/wrapped_bitcoin_wbtc.png",
+    tags: ["bridge"]
+  },
+  {
+    type: "0xaf8cd5edc19c4512f4259f0bee101a40d41ebed738ade5874359610ef8eeced5::coin::COIN",
+    symbol: "WETH",
+    name: "Wrapped Ether",
+    decimals: 8,
+    iconUrl: "https://coin-images.coingecko.com/coins/images/2518/large/weth.png",
+    tags: ["bridge"]
+  },
+  {
+    type: "0xd0e89b2af5e4910726fbcd8b8dd37bb79b29e5f83f7491bca830e94f7f226d29::eth::ETH",
+    symbol: "ETH",
+    name: "ETH by Sui Bridge",
+    decimals: 8,
+    iconUrl: "https://coin-images.coingecko.com/coins/images/279/large/ethereum.png",
+    tags: ["bridge"]
+  },
+  {
+    type: "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
+    symbol: "LBTC",
+    name: "Lombard Staked BTC",
+    decimals: 8,
+    iconUrl: "",
+    tags: ["bridge"]
+  },
+  {
+    type: "0x6864a6f921804860930db6ddbe2e16acdf8504495ea7481637a1c8b9a8fe54b::cetus::CETUS",
+    symbol: "CETUS",
+    name: "Cetus Protocol",
+    decimals: 9,
+    iconUrl: "https://coin-images.coingecko.com/coins/images/29445/large/cetus.png",
+    tags: ["defi"]
+  },
+  {
+    type: "0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP",
+    symbol: "DEEP",
+    name: "DeepBook",
+    decimals: 6,
+    iconUrl: "",
+    tags: ["defi"]
+  },
+  {
+    type: "0x3a5143bb1196e3bcdfab6203d1683ae29edd26294fc8bfeafe4aaa9d2704df37::coin::COIN",
+    symbol: "TURBOS",
+    name: "Turbos Finance",
+    decimals: 9,
+    iconUrl: "",
+    tags: ["defi"]
+  },
+  {
+    type: "0xaafb102dd0902f5055cadecd687fb5b71c0ad4ac9f2e8823cc491cb2e1db89d9::buck::BUCK",
+    symbol: "BUCK",
+    name: "Bucket Protocol",
+    decimals: 9,
+    iconUrl: "",
+    tags: ["stablecoin"]
+  },
+  {
+    type: "0x5ca17430c1d046fae9edeaa8fd76c7b4193a00d764a0ecfa9418d733ad27bb20::sca::SCA",
+    symbol: "SCA",
+    name: "Scallop",
+    decimals: 9,
+    iconUrl: "",
+    tags: ["defi"]
+  },
+  /** Актуальний mainnet BLUE (CoinGecko / Bluefin liquidity). */
+  {
+    type: "0xe1b45a0e641b9955a20aa0ad1c1f4ad86aad8afb07296d4085e349a50e90bdca::blue::BLUE",
+    symbol: "BLUE",
+    name: "Bluefin",
+    decimals: 9,
+    iconUrl: "https://coin-images.coingecko.com/coins/images/30883/large/BLUE_200x200.png?1733350278",
+    tags: ["defi"]
+  },
+  /** Ранній/альтернативний BLUE — та сама іконка для OKX/metadata по старій адресі. */
+  {
+    type: "0xb848cce11ef3a8f62eccea6eb5b35a12c4c2b1ee1af7755d02d7bd6218e8226f::blue::BLUE",
+    symbol: "BLUE",
+    name: "Bluefin (legacy package)",
+    decimals: 9,
+    iconUrl: "https://coin-images.coingecko.com/coins/images/30883/large/BLUE_200x200.png?1733350278",
+    tags: ["defi"]
+  },
+  {
+    type: "0x5145494a5f5100e645e4b0aa950fa6b68f614e8c59e17bc5ded3495123a79178::ns::NS",
+    symbol: "NS",
+    name: "SuiNS",
+    decimals: 6,
+    iconUrl: "",
+    tags: ["defi"]
+  },
+  {
+    type: "0x88250f854c019ef4f88a5c073d52a18bb1c6ac437033f5932cd017d24917ab46::navi::NAVX",
+    symbol: "NAVX",
+    name: "Navi Protocol",
+    decimals: 9,
+    iconUrl: "",
+    tags: ["defi"]
+  },
+  {
+    type: "0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL",
+    symbol: "WAL",
+    name: "Walrus",
+    decimals: 9,
+    iconUrl: "",
+    tags: ["defi"]
+  },
+  {
+    type: "0x7262fb2f7a3a14c888c438a3cd9b912469a58cf60f367352c46584262e8299aa::ika::IKA",
+    symbol: "IKA",
+    name: "IKA",
+    decimals: 9,
+    iconUrl: "",
+    tags: ["defi"]
+  },
+  {
+    type: "0x87dfe1248a1dc4ce473bd9cb2937d66cdc6c30fee63f3fe0dbb55c7a09d35dec::up::UP",
+    symbol: "UP",
+    name: "Uni Protocol",
+    decimals: 9,
+    iconUrl: "",
+    tags: ["defi"]
+  }
+];
+
+// src/utils/rpcBackoff.ts
+async function withRpcBackoff(fn, opts = {}) {
+  const retries = opts.retries ?? 4;
+  const baseMs = opts.baseMs ?? 700;
+  const maxTotalWaitMs = opts.maxTotalWaitMs ?? 18e3;
+  const retryOn = /429|timeout|ECONNRESET|ETIMEDOUT|ENOTFOUND|503|502|FetchError|fetch failed|rate limit|Too Many|too frequent|Unexpected status code/i;
+  let last;
+  let waited = 0;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      last = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!retryOn.test(msg) || i === retries) break;
+      let wait = baseMs * 2 ** i + Math.floor(Math.random() * 350);
+      if (waited + wait > maxTotalWaitMs) wait = Math.max(0, maxTotalWaitMs - waited);
+      if (wait <= 0) break;
+      waited += wait;
+      if (opts.label) {
+        console.warn(
+          `[rpc-backoff] ${opts.label} attempt ${i + 1}/${retries + 1} wait ${wait}ms: ${msg.slice(0, 140)}`
+        );
+      }
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  throw last instanceof Error ? last : new Error(String(last));
+}
+
+// src/services/coinMetadata.ts
+var METADATA_FALLBACK_RPCS = DASHBOARD_RPC_FALLBACK_URLS.filter(
+  (url) => !url.includes("blastapi.io")
+);
+var resolvedMetaCache = /* @__PURE__ */ new Map();
+var hardcodedByType = new Map(
+  HARDCODED_VERIFIED.map((coin) => [normalizeCoinTypeForMatch(coin.type), coin])
+);
+function hardcodedCoinMeta(coinType) {
+  const coin = hardcodedByType.get(normalizeCoinTypeForMatch(coinType));
+  if (!coin) return null;
+  const amounts = amountsFromCoinMetadata("0", coin.decimals);
+  if (!amounts.decimalsKnown) return null;
+  return {
+    decimals: amounts.decimals,
+    name: coin.name,
+    symbol: coin.symbol,
+    description: "",
+    iconUrl: coin.iconUrl || null
+  };
+}
+function usableMeta(meta) {
+  if (!meta) return null;
+  const amounts = amountsFromCoinMetadata("0", meta.decimals);
+  if (!amounts.decimalsKnown) return null;
+  return {
+    decimals: amounts.decimals,
+    name: meta.name ?? "",
+    symbol: meta.symbol ?? "",
+    description: meta.description ?? "",
+    iconUrl: meta.iconUrl || null
+  };
+}
+function parseMetadataResponse(body) {
+  if (!body || typeof body !== "object") return null;
+  const result = body.result;
+  if (!result || typeof result !== "object") return null;
+  return usableMeta(result);
+}
+async function fetchCoinMetadataFallback(coinType) {
+  for (const url of METADATA_FALLBACK_RPCS) {
+    try {
+      const response = await fetch(extFetchUrl(url), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "suix_getCoinMetadata",
+          params: [coinType]
+        }),
+        signal: AbortSignal.timeout(8e3)
+      });
+      if (!response.ok) continue;
+      const parsed = parseMetadataResponse(await response.json());
+      if (parsed) return parsed;
+    } catch {
+    }
+  }
+  return null;
+}
+async function resolveCoinMetadata(client, coinType, options) {
+  const cached2 = resolvedMetaCache.get(coinType);
+  if (cached2 !== void 0) return cached2;
+  const fromClient = usableMeta(
+    await withRpcBackoff(
+      () => client.getCoinMetadata({ coinType }),
+      { label: "wallet-coin-meta", retries: 3, baseMs: 450, maxTotalWaitMs: 1e4 }
+    ).catch(() => null)
+  );
+  if (fromClient) {
+    resolvedMetaCache.set(coinType, fromClient);
+    return fromClient;
+  }
+  const known = hardcodedCoinMeta(coinType);
+  if (known) {
+    resolvedMetaCache.set(coinType, known);
+    return known;
+  }
+  if (options?.allowNetworkFallback === false) {
+    resolvedMetaCache.set(coinType, null);
+    return null;
+  }
+  const fromFallback = await fetchCoinMetadataFallback(coinType);
+  resolvedMetaCache.set(coinType, fromFallback);
+  return fromFallback;
+}
+
+// src/services/balanceService.ts
+var BALANCE_META_CONCURRENCY = Math.min(4, RPC_CONCURRENCY);
 async function loadBalancesWithMetadata(walletAddress, client) {
-  const balances = await client.getAllBalances({ owner: walletAddress });
-  return mapPool(balances, RPC_CONCURRENCY, async (b) => {
-    const meta = await client.getCoinMetadata({ coinType: b.coinType });
+  const balances = await withRpcBackoff(
+    () => client.getAllBalances({ owner: walletAddress }),
+    { label: "wallet-balances", retries: 4, baseMs: 700 }
+  );
+  return mapPool(balances, BALANCE_META_CONCURRENCY, async (b) => {
+    const meta = await resolveCoinMetadata(client, b.coinType, {
+      allowNetworkFallback: b.totalBalance !== "0"
+    });
     return { b, meta };
   });
 }
@@ -3040,20 +3531,21 @@ function usdPerOneUsdc(spots, withMeta) {
 function buildTokenRows(withMeta, spots) {
   const usdPerUsdc = usdPerOneUsdc(spots, withMeta);
   const out = withMeta.map(({ b, meta }) => {
-    const decimals = meta?.decimals ?? 0;
+    const amounts = amountsFromCoinMetadata(b.totalBalance, meta?.decimals);
+    const decimals = amounts.decimals;
     const raw = BigInt(b.totalBalance);
-    const human = new Decimal2(b.totalBalance).div(new Decimal2(10).pow(decimals)).toNumber();
-    const sp = spots.get(b.coinType) ?? emptyRow();
+    const human = amounts.humanBalance;
+    const sp = amounts.decimalsKnown ? spots.get(b.coinType) ?? emptyRow() : emptyRow();
     const price = sp.price;
     const priceUSDC = price != null && Number.isFinite(price) && usdPerUsdc > 0 ? price / usdPerUsdc : null;
     const valueUSD = price != null && Number.isFinite(price) ? human * price : null;
-    const symbol = meta?.symbol ?? symbolFromType(b.coinType);
+    const symbol = meta?.symbol || symbolFromType(b.coinType);
     const scallop = symbol.toLowerCase().startsWith("s") && coinTypeScallopLike(b.coinType) || void 0;
     const mom = MOMENTUM_LST_TYPES.includes(b.coinType) || b.coinType.includes("::x_sui::X_SUI");
     return {
       coinType: b.coinType,
       symbol,
-      name: meta?.name ?? symbol,
+      name: meta?.name || symbol,
       decimals,
       description: meta?.description ?? void 0,
       iconUrl: meta?.iconUrl ?? null,
@@ -3077,17 +3569,11 @@ function buildTokenRows(withMeta, spots) {
   return out;
 }
 async function getWalletBalance(walletAddress, client = suiClient, onPartial, options) {
-  let withMeta;
-  try {
-    withMeta = await loadBalancesWithMetadata(walletAddress, client);
-  } catch {
-    await new Promise((r) => setTimeout(r, 1e3));
-    withMeta = await loadBalancesWithMetadata(walletAddress, client);
-  }
+  const withMeta = await loadBalancesWithMetadata(walletAddress, client);
   const types = withMeta.map(({ b }) => b.coinType);
   const symbolByType = (ct) => {
     const row = withMeta.find((x) => x.b.coinType === ct);
-    return row?.meta?.symbol ?? symbolFromType(ct);
+    return row?.meta?.symbol || symbolFromType(ct);
   };
   if (onPartial) {
     onPartial(buildTokenRows(withMeta, spotsMapFromCacheHits(types)));
@@ -3156,6 +3642,21 @@ async function getClient() {
   _client = new AlphalendClient("mainnet");
   return _client;
 }
+var MARKET_DATA_TTL_MS = 5 * 60 * 1e3;
+var marketDataCache = null;
+async function loadMarketRows(client, force) {
+  if (!force && marketDataCache && Date.now() - marketDataCache.ts < MARKET_DATA_TTL_MS) {
+    return marketDataCache.rows;
+  }
+  const marketsRaw = await client.getAllMarkets();
+  const rows = [];
+  for (const m of marketsRaw ?? []) {
+    const row = m;
+    rows.push(await row.getMarketData?.() ?? m);
+  }
+  marketDataCache = { ts: Date.now(), rows };
+  return rows;
+}
 function rewardSymbol(r) {
   if (r.symbol) return r.symbol;
   if (r.coinType) return r.coinType.split("::").pop() ?? r.coinType;
@@ -3169,20 +3670,21 @@ function extractAprParts(apr) {
   const rewardAPR = rewardTokens.reduce((s, r) => s + r.apr, 0);
   return { total: baseAPR + stakingAPR + rewardAPR, baseAPR, stakingAPR, rewardAPR, rewardTokens };
 }
-async function getLendingPositions(walletAddress) {
+async function getLendingPositions(walletAddress, options) {
+  if (options?.forceRefresh) {
+    _client = null;
+    marketDataCache = null;
+  }
   const client = await getClient();
-  const [marketsRaw, portfolios] = await Promise.all([
-    client.getAllMarkets(),
+  const [marketRows, portfolios] = await Promise.all([
+    loadMarketRows(client, Boolean(options?.forceRefresh)),
     client.getUserPortfolio(walletAddress)
   ]);
   if (!portfolios || portfolios.length === 0) return EMPTY_SNAP;
   const marketByIdRaw = /* @__PURE__ */ new Map();
-  if (marketsRaw) {
-    for (const m of marketsRaw) {
-      const data = await m.getMarketData?.() ?? m;
-      const id = Number(data.marketId);
-      if (!Number.isNaN(id)) marketByIdRaw.set(id, data);
-    }
+  for (const data of marketRows) {
+    const id = Number(data.marketId);
+    if (!Number.isNaN(id)) marketByIdRaw.set(id, data);
   }
   const p = portfolios[0];
   const totalSuppliedUSD = safeNum(p.totalSuppliedUsd);
@@ -3324,7 +3826,7 @@ function safeNum(v) {
 
 // src/services/naviService.ts
 var NAVI_ORIGIN = "https://open-api.naviprotocol.io";
-var SDK_VER = "1.4.3";
+var SDK_VER = "2.0.12";
 function naviUrl(path) {
   const p = path.startsWith("/") ? path : `/${path}`;
   return extFetchUrl(`${NAVI_ORIGIN}${p}`);
@@ -3360,12 +3862,15 @@ function normalizeType(ct) {
   return ct.trim();
 }
 var _poolCache = null;
-async function fetchPools() {
+async function fetchPools(forceRefresh = false) {
   const now2 = Date.now();
-  if (_poolCache && now2 - _poolCache.ts < 5 * 6e4) return _poolCache.data;
+  if (!forceRefresh && _poolCache && now2 - _poolCache.ts < 5 * 6e4) return _poolCache.data;
   const url = naviUrl(`/api/navi/pools?env=prod&sdk=${SDK_VER}&market=main`);
   naviLog("fetching pools:", url);
-  const res = await fetch(url, { signal: AbortSignal.timeout(15e3) });
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(15e3),
+    cache: forceRefresh ? "no-store" : "default"
+  });
   if (!res.ok) throw new Error(`Navi pools API ${res.status}`);
   const json = await res.json();
   const data = json.data ?? [];
@@ -3374,12 +3879,15 @@ async function fetchPools() {
   return data;
 }
 var _cfgCache = null;
-async function fetchConfig() {
+async function fetchConfig(forceRefresh = false) {
   const now2 = Date.now();
-  if (_cfgCache && now2 - _cfgCache.ts < 10 * 6e4) return _cfgCache.data;
+  if (!forceRefresh && _cfgCache && now2 - _cfgCache.ts < 10 * 6e4) return _cfgCache.data;
   const url = naviUrl(`/api/navi/config?env=prod&sdk=${SDK_VER}&market=main`);
   naviLog("fetching config:", url);
-  const res = await fetch(url, { signal: AbortSignal.timeout(15e3) });
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(15e3),
+    cache: forceRefresh ? "no-store" : "default"
+  });
   if (!res.ok) throw new Error(`Navi config API ${res.status}`);
   const json = await res.json();
   const data = json.data;
@@ -3390,8 +3898,7 @@ async function fetchConfig() {
 async function fetchRewards(walletAddress, priceByType, symbolByType) {
   try {
     const { getUserAvailableLendingRewards } = await import("@naviprotocol/lending");
-    const { SuiJsonRpcClient: SuiJsonRpcClient2 } = await import("@mysten/sui/jsonRpc");
-    const client = new SuiJsonRpcClient2({ url: resolveBrowserRpcUrl(), network: "mainnet" });
+    const client = getDashboardSuiClient();
     const rawRewards = await getUserAvailableLendingRewards(walletAddress, {
       client,
       env: "prod"
@@ -3453,43 +3960,20 @@ function parseUserState(raw) {
   }
   return entries;
 }
-async function buildGetUserStateTxBytes(uiGetter, storageId, userAddress) {
-  naviLog("building tx for devInspect", { uiGetter, storageId, userAddress });
+async function inspectUserState(uiGetter, storageId, userAddress) {
+  naviLog("devInspect get_user_state via gRPC compat", { uiGetter, storageId, userAddress });
   const { Transaction: Transaction5 } = await import("@mysten/sui/transactions");
-  const { SuiJsonRpcClient: SuiJsonRpcClient2 } = await import("@mysten/sui/jsonRpc");
-  const client = new SuiJsonRpcClient2({ url: resolveBrowserRpcUrl(), network: "mainnet" });
+  const client = suiClient;
   const tx = new Transaction5();
   tx.moveCall({
     target: `${uiGetter}::getter_unchecked::get_user_state`,
     arguments: [tx.object(storageId), tx.pure.address(userAddress)]
   });
-  const bytes = await tx.build({ client, onlyTransactionKind: true });
-  naviLog("tx built, bytes length:", bytes.length);
-  return btoa(String.fromCharCode(...bytes));
-}
-async function devInspect(txBase64, sender) {
-  naviLog("calling sui_devInspectTransactionBlock");
-  const rpcUrl = resolveBrowserRpcUrl();
-  const res = await fetch(rpcUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "sui_devInspectTransactionBlock",
-      params: [sender, txBase64, null, null]
-    }),
-    signal: AbortSignal.timeout(3e4)
+  const data = await client.devInspectTransactionBlock({
+    transactionBlock: tx,
+    sender: userAddress
   });
-  if (!res.ok) throw new Error(`Sui RPC ${res.status}`);
-  const data = await res.json();
-  naviLog("devInspect response keys:", Object.keys(data));
-  if (data.error) {
-    console.error("[Navi] devInspect RPC error:", data.error);
-  }
-  if (data.result) {
-    naviLog("devInspect results count:", data.result?.results?.length);
-  }
+  naviLog("devInspect results count:", data?.results?.length, "error:", data?.error);
   return data;
 }
 var INDEX_SCALE = 10n ** 27n;
@@ -3503,12 +3987,115 @@ function bignumToHuman(amount, decimals = 9) {
   const frac = amount % scale;
   return Number(whole) + Number(frac) / Number(scale);
 }
-async function getNaviPositions(walletAddress) {
+function symKey(symbol) {
+  return symbol.trim().toUpperCase();
+}
+function signedHuman(amount, decimals) {
+  const trimmed = amount.trim();
+  const neg = trimmed.startsWith("-");
+  const digits = trimmed.replace(/^[+-]/, "");
+  if (!/^\d+$/.test(digits)) return 0;
+  const scale = 10n ** BigInt(Math.max(0, decimals));
+  const bi = BigInt(digits);
+  const human = Number(bi / scale) + Number(bi % scale) / Number(scale);
+  return neg ? -human : human;
+}
+var naviCashflowCache = null;
+var naviCashflowInflight = null;
+async function loadNaviCashflow(address, pools, forceRefresh = false) {
+  const now2 = Date.now();
+  if (!forceRefresh && naviCashflowCache && naviCashflowCache.address === address && now2 - naviCashflowCache.ts < 6e4) {
+    return naviCashflowCache.value;
+  }
+  if (!forceRefresh && naviCashflowInflight?.address === address) return naviCashflowInflight.promise;
+  const run = loadNaviCashflowUncached(address, pools);
+  naviCashflowInflight = { address, promise: run };
+  try {
+    const value = await run;
+    naviCashflowCache = { address, ts: Date.now(), value };
+    return value;
+  } finally {
+    if (naviCashflowInflight?.promise === run) naviCashflowInflight = null;
+  }
+}
+async function loadNaviCashflowUncached(address, pools) {
+  const priceBySymbol = /* @__PURE__ */ new Map();
+  const decimalsBySymbol = /* @__PURE__ */ new Map();
+  for (const pool of pools) {
+    const symbol = pool.token?.symbol;
+    if (!symbol) continue;
+    const key = symKey(symbol);
+    const decimals = Number(pool.token?.decimals ?? 9);
+    decimalsBySymbol.set(key, Number.isFinite(decimals) ? decimals : 9);
+    const price = n(pool.oracle?.price);
+    if (price > 0) priceBySymbol.set(key, price);
+  }
+  const rows = [];
+  const seenCursors = /* @__PURE__ */ new Set();
+  let cursor = "";
+  for (let page = 0; page < 40; page++) {
+    const q = new URLSearchParams({ userAddress: address, sdk: SDK_VER });
+    if (cursor) q.set("cursor", cursor);
+    const url = naviUrl(`/api/navi/user/transactions?${q}`);
+    let json = null;
+    let lastErr;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(2e4) });
+        if (!res.ok) throw new Error(`Navi transactions API ${res.status}`);
+        json = await res.json();
+        break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    if (!json) {
+      if (page === 0) throw lastErr;
+      break;
+    }
+    const batch = json.data?.data ?? [];
+    rows.push(...batch);
+    const next = json.data?.cursor ?? "";
+    if (!next || next.startsWith("no_more") || batch.length === 0 || seenCursors.has(next)) break;
+    seenCursors.add(next);
+    cursor = next;
+  }
+  const deposited = /* @__PURE__ */ new Map();
+  const borrowed = /* @__PURE__ */ new Map();
+  let claimedRewardsUSD = 0;
+  const add = (map, key, amount) => {
+    map.set(key, (map.get(key) ?? 0) + amount);
+  };
+  for (const tx of rows) {
+    if (tx.status && tx.status !== "success") continue;
+    const type = (tx.type ?? "").toLowerCase();
+    for (const change of tx.coinChanges ?? []) {
+      const key = symKey(change.symbol ?? "");
+      if (!key) continue;
+      if (type === "claim reward") {
+        const value = Number(change.value);
+        if (Number.isFinite(value)) claimedRewardsUSD += value;
+        continue;
+      }
+      const decimals = decimalsBySymbol.get(key);
+      if (decimals == null || change.amount == null) continue;
+      const human = signedHuman(String(change.amount), decimals);
+      if (type === "supply" || type === "withdraw") add(deposited, key, -human);
+      else if (type === "borrow" || type === "repay") add(borrowed, key, human);
+    }
+  }
+  return { deposited, borrowed, claimedRewardsUSD, priceBySymbol };
+}
+async function getNaviPositions(walletAddress, options) {
   naviLog("getNaviPositions called for:", walletAddress);
-  const [pools, cfg] = await Promise.all([fetchPools(), fetchConfig()]);
+  const force = options?.forceRefresh === true;
+  if (force) {
+    _poolCache = null;
+    _cfgCache = null;
+  }
+  const [pools, cfg] = await Promise.all([fetchPools(force), fetchConfig(force)]);
   if (!pools || pools.length === 0) {
-    console.warn("[Navi] no pools returned, returning empty");
-    return EMPTY_NAVI_SNAP;
+    throw new Error("Navi pools unavailable (not a confirmed empty position list)");
   }
   const poolById = /* @__PURE__ */ new Map();
   for (const p of pools) {
@@ -3529,18 +4116,17 @@ async function getNaviPositions(walletAddress) {
     console.error("[Navi] missing config \u2014 uiGetter:", uiGetter, "storage:", storageId);
     throw new Error("Navi config missing uiGetter/storage");
   }
-  const txBase64 = await buildGetUserStateTxBytes(uiGetter, storageId, walletAddress);
-  const rpcResult = await devInspect(txBase64, walletAddress);
+  const rpcResult = await inspectUserState(uiGetter, storageId, walletAddress);
   if (rpcResult.error) {
     throw new Error(`Navi devInspect error: ${JSON.stringify(rpcResult.error)}`);
   }
-  const returnValues = rpcResult.result?.results?.[0]?.returnValues?.map(
-    (rv) => rv[0]
-  ) ?? [];
+  const rawReturn = rpcResult.results?.[0]?.returnValues ?? rpcResult.result?.results?.[0]?.returnValues ?? [];
+  const returnValues = rawReturn.map(
+    (rv) => Array.from(rv[0] ?? [])
+  );
   console.log("[Navi] returnValues count:", returnValues.length);
   if (returnValues.length === 0) {
-    console.warn("[Navi] no returnValues from devInspect \u2014 wallet has no Navi positions or RPC issue");
-    return EMPTY_NAVI_SNAP;
+    throw new Error("Navi devInspect returned no values (unavailable, not confirmed zero borrows)");
   }
   const userStates = parseUserState(returnValues[0]);
   console.log("[Navi] parsed userStates count:", userStates.length);
@@ -3692,6 +4278,49 @@ async function getNaviPositions(walletAddress) {
     }
   }
   const rewardsToClaim = await fetchRewards(walletAddress, priceByType, symbolByType).catch(() => []);
+  const unclaimedUSD = rewardsToClaim.reduce((s, r) => s + r.valueUSD, 0);
+  const loaded = await loadNaviCashflow(walletAddress, pools, force).catch((err) => {
+    console.warn("[Navi] cashflow history failed", err);
+    return null;
+  });
+  let cashflowUsd = null;
+  if (loaded) {
+    let supplyInterestUSD = 0;
+    const seenSupply = /* @__PURE__ */ new Set();
+    for (const s of suppliesWithLiq) {
+      const key = symKey(s.asset);
+      seenSupply.add(key);
+      const net = loaded.deposited.get(key) ?? 0;
+      s.netDeposited = net;
+      const px = s.currentAmount > 0 ? s.currentValueUSD / s.currentAmount : loaded.priceBySymbol.get(key) ?? 0;
+      supplyInterestUSD += (s.currentAmount - net) * px;
+    }
+    for (const [coin, net] of loaded.deposited) {
+      if (seenSupply.has(coin)) continue;
+      supplyInterestUSD += -net * (loaded.priceBySymbol.get(coin) ?? 0);
+    }
+    let borrowInterestUSD = 0;
+    const seenBorrow = /* @__PURE__ */ new Set();
+    for (const b of borrows) {
+      const key = symKey(b.asset);
+      seenBorrow.add(key);
+      const net = loaded.borrowed.get(key) ?? 0;
+      b.netBorrowed = net;
+      const px = b.currentDebt > 0 ? b.currentDebtUSD / b.currentDebt : loaded.priceBySymbol.get(key) ?? 0;
+      borrowInterestUSD += (b.currentDebt - net) * px;
+    }
+    for (const [coin, net] of loaded.borrowed) {
+      if (seenBorrow.has(coin)) continue;
+      borrowInterestUSD += -net * (loaded.priceBySymbol.get(coin) ?? 0);
+    }
+    cashflowUsd = {
+      supplyInterestUSD,
+      borrowInterestUSD,
+      claimedRewardsUSD: loaded.claimedRewardsUSD,
+      resultUSD: supplyInterestUSD - borrowInterestUSD + loaded.claimedRewardsUSD + unclaimedUSD,
+      usedSpotPrice: false
+    };
+  }
   console.log(
     "[Navi] final snapshot: supplies=%d borrows=%d netValueUSD=%s",
     suppliesWithLiq.length,
@@ -3708,6 +4337,7 @@ async function getNaviPositions(walletAddress) {
     netAPR,
     dailyEarningsUSD,
     rewardsToClaim,
+    cashflowUsd,
     protocol: "Navi"
   };
 }
@@ -3741,10 +4371,6 @@ var _legacyLimiter = createRateLimiter(0);
 
 // src/services/okxHistoricalUsd.ts
 var CHAIN_SUI2 = "784";
-var NATIVE_SUI_NORM = normalizeCoinTypeForMatch("0x2::sui::SUI");
-function isNativeSuiCoinType(coinType) {
-  return normalizeCoinTypeForMatch(coinType) === NATIVE_SUI_NORM;
-}
 function okxWalletTokenAddressParam(coinType) {
   return isNativeSuiCoinType(coinType) ? "" : coinType;
 }
@@ -3839,6 +4465,7 @@ var DEX_BARS_CASCADE = ["1Dutc", "4H", "1H", "15m", "1m"];
 async function okxDexHistoricalClosestUsd(coinType, timestampSec) {
   if (!Number.isFinite(timestampSec) || timestampSec <= 0) return null;
   const targetMs = Math.floor(timestampSec * 1e3);
+  let fallback = null;
   for (const bar of DEX_BARS_CASCADE) {
     const barDurationMs = OKX_BAR_DURATION_MS[bar] ?? 36e5;
     const merged = /* @__PURE__ */ new Map();
@@ -3851,13 +4478,19 @@ async function okxDexHistoricalClosestUsd(coinType, timestampSec) {
     if (cand && cand.close > 0) {
       const openSec = Math.floor(cand.tsMs / 1e3);
       const midpointOffsetSec = Math.floor(barDurationMs / 2e3);
-      return {
+      const quote = {
         usdPerToken: cand.close,
         quoteAsOfUnixSec: openSec + midpointOffsetSec
       };
+      const openMs = cand.tsMs;
+      const closeMs = openMs + barDurationMs;
+      const outside = Math.max(0, openMs - targetMs, targetMs - closeMs);
+      if (outside === 0) return quote;
+      if (fallback == null || outside < fallback.outside) fallback = { ...quote, outside };
     }
   }
-  return null;
+  if (!fallback) return null;
+  return { usdPerToken: fallback.usdPerToken, quoteAsOfUnixSec: fallback.quoteAsOfUnixSec };
 }
 function walletPriceTimeToMs(raw) {
   const t = Number.parseFloat(raw);
@@ -3949,7 +4582,7 @@ var ALIAS = {
   FSUI: "SUI"
 };
 function normSymbol(symbol) {
-  return symbol.toUpperCase().split(/[\/\s-]/)[0] ?? "";
+  return symbol.toUpperCase().split(/[/]|[\s-]/)[0] ?? "";
 }
 function getPythStaticFeedId(symbol) {
   const raw = normSymbol(symbol);
@@ -3999,7 +4632,7 @@ function getMap() {
   return memory;
 }
 function getCachedPythFeedId(symbol) {
-  const k = symbol.toUpperCase().split(/[\/\s-]/)[0] ?? "";
+  const k = symbol.toUpperCase().split(/[/]|[\s-]/)[0] ?? "";
   if (getNegative().has(k)) return null;
   return getMap().get(k) ?? null;
 }
@@ -4080,7 +4713,7 @@ var poolAddressCache = {
 
 // src/services/priceCache.ts
 var HOUR_MS = 60 * 60 * 1e3;
-var LS_KEY3 = "sui_lp_price_cache_v5";
+var LS_KEY3 = "sui_lp_price_cache_v6";
 var CACHE_TTL_MS = 30 * 24 * HOUR_MS;
 function readStore() {
   try {
@@ -4178,7 +4811,7 @@ async function getUsdPerTokenAtTimestamp(tokenSymbol, coinType, timestampSec) {
     priceCache.set(tokenSymbol, tsSec, usdPerToken, cacheQuote);
     return { usdPerToken, source, approximate, quoteAsOfUnixSec };
   };
-  let pythPx = null;
+  let pythPx;
   try {
     pythPx = asPositive(await getPythBenchmarkUsd(tokenSymbol, tsSec));
   } catch {
@@ -4199,7 +4832,7 @@ async function getUsdPerTokenAtTimestamp(tokenSymbol, coinType, timestampSec) {
     } catch {
     }
   }
-  let poolId = null;
+  let poolId;
   try {
     poolId = await getTopPoolForToken(coinType);
   } catch {
@@ -4309,6 +4942,21 @@ async function fetchOhlcvAggregatedRow(poolAddress, timestampSec, aggregateHours
       clearTimeout(t);
     }
   });
+}
+
+// src/utils/lendingCashflowUsd.ts
+function buildLendingCashflowUsd(input) {
+  const realizedUSD = input.supplyInterestUSD - input.borrowInterestUSD + input.claimedRewardsUSD;
+  const resultUSD = realizedUSD + input.unclaimedRewardsUSD;
+  return {
+    supplyInterestUSD: input.supplyInterestUSD,
+    borrowInterestUSD: input.borrowInterestUSD,
+    claimedRewardsUSD: input.claimedRewardsUSD,
+    unclaimedRewardsUSD: input.unclaimedRewardsUSD,
+    realizedUSD,
+    resultUSD,
+    usedSpotPrice: input.usedSpotPrice
+  };
 }
 
 // src/utils/suiObjectRead.ts
@@ -4677,6 +5325,11 @@ function normTypeName(s) {
   const parts = s.trim().replace(/^0x/i, "").split("::");
   if (parts.length < 3) return s.trim().replace(/^0x/i, "");
   return `${parts[0].padStart(64, "0").toLowerCase()}::${parts.slice(1).join("::")}`;
+}
+async function parallelCurrentMiningAndClaimableFromBundle(miningBundlePromise, claimableRead) {
+  const [miningBundle, mined] = await Promise.all([miningBundlePromise, claimableRead]);
+  const [depositMiningResults, borrowMiningResults] = miningBundle;
+  return { depositMiningResults, borrowMiningResults, mined };
 }
 function readDecimals(meta) {
   const d = Number(meta?.tokenInfo?.decimals);
@@ -5241,28 +5894,26 @@ async function getCurrentPositions(walletAddress, options) {
           readAtMs: Date.now()
         }));
       });
-      const [miningBundle, mined] = await Promise.all([
-        currentAdvisorAccum(
-          "mining",
-          () => Promise.all([Promise.all(depositMiningReads), Promise.all(borrowMiningReads)])
-        ),
-        currentAdvisorAccum(
-          "claimable",
-          () => readClaimableMining(
-            marketObjectId,
-            ob.obligationObject,
-            overview.deposits.map((d) => d.asset),
-            overview.borrows.map((b) => b.asset),
-            priceRows
-          ).catch((err) => ({
-            status: "unavailable",
-            rows: [],
-            reason: err instanceof Error ? err.message : String(err),
-            readAtMs: Date.now()
-          }))
-        )
-      ]);
-      const [depositMiningResults, borrowMiningResults] = miningBundle;
+      const claimableP = currentAdvisorAccum(
+        "claimable",
+        () => readClaimableMining(
+          marketObjectId,
+          ob.obligationObject,
+          overview.deposits.map((d) => d.asset),
+          overview.borrows.map((b) => b.asset),
+          priceRows
+        ).catch((err) => ({
+          status: "unavailable",
+          rows: [],
+          reason: err instanceof Error ? err.message : String(err),
+          readAtMs: Date.now()
+        }))
+      );
+      const miningP = currentAdvisorAccum(
+        "mining",
+        () => Promise.all([Promise.all(depositMiningReads), Promise.all(borrowMiningReads)])
+      );
+      const { depositMiningResults, borrowMiningResults, mined } = await parallelCurrentMiningAndClaimableFromBundle(miningP, claimableP);
       for (let i = 0; i < overview.deposits.length; i++) {
         const dep = overview.deposits[i];
         const mining = depositMiningResults[i];
@@ -5508,13 +6159,13 @@ async function getCurrentPositions(walletAddress, options) {
         const coin = key.split("|")[1] ?? "";
         borrowInterestUSD += -net * listPrice(coin);
       }
-      cashflowUsd = {
+      cashflowUsd = buildLendingCashflowUsd({
         supplyInterestUSD,
         borrowInterestUSD,
         claimedRewardsUSD: loaded.claimedRewardsUSD,
-        resultUSD: supplyInterestUSD - borrowInterestUSD + loaded.claimedRewardsUSD + unclaimedUSD,
+        unclaimedRewardsUSD: unclaimedUSD,
         usedSpotPrice: loaded.usedSpotPrice
-      };
+      });
     }
   }
   return {
@@ -5547,240 +6198,103 @@ var JUNK_COIN_TYPE_DENYLIST = /* @__PURE__ */ new Set([
   // Приклад: додай пакети/типи, які не хочеш бачити
 ]);
 
+// src/utils/cetusVault.ts
+import Decimal3 from "decimal.js";
+var CETUS_VAULTS_POOL_HANDLE = "0x9036bcc5aa7fd2cceec1659a6a1082871f45bc400c743f50063363457d1738bd";
+function isCetusVaultLpCoinType(coinType) {
+  const t = coinType.trim();
+  return /::lp_token::LP_TOKEN$/i.test(t) || /::lpcoin::LPCOIN$/i.test(t);
+}
+function shareLiquidityByLpAmount(lpTokenRaw, vaultLiquidity, totalSupply) {
+  if (totalSupply === "0" || totalSupply === "") return "0";
+  try {
+    const out = new Decimal3(lpTokenRaw || "0").mul(vaultLiquidity || "0").div(totalSupply).toFixed(0, Decimal3.ROUND_DOWN);
+    return out === "" ? "0" : out;
+  } catch {
+    return "0";
+  }
+}
+function typeArguments(structType) {
+  const lt = structType.indexOf("<");
+  const gt = structType.lastIndexOf(">");
+  if (lt < 0 || gt <= lt) return [];
+  const inner = structType.slice(lt + 1, gt);
+  const out = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of inner) {
+    if (ch === "<") {
+      depth++;
+      cur += ch;
+    } else if (ch === ">") {
+      depth--;
+      cur += ch;
+    } else if (ch === "," && depth === 0) {
+      const t = cur.trim();
+      if (t) out.push(t);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  const last = cur.trim();
+  if (last) out.push(last);
+  return out;
+}
+function firstTypeArgument(structType) {
+  return typeArguments(structType)[0] ?? null;
+}
+function vaultLpSharePct(lpTokenRaw, totalSupply) {
+  if (!totalSupply || totalSupply === "0") return null;
+  try {
+    const pct2 = new Decimal3(lpTokenRaw || "0").div(totalSupply).mul(100).toNumber();
+    return Number.isFinite(pct2) && pct2 >= 0 ? pct2 : null;
+  } catch {
+    return null;
+  }
+}
+function vaultFarmRewardAprPct(opts) {
+  const { vaultTvlUsd, vaultTotalSupply, farmLpStakedRaw, emissions } = opts;
+  if (!(vaultTvlUsd > 0) || !vaultTotalSupply || vaultTotalSupply === "0") return null;
+  if (!farmLpStakedRaw || farmLpStakedRaw === "0") return null;
+  try {
+    const farmTvl = new Decimal3(vaultTvlUsd).mul(farmLpStakedRaw).div(vaultTotalSupply);
+    if (farmTvl.lte(0)) return null;
+    const secYear = new Decimal3(365).mul(86400);
+    let usdPerYear = new Decimal3(0);
+    for (const e of emissions) {
+      if (!(e.priceUsd > 0) || !e.ratePerSec || e.ratePerSec === "0") continue;
+      const humanPerSec = new Decimal3(e.ratePerSec).div(new Decimal3(10).pow(e.decimals));
+      usdPerYear = usdPerYear.plus(humanPerSec.mul(secYear).mul(e.priceUsd));
+    }
+    if (usdPerYear.lte(0)) return null;
+    const apr = usdPerYear.div(farmTvl).mul(100).toNumber();
+    return Number.isFinite(apr) && apr >= 0 ? apr : null;
+  } catch {
+    return null;
+  }
+}
+function dynamicFieldChildId(item) {
+  const name = item.name;
+  const nameType = name && typeof name === "object" && "type" in name ? String(name.type ?? "") : "";
+  const fromName = (() => {
+    if (typeof name === "string" && name.startsWith("0x")) return name;
+    if (!name || typeof name !== "object") return null;
+    const n2 = name;
+    if (typeof n2.value === "string" && n2.value.startsWith("0x")) return n2.value;
+    if (n2.value && typeof n2.value === "object") {
+      const v = n2.value;
+      if (typeof v.id === "string" && v.id.startsWith("0x")) return v.id;
+    }
+    return null;
+  })();
+  if (/::object::ID$/i.test(nameType) && fromName) return fromName;
+  if (typeof item.objectId === "string" && item.objectId.startsWith("0x")) return item.objectId;
+  return fromName;
+}
+
 // src/services/verifiedTokenList.ts
 import { normalizeSuiAddress as normalizeSuiAddress2 } from "@mysten/sui/utils";
-
-// src/config/hardcodedVerifiedCoins.ts
-var HARDCODED_VERIFIED = [
-  {
-    type: "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI",
-    symbol: "SUI",
-    name: "Sui",
-    decimals: 9,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/26375/large/sui-ocean-square.png",
-    tags: ["native"]
-  },
-  {
-    type: "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
-    symbol: "USDC",
-    name: "USD Coin (Native)",
-    decimals: 6,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/6319/large/usdc.png",
-    tags: ["native", "stablecoin"]
-  },
-  {
-    type: "0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN",
-    symbol: "USDC",
-    name: "USD Coin (Wormhole)",
-    decimals: 6,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/6319/large/usdc.png",
-    tags: ["bridge", "stablecoin"]
-  },
-  {
-    type: "0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN",
-    symbol: "USDT",
-    name: "Tether USD",
-    decimals: 6,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/325/large/Tether.png",
-    tags: ["bridge", "stablecoin"]
-  },
-  {
-    type: "0x375f70cf2ae4c6a1be136734bae85e1db1f125af768cc55e9fd2b84418fe692c::usdt::USDT",
-    symbol: "USDT",
-    name: "Tether (legacy)",
-    decimals: 6,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/325/large/Tether.png",
-    tags: ["bridge", "stablecoin"]
-  },
-  {
-    type: "0x960b531667636f39e85867775f52f6b1f220a058c4de786905bdf761e06a56bb::usdy::USDY",
-    symbol: "USDY",
-    name: "Ondo US Dollar Yield",
-    decimals: 6,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/31050/large/usdy.png",
-    tags: ["stablecoin"]
-  },
-  {
-    type: "0x2053d08c1e2bd02791056171aab0fd12bd7cd7efad2ab8f6b9c8902f14df2ff2::ausd::AUSD",
-    symbol: "AUSD",
-    name: "Agora USD",
-    decimals: 6,
-    iconUrl: "",
-    tags: ["stablecoin"]
-  },
-  {
-    type: "0xf325ce1300e8dac124071d3152c5c5ee6174914f8bc2161e88329cf579246efc::afsui::AFSUI",
-    symbol: "afSUI",
-    name: "Aftermath Staked SUI",
-    decimals: 9,
-    iconUrl: "https://aftermath.finance/afsui-icon.png",
-    tags: ["lst"]
-  },
-  {
-    type: "0x83556891f4a0f233ce7b05cfe7f957d4020492a34f5405b2cb9377d060bef4bf::spring_sui::SPRING_SUI",
-    symbol: "stSUI",
-    name: "Spring Staked SUI",
-    decimals: 9,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/51233/large/Token_%281%29.png?1730446421",
-    tags: ["lst"]
-  },
-  {
-    type: "0xd1b72982e40348d069bb1ff701e634c117bb5f741f44dff91e472d3b01461e55::stsui::STSUI",
-    symbol: "stSUI",
-    name: "AlphaFi Staked SUI",
-    decimals: 9,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/54211/large/b_r2Ps67_400x400.png",
-    tags: ["lst"]
-  },
-  {
-    type: "0x2b6602099970374cf58a2a1b9d96f005fccceb81e92eb059873baf420eb6c717::x_sui::X_SUI",
-    symbol: "xSUI",
-    name: "Momentum Staked SUI",
-    decimals: 9,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/54113/large/xsui.png",
-    tags: ["lst"]
-  },
-  {
-    type: "0x549e8b69270defbfafd4f94e17ec44cdbdd99820b33bda2278dea3b9a32d3f55::cert::CERT",
-    symbol: "vSUI",
-    name: "Volo Staked SUI",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["lst"]
-  },
-  {
-    type: "0x790f258062909e3a0ffc78b3c53ac2f62d7084c3bab95644bdeb05add7250001::super_sui::SUPER_SUI",
-    symbol: "superSUI",
-    name: "Mstable Super SUI",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["lst"]
-  },
-  {
-    type: "0x26b3bc67befc214058ca78ea9a2690298d731a2d4309485ec3d40198063c4abc::wbtc::WBTC",
-    symbol: "WBTC",
-    name: "Wrapped Bitcoin",
-    decimals: 8,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/7598/large/wrapped_bitcoin_wbtc.png",
-    tags: ["bridge"]
-  },
-  {
-    type: "0xaf8cd5edc19c4512f4259f0bee101a40d41ebed738ade5874359610ef8eeced5::coin::COIN",
-    symbol: "WETH",
-    name: "Wrapped Ether",
-    decimals: 8,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/2518/large/weth.png",
-    tags: ["bridge"]
-  },
-  {
-    type: "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
-    symbol: "LBTC",
-    name: "Lombard Staked BTC",
-    decimals: 8,
-    iconUrl: "",
-    tags: ["bridge"]
-  },
-  {
-    type: "0x6864a6f921804860930db6ddbe2e16acdf8504495ea7481637a1c8b9a8fe54b::cetus::CETUS",
-    symbol: "CETUS",
-    name: "Cetus Protocol",
-    decimals: 9,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/29445/large/cetus.png",
-    tags: ["defi"]
-  },
-  {
-    type: "0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP",
-    symbol: "DEEP",
-    name: "DeepBook",
-    decimals: 6,
-    iconUrl: "",
-    tags: ["defi"]
-  },
-  {
-    type: "0x3a5143bb1196e3bcdfab6203d1683ae29edd26294fc8bfeafe4aaa9d2704df37::coin::COIN",
-    symbol: "TURBOS",
-    name: "Turbos Finance",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["defi"]
-  },
-  {
-    type: "0xaafb102dd0902f5055cadecd687fb5b71c0ad4ac9f2e8823cc491cb2e1db89d9::buck::BUCK",
-    symbol: "BUCK",
-    name: "Bucket Protocol",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["stablecoin"]
-  },
-  {
-    type: "0x5ca17430c1d046fae9edeaa8fd76c7b4193a00d764a0ecfa9418d733ad27bb20::sca::SCA",
-    symbol: "SCA",
-    name: "Scallop",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["defi"]
-  },
-  /** Актуальний mainnet BLUE (CoinGecko / Bluefin liquidity). */
-  {
-    type: "0xe1b45a0e641b9955a20aa0ad1c1f4ad86aad8afb07296d4085e349a50e90bdca::blue::BLUE",
-    symbol: "BLUE",
-    name: "Bluefin",
-    decimals: 9,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/30883/large/BLUE_200x200.png?1733350278",
-    tags: ["defi"]
-  },
-  /** Ранній/альтернативний BLUE — та сама іконка для OKX/metadata по старій адресі. */
-  {
-    type: "0xb848cce11ef3a8f62eccea6eb5b35a12c4c2b1ee1af7755d02d7bd6218e8226f::blue::BLUE",
-    symbol: "BLUE",
-    name: "Bluefin (legacy package)",
-    decimals: 9,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/30883/large/BLUE_200x200.png?1733350278",
-    tags: ["defi"]
-  },
-  {
-    type: "0x5145494a5f5100e645e4b0aa950fa6b68f614e8c59e17bc5ded3495123a79178::ns::NS",
-    symbol: "NS",
-    name: "SuiNS",
-    decimals: 6,
-    iconUrl: "",
-    tags: ["defi"]
-  },
-  {
-    type: "0x88250f854c019ef4f88a5c073d52a18bb1c6ac437033f5932cd017d24917ab46::navi::NAVX",
-    symbol: "NAVX",
-    name: "Navi Protocol",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["defi"]
-  },
-  {
-    type: "0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL",
-    symbol: "WAL",
-    name: "Walrus",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["defi"]
-  },
-  {
-    type: "0x7262fb2f7a3a14c888c438a3cd9b912469a58cf60f367352c46584262e8299aa::ika::IKA",
-    symbol: "IKA",
-    name: "IKA",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["defi"]
-  },
-  {
-    type: "0x87dfe1248a1dc4ce473bd9cb2937d66cdc6c30fee63f3fe0dbb55c7a09d35dec::up::UP",
-    symbol: "UP",
-    name: "Uni Protocol",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["defi"]
-  }
-];
-
-// src/services/verifiedTokenList.ts
 var DEFAULT_LIST_URLS = [
   "https://raw.githubusercontent.com/suiet/sui-coin-list/main/src/coins.json",
   "https://cdn.jsdelivr.net/gh/suiet/sui-coin-list@main/src/coins.json"
@@ -6045,6 +6559,7 @@ var NORM_PROTOCOL = new Set(
 );
 var TRUSTED_SPOT_SOURCES = /* @__PURE__ */ new Set([
   "okx",
+  "cetus",
   "dexscreener",
   "aftermath",
   "geckoterminal",
@@ -6090,6 +6605,9 @@ function classifyTokenBalance(t, verifiedList, blocklist) {
   const meta = metadataFromBalance(t);
   if (JUNK_COIN_TYPE_DENYLIST.has(coinType)) {
     return { coinType, status: "spam", metadata: meta, reason: "denylist" };
+  }
+  if (isCetusVaultLpCoinType(coinType) || isCetusVaultLpCoinType(normalizeCoinType(coinType))) {
+    return { coinType, status: "spam", metadata: meta, reason: "cetus_vault_lp" };
   }
   if (JUNK_COIN_TYPE_DENYLIST.has(normalizeCoinType(coinType))) {
     return { coinType, status: "spam", metadata: meta, reason: "denylist" };
@@ -6668,7 +7186,7 @@ async function momentumUserRowsFromOwnedRpc(walletAddress, sdk2, poolsData, toke
   }
   const poolsByNormLookup = await hydrateMomentumPoolsByApiId(sdk2, poolsData, poolHintsFromBodies);
   const poolsForRewards = [...poolsByNormLookup.values()];
-  let positionRewardsInfo = {};
+  let positionRewardsInfo;
   try {
     const forSdk = bodies.map((b) => ({
       fields: fieldsForMomentumSdkFetchRewards(b.fields, b.objectId)
@@ -6782,14 +7300,14 @@ function momentumPoolFeeFraction(lpFeesPercent) {
 
 // src/services/momentumService.ts
 import { normalizeStructTag as normalizeStructTag2, normalizeSuiAddress as normalizeSuiAddress5 } from "@mysten/sui/utils";
-import Decimal3 from "decimal.js";
+import Decimal4 from "decimal.js";
 import BN2 from "bn.js";
 function mmtSdkMainnet() {
   try {
     return MmtSDK.NEW({
       network: "mainnet",
       suiClientUrl: getRpcUrl(),
-      client: suiClient
+      client: getDashboardSuiClient()
     });
   } catch (e) {
     console.warn("MmtSDK.NEW failed \u2014 Momentum open positions unavailable", e);
@@ -6825,7 +7343,7 @@ function safeHumanFromBnRaw(rawBn, decimals) {
   try {
     const raw = rawBn.toString(10);
     if (!/^\d+$/.test(raw) || !Number.isFinite(decimals) || decimals < 0) return 0;
-    const d = new Decimal3(raw).div(new Decimal3(10).pow(decimals));
+    const d = new Decimal4(raw).div(new Decimal4(10).pow(decimals));
     const n2 = d.toNumber();
     if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS) return 0;
     return n2;
@@ -6913,7 +7431,7 @@ async function getMomentumPositions(walletAddress, options) {
     console.warn("Momentum Pool.getAllPools/getAllTokens failed", e);
     return [];
   }
-  let fromSdk = [];
+  let fromSdk;
   try {
     fromSdk = await sdk2.Position.getAllUserPositions(
       walletAddress,
@@ -6942,7 +7460,7 @@ async function getMomentumPositions(walletAddress, options) {
   const rawRows = [...mergedById.values()];
   if (!rawRows.length) return [];
   const poolIdsHint = [...new Set(rawRows.map((r) => String(r.poolId).trim()))];
-  let poolsHydrated = poolsData;
+  let poolsHydrated;
   try {
     const byNorm = await hydrateMomentumPoolsByApiId(sdk2, poolsData, poolIdsHint);
     poolsHydrated = [...byNorm.values()];
@@ -7134,6 +7652,135 @@ async function getMomentumPositions(walletAddress, options) {
 // src/services/bluefinService.ts
 import { TickMath as TickMath3, Utils as Utils3 } from "@mmt-finance/clmm-sdk";
 
+// src/services/objectVersionCache.ts
+function asRpcObjectClient(client) {
+  return client;
+}
+var CHUNK2 = 50;
+function normId(id) {
+  const t = id.trim().toLowerCase();
+  return t.startsWith("0x") ? t : `0x${t}`;
+}
+var ObjectVersionCache = class {
+  map = /* @__PURE__ */ new Map();
+  get(id) {
+    return this.map.get(normId(id));
+  }
+  hasContent(id) {
+    const hit = this.get(id);
+    return hit != null && hit.content != null;
+  }
+  put(data) {
+    if (!data.objectId || data.content == null) return;
+    this.map.set(normId(data.objectId), {
+      objectId: data.objectId,
+      version: String(data.version),
+      digest: data.digest,
+      type: data.type,
+      content: data.content
+    });
+  }
+  putResponses(res) {
+    for (const r of res) {
+      if (r.data?.content != null) this.put(r.data);
+    }
+  }
+  toResponse(id) {
+    const hit = this.get(id);
+    if (!hit) return null;
+    return { data: hit };
+  }
+  clear() {
+    this.map.clear();
+  }
+  size() {
+    return this.map.size;
+  }
+};
+var shared3 = null;
+function getObjectVersionCache() {
+  if (!shared3) shared3 = new ObjectVersionCache();
+  return shared3;
+}
+async function multiGetChunked(client, ids, options) {
+  const out = [];
+  for (let i = 0; i < ids.length; i += CHUNK2) {
+    const part = ids.slice(i, i + CHUNK2);
+    const res = await client.multiGetObjects({ ids: part, options });
+    out.push(...res);
+  }
+  return out;
+}
+async function multiGetObjectsHydrated(client, ids, opts) {
+  if (!ids.length) return [];
+  const cache3 = getObjectVersionCache();
+  const showType = opts?.showType !== false;
+  const showContent = opts?.showContent !== false;
+  const incremental = opts?.incremental === true;
+  if (!incremental) {
+    const res = await multiGetChunked(client, ids, { showContent, showType });
+    cache3.putResponses(res);
+    return res;
+  }
+  const needFull = [];
+  const versionCheck = [];
+  for (const id of ids) {
+    if (cache3.hasContent(id)) versionCheck.push(id);
+    else needFull.push(id);
+  }
+  if (versionCheck.length) {
+    const versionRes = await multiGetChunked(client, versionCheck, { showContent: false, showType: false });
+    for (const r of versionRes) {
+      const id = r.data?.objectId;
+      if (!id) continue;
+      const ver = r.data?.version != null ? String(r.data.version) : "";
+      const cached2 = cache3.get(id);
+      if (!cached2 || cached2.version !== ver) needFull.push(id);
+    }
+  }
+  const uniqueFull = [...new Set(needFull.map(normId))];
+  const fullRes = uniqueFull.length ? await multiGetChunked(client, uniqueFull, { showContent: true, showType }) : [];
+  cache3.putResponses(fullRes);
+  const byId = /* @__PURE__ */ new Map();
+  for (const r of fullRes) {
+    if (r.data?.objectId) byId.set(normId(r.data.objectId), r);
+  }
+  return ids.map((id) => {
+    const key = normId(id);
+    const fresh = byId.get(key);
+    if (fresh) return fresh;
+    return cache3.toResponse(key) ?? { data: null };
+  });
+}
+async function listOwnedMoveObjects(client, args) {
+  const cache3 = getObjectVersionCache();
+  const incremental = args.incremental === true;
+  const collected = [];
+  let cursor;
+  for (; ; ) {
+    const page = await client.getOwnedObjects({
+      owner: args.owner,
+      filter: args.filter,
+      options: {
+        showContent: !incremental,
+        showType: true
+      },
+      cursor: cursor ?? null,
+      limit: args.limit ?? 50
+    });
+    collected.push(...page.data);
+    if (!page.hasNextPage) break;
+    cursor = page.nextCursor ?? null;
+  }
+  if (!incremental) {
+    cache3.putResponses(collected);
+    return collected;
+  }
+  const ids = collected.map((r) => r.data?.objectId).filter((id) => Boolean(id));
+  if (!ids.length) return collected;
+  return multiGetObjectsHydrated(client, ids, { incremental: true, showType: true });
+}
+
 // src/services/bluefinAccruedInspect.ts
 import { bcs as bcs3 } from "@mysten/sui/bcs";
 import { Transaction as Transaction2 } from "@mysten/sui/transactions";
@@ -7289,39 +7936,6 @@ function unwrapMoveStruct(val) {
   }
   return obj;
 }
-function i32BitsToSigned(bits) {
-  if (!Number.isFinite(bits)) return 0;
-  const n2 = Math.trunc(bits);
-  return n2 > 2147483647 ? n2 - 4294967296 : n2;
-}
-function readMoveI32(val) {
-  if (val == null) return 0;
-  if (typeof val === "number" && Number.isFinite(val)) {
-    const n2 = Math.trunc(val);
-    if (n2 >= -2147483648 && n2 <= 2147483647) return n2;
-    return i32BitsToSigned(n2);
-  }
-  if (typeof val === "string") {
-    const s = val.trim();
-    if (!/^-?\d+$/.test(s)) return 0;
-    const n2 = Number(s);
-    if (s.startsWith("-")) return n2;
-    return i32BitsToSigned(n2);
-  }
-  if (typeof val === "object") {
-    const fields = unwrapMoveStruct(val);
-    if (!fields) return 0;
-    const bits = fields.bits;
-    if (typeof bits === "number") return i32BitsToSigned(Math.trunc(bits));
-    if (typeof bits === "bigint") return i32BitsToSigned(Number(bits));
-    if (typeof bits === "string" && /^-?\d+$/.test(bits.trim())) {
-      const s = bits.trim();
-      if (s.startsWith("-")) return Number(s);
-      return i32BitsToSigned(Number(s));
-    }
-  }
-  return 0;
-}
 function readMoveUIntString(field) {
   if (field == null) return "0";
   if (typeof field === "string" && /^\d+$/.test(field)) return field;
@@ -7373,7 +7987,7 @@ function logBluefinUnclaimedDebug(s) {
 }
 
 // src/services/bluefinAccruedSdk.ts
-import Decimal4 from "decimal.js";
+import Decimal5 from "decimal.js";
 
 // src/services/lpFeatureFlags.ts
 function envTruthy(v) {
@@ -7390,31 +8004,17 @@ function isBluefinLazyUnclaimedEnabled() {
     return true;
   }
 }
-
-// src/utils/lpLifecycle.ts
-function liquidityRawState(liquidity) {
-  if (liquidity == null || liquidity === "") return "unknown";
-  if (!/^\d+$/.test(liquidity)) return "unknown";
+function isLocalUnclaimedEnabled() {
   try {
-    return BigInt(liquidity) === 0n ? "zero" : "positive";
+    return envTruthy(import.meta.env.VITE_LOCAL_UNCLAIMED);
   } catch {
-    return "unknown";
+    return false;
   }
-}
-function resolveLifecycleStatus(liquidity) {
-  const s = liquidityRawState(liquidity);
-  if (s === "zero") return "empty";
-  if (s === "positive") return "active";
-  return "unknown";
-}
-function resolveRangeStatus(priceInRange, lifecycleStatus) {
-  if (lifecycleStatus === "empty") return "out_of_range";
-  return priceInRange ? "in_range" : "out_of_range";
 }
 
 // src/services/bluefinService.ts
 import { normalizeSuiAddress as normalizeSuiAddress7, normalizeStructTag as normalizeStructTag4 } from "@mysten/sui/utils";
-import Decimal5 from "decimal.js";
+import Decimal6 from "decimal.js";
 import BN3 from "bn.js";
 var _hardcodedSymbol = new Map(
   HARDCODED_VERIFIED.map((c) => [c.type.toLowerCase(), c.symbol])
@@ -7422,9 +8022,26 @@ var _hardcodedSymbol = new Map(
 var PKG2 = PROTOCOL_PACKAGES.BLUEFIN_CLMM;
 var POS_STRUCT = `${PKG2}::position::Position`;
 var BLUEFIN_UNCLAIMED_VALIDATION_POS = "0x3197153a08f2429bbb9f3343efc5a495539c7b1065343fd0fe5e011df02e423c";
+function i32ToSigned2(n2) {
+  if (n2 > 2147483647) return n2 - 4294967296;
+  return n2;
+}
 function httpsIconUrlFromCoinMetadata(m) {
   const u = m?.iconUrl?.trim();
   return typeof u === "string" && u.startsWith("https://") ? u : null;
+}
+function readI32(field) {
+  if (field == null) return 0;
+  if (typeof field === "object" && field !== null && "bits" in field) {
+    const b = field.bits;
+    if (b !== void 0) return i32ToSigned2(typeof b === "string" ? parseInt(b, 10) : Number(b));
+  }
+  if (typeof field === "object" && "fields" in field) {
+    const b = field.fields?.bits;
+    if (b !== void 0) return i32ToSigned2(typeof b === "string" ? parseInt(b, 10) : b);
+  }
+  if (typeof field === "number") return i32ToSigned2(field);
+  return 0;
 }
 function asMoveFields(data) {
   const d = data;
@@ -7498,7 +8115,7 @@ var MAX_SANE_HUMAN_TOKENS2 = 1e18;
 function safeHumanFromRaw(raw, decimals) {
   if (!/^\d+$/.test(raw) || !Number.isFinite(decimals) || decimals < 0) return 0;
   try {
-    const d = new Decimal5(raw).div(new Decimal5(10).pow(decimals));
+    const d = new Decimal6(raw).div(new Decimal6(10).pow(decimals));
     const n2 = d.toNumber();
     if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS2) return 0;
     return n2;
@@ -7526,23 +8143,18 @@ function parseFeeMillionthsToPctLabel(fee) {
 async function getBluefinSpotPositions(walletAddress, options) {
   const fetchUnclaimed = options?.includeUnclaimed === true || options?.includeUnclaimed !== false && !isBluefinLazyUnclaimedEnabled();
   const owner = walletAddress;
+  const incremental = options?.incremental === true;
+  const owned = await listOwnedMoveObjects(asRpcObjectClient(suiClient), {
+    owner,
+    filter: { StructType: POS_STRUCT },
+    incremental
+  });
   const posIds = [];
-  let cursor;
-  for (; ; ) {
-    const page = await suiClient.getOwnedObjects({
-      owner,
-      filter: { StructType: POS_STRUCT },
-      options: { showContent: true, showType: true },
-      cursor: cursor ?? null
-    });
-    for (const it of page.data) {
-      const d = it.data;
-      if (!d?.objectId) continue;
-      const f = asMoveFields(d);
-      if (f) posIds.push({ id: d.objectId, fields: f });
-    }
-    if (!page.hasNextPage) break;
-    cursor = page.nextCursor ?? null;
+  for (const it of owned) {
+    const d = it.data;
+    if (!d?.objectId) continue;
+    const f = asMoveFields(d);
+    if (f) posIds.push({ id: d.objectId, fields: f });
   }
   if (posIds.length === 0) return [];
   const poolIdSet = /* @__PURE__ */ new Set();
@@ -7558,18 +8170,14 @@ async function getBluefinSpotPositions(walletAddress, options) {
   }
   const poolMap = /* @__PURE__ */ new Map();
   const poolIds = [...poolIdSet];
-  const chunk = 50;
-  for (let i = 0; i < poolIds.length; i += chunk) {
-    const part = poolIds.slice(i, i + chunk);
-    const res = await suiClient.multiGetObjects({
-      ids: part,
-      options: { showContent: true, showType: true }
-    });
-    for (const r of res) {
-      if (r.data?.objectId) {
-        const f = asMoveFields(r.data);
-        if (f) poolMap.set(normalizeSuiAddress7(r.data.objectId), f);
-      }
+  const poolRes = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), poolIds, {
+    incremental,
+    showType: true
+  });
+  for (const r of poolRes) {
+    if (r.data?.objectId) {
+      const f = asMoveFields(r.data);
+      if (f) poolMap.set(normalizeSuiAddress7(r.data.objectId), f);
     }
   }
   const meta = /* @__PURE__ */ new Map();
@@ -7627,13 +8235,13 @@ async function getBluefinSpotPositions(walletAddress, options) {
     const symA = meta.get(tA)?.symbol ?? "A";
     const symB = meta.get(tB)?.symbol ?? "B";
     const liqStr = readMoveUIntString(f.liquidity);
-    const lowerT = readMoveI32(f.lower_tick);
-    const upperT = readMoveI32(f.upper_tick);
+    const lowerT = readI32(f.lower_tick);
+    const upperT = readI32(f.upper_tick);
     const feeBps = typeof f.fee_rate === "string" ? parseInt(f.fee_rate, 10) : Number(f.fee_rate ?? 0);
     const poolF = poolKey ? poolMap.get(poolKey) ?? null : null;
     const sqrtField = (poolF && poolF["current_sqrt_price"]) ?? null;
     const curSqrtStr = readMoveUIntString(sqrtField);
-    const currentTickI32 = readMoveI32(poolF?.current_tick_index);
+    const currentTickI32 = readI32(poolF?.current_tick_index);
     const lowerSqrt = TickMath3.tickIndexToSqrtPriceX64(lowerT);
     const upperSqrt = TickMath3.tickIndexToSqrtPriceX64(upperT);
     let rawA = "0";
@@ -7758,7 +8366,7 @@ async function getBluefinSpotPositions(walletAddress, options) {
       if (hum <= 0) continue;
       const pR = spots.get(coinType)?.price;
       const pRf = pR != null && Number.isFinite(pR) && pR > 0 && pR <= 1e8 ? pR : null;
-      let leg = 0;
+      let leg;
       if (pRf != null) leg = hum * pRf;
       else leg = getUsd(coinType, rawO);
       if (leg > 0 && leg <= MAX_SANE_POSITION_USD2) {
@@ -7775,8 +8383,7 @@ async function getBluefinSpotPositions(walletAddress, options) {
     if (!Number.isFinite(unclaimedRewardUsd) || unclaimedRewardUsd < 0) unclaimedRewardUsd = 0;
     const openedAt = Date.now() / 1e3;
     const feeLabel = parseFeeMillionthsToPctLabel(feeBps);
-    const lifecycleStatus = resolveLifecycleStatus(liqStr);
-    const rangeLabel = inRange && lifecycleStatus !== "empty" ? "" : " \xB7 OUT";
+    const rangeLabel = inRange ? "" : " \xB7 OUT";
     const poolIdOut = poolIdRaw || poolKey;
     const bluefinUnclaimed = {
       position_id: p.id,
@@ -7822,8 +8429,7 @@ async function getBluefinSpotPositions(walletAddress, options) {
       currentTick: currentTickI32,
       currentSqrtPrice: curSqrt.isZero() ? curSqrtStr : curSqrt.toString(10),
       liquidity: liqStr,
-      lifecycleStatus,
-      status: resolveRangeStatus(inRange, lifecycleStatus),
+      status: inRange ? "in_range" : "out_of_range",
       tokenAAmount: humA,
       tokenBAmount: humB,
       currentPriceA_USD: pxaF ?? 0,
@@ -7850,12 +8456,12 @@ async function getBluefinSpotPositions(walletAddress, options) {
 
 // src/services/cetusService.ts
 import { TickMath as TickMath4, Utils as Utils4 } from "@mmt-finance/clmm-sdk";
-import { normalizeStructTag as normalizeStructTag6, normalizeSuiAddress as normalizeSuiAddress9 } from "@mysten/sui/utils";
+import { normalizeStructTag as normalizeStructTag6, normalizeSuiAddress as normalizeSuiAddress10 } from "@mysten/sui/utils";
 
 // src/services/cetusAccruedInspect.ts
 import { Transaction as Transaction3 } from "@mysten/sui/transactions";
 import { normalizeStructTag as normalizeStructTag5, normalizeSuiAddress as normalizeSuiAddress8, SUI_CLOCK_OBJECT_ID as SUI_CLOCK_OBJECT_ID2 } from "@mysten/sui/utils";
-var CETUS_INTEGRATE_AT = "0xae9c208cf58fd5ba36737c9ee5dcfa7f152d0fb5a5a99eebb7c881ebc2fe59e0";
+var CETUS_INTEGRATE_AT = "0x9ee0534b703b14457aee7698ea3a07a5080f954ed2b7e9910fbb7a55506824fa";
 var CETUS_GLOBAL_CONFIG = "0xdaa46292632c3c4d8f31f23ea0f9b36a28ff3677e9684980e4438403a67a3d8f";
 var FETCHER_MODULE = "fetcher_script";
 var DEVINSPECT_SENDER2 = "0x0000000000000000000000000000000000000000000000000000000000000000";
@@ -7965,8 +8571,263 @@ async function fetchCetusAccruedFees(client, input) {
   return { ok: false, error: lastErr };
 }
 
+// src/clmm/feeGrowth.ts
+var U128_MOD = 2n ** 128n;
+var U64_MAX = 18446744073709551615n;
+function computeFeeGrowthInside(feeGrowthGlobal, lowerFeeGrowthOutside, upperFeeGrowthOutside, lowerTick, upperTick, currentTick) {
+  const feeGrowthBelow = currentTick >= lowerTick ? lowerFeeGrowthOutside : (feeGrowthGlobal - lowerFeeGrowthOutside + U128_MOD) % U128_MOD;
+  const feeGrowthAbove = currentTick < upperTick ? upperFeeGrowthOutside : (feeGrowthGlobal - upperFeeGrowthOutside + U128_MOD) % U128_MOD;
+  return (feeGrowthGlobal - feeGrowthBelow - feeGrowthAbove + 2n * U128_MOD) % U128_MOD;
+}
+function computeTotalOwed(tokensOwedRaw, feeGrowthInsideNow, feeGrowthInsideLast, liquidity, shiftBits = 128) {
+  try {
+    const liq = BigInt(liquidity);
+    if (liq === 0n) return tokensOwedRaw;
+    const owed = BigInt(tokensOwedRaw || "0");
+    const delta = (feeGrowthInsideNow - feeGrowthInsideLast + U128_MOD) % U128_MOD;
+    const live = delta * liq >> BigInt(shiftBits);
+    const total = owed + live > U64_MAX ? owed : owed + live;
+    return total.toString();
+  } catch {
+    return tokensOwedRaw;
+  }
+}
+
+// src/services/cetusLocalUnclaimed.ts
+var I32_TYPES = [
+  "0x714a63a0dba6da4fce08a1ec21d39416e734f29654e45d37d1d2023922fca2d0::i32::I32",
+  `${PROTOCOL_PACKAGES.CETUS_CLMM}::i32::I32`
+];
+function unwrap(val) {
+  if (!val || typeof val !== "object") return null;
+  const o = val;
+  if (o.fields && typeof o.fields === "object") return o.fields;
+  return o;
+}
+function readU(v) {
+  const s = typeof v === "string" ? v : typeof v === "number" ? String(v) : "0";
+  try {
+    return BigInt(s);
+  } catch {
+    return 0n;
+  }
+}
+function tickBits(tick) {
+  return tick >>> 0;
+}
+async function readTickOutside(client, ticksHandle, tick) {
+  for (const type of I32_TYPES) {
+    try {
+      const obj = await client.getDynamicFieldObject({
+        parentId: ticksHandle,
+        name: { type, value: { bits: tickBits(tick) } }
+      });
+      const content = obj.data?.content;
+      const fields = unwrap(content?.fields ?? content);
+      const tickFields = unwrap(fields?.value ?? fields);
+      if (!tickFields) continue;
+      const a = readU(tickFields.fee_growth_outside_a);
+      const b = readU(tickFields.fee_growth_outside_b);
+      return { a, b };
+    } catch {
+    }
+  }
+  return null;
+}
+async function fetchCetusLocalAccrued(client, args) {
+  if (!args.ticksHandle || args.feeGrowthGlobalA == null || args.feeGrowthGlobalB == null) {
+    return { ok: false, error: "missing_pool_growth_or_ticks_handle" };
+  }
+  try {
+    const posObj = await client.getDynamicFieldObject({
+      parentId: args.positionsHandle,
+      name: { type: "0x2::object::ID", value: args.positionId }
+    });
+    const content = posObj.data?.content;
+    const fields = unwrap(unwrap(content?.fields ?? content)?.value ?? content?.fields);
+    if (!fields) return { ok: false, error: "position_info_missing" };
+    const feeOwnedA = String(fields.fee_owned_a ?? "0");
+    const feeOwnedB = String(fields.fee_owned_b ?? "0");
+    const fgiLastA = readU(fields.fee_growth_inside_a);
+    const fgiLastB = readU(fields.fee_growth_inside_b);
+    const liq = String(fields.liquidity ?? args.liquidity);
+    const [lo, hi] = await Promise.all([
+      readTickOutside(client, args.ticksHandle, args.lowerTick),
+      readTickOutside(client, args.ticksHandle, args.upperTick)
+    ]);
+    if (!lo || !hi) return { ok: false, error: "boundary_ticks_missing" };
+    const nowA = computeFeeGrowthInside(
+      readU(args.feeGrowthGlobalA),
+      lo.a,
+      hi.a,
+      args.lowerTick,
+      args.upperTick,
+      args.currentTick
+    );
+    const nowB = computeFeeGrowthInside(
+      readU(args.feeGrowthGlobalB),
+      lo.b,
+      hi.b,
+      args.lowerTick,
+      args.upperTick,
+      args.currentTick
+    );
+    return {
+      ok: true,
+      source: "local_fee_growth",
+      feeOwedA: computeTotalOwed(feeOwnedA, nowA, fgiLastA, liq, 64),
+      feeOwedB: computeTotalOwed(feeOwnedB, nowB, fgiLastB, liq, 64)
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// src/services/cetusCompensationLock.ts
+import { normalizeSuiAddress as normalizeSuiAddress9 } from "@mysten/sui/utils";
+var SNAPSHOT_DOF_KEY = "position_liquidity_snapshot";
+function normId2(id) {
+  try {
+    return normalizeSuiAddress9(id);
+  } catch {
+    return id.toLowerCase();
+  }
+}
+function unwrap2(val) {
+  if (!val || typeof val !== "object") return null;
+  const o = val;
+  if (o.fields && typeof o.fields === "object") return o.fields;
+  return o;
+}
+function parseUid(raw) {
+  if (typeof raw === "string" && raw.length > 0) return normId2(raw);
+  if (raw && typeof raw === "object") {
+    const o = raw;
+    if (typeof o.id === "string") return normId2(o.id);
+    if (o.id && typeof o.id === "object" && typeof o.id.id === "string") {
+      return normId2(o.id.id);
+    }
+  }
+  return null;
+}
+function snapshotsTableFromContent(content) {
+  const fields = unwrap2(content?.fields ?? content);
+  if (!fields) return null;
+  return parseUid(unwrap2(fields.snapshots)?.id ?? fields.snapshots);
+}
+async function resolveSnapshotsTableId(client, poolId) {
+  const nameVariants = [
+    { type: "0x1::string::String", value: SNAPSHOT_DOF_KEY },
+    {
+      type: "0x2::dynamic_object_field::Wrapper<0x1::string::String>",
+      value: SNAPSHOT_DOF_KEY
+    }
+  ];
+  for (const name of nameVariants) {
+    try {
+      const df = await client.getDynamicFieldObject({ parentId: poolId, name });
+      if (!df.data) continue;
+      const fromContent = snapshotsTableFromContent(df.data.content);
+      if (fromContent) return fromContent;
+      const snapObjId = typeof df.data.objectId === "string" ? normId2(df.data.objectId) : null;
+      if (!snapObjId) continue;
+      const snap = await client.getObject({
+        id: snapObjId,
+        options: { showContent: true }
+      });
+      const tableId = snapshotsTableFromContent(snap.data?.content);
+      if (tableId) return tableId;
+    } catch {
+    }
+  }
+  try {
+    let cursor;
+    for (let page = 0; page < 4; page++) {
+      const res = await client.getDynamicFields({
+        parentId: poolId,
+        cursor: cursor ?? void 0,
+        limit: 50
+      });
+      for (const f of res.data ?? []) {
+        const nameVal = f.name?.value;
+        const typeStr = String(f.objectType ?? f.type ?? "");
+        const isSnap = nameVal === SNAPSHOT_DOF_KEY || String(nameVal).includes(SNAPSHOT_DOF_KEY) || typeStr.includes("PositionLiquiditySnapshot");
+        if (!isSnap || typeof f.objectId !== "string") continue;
+        const snap = await client.getObject({
+          id: f.objectId,
+          options: { showContent: true }
+        });
+        const tableId = snapshotsTableFromContent(snap.data?.content);
+        if (tableId) return tableId;
+      }
+      if (!res.hasNextPage) break;
+      cursor = res.nextCursor ?? null;
+      if (!cursor) break;
+    }
+  } catch {
+  }
+  return null;
+}
+async function positionListedInSnapshot(client, snapshotsTableId, positionId) {
+  try {
+    const df = await client.getDynamicFieldObject({
+      parentId: snapshotsTableId,
+      name: { type: "0x2::object::ID", value: positionId }
+    });
+    return df.data?.content != null;
+  } catch {
+    return false;
+  }
+}
+async function fetchCetusCloseLockedIds(client, items) {
+  const locked = /* @__PURE__ */ new Set();
+  if (items.length === 0) return locked;
+  const byPool = /* @__PURE__ */ new Map();
+  for (const it of items) {
+    const pool = normId2(it.poolId);
+    const pos = normId2(it.positionId);
+    const list = byPool.get(pool) ?? [];
+    list.push(pos);
+    byPool.set(pool, list);
+  }
+  const poolIds = [...byPool.keys()];
+  const tableByPool = /* @__PURE__ */ new Map();
+  await mapPool(poolIds, Math.min(RPC_CONCURRENCY, 4), async (poolId) => {
+    tableByPool.set(poolId, await resolveSnapshotsTableId(client, poolId));
+  });
+  const checks = [];
+  for (const [poolId, posIds] of byPool) {
+    const tableId = tableByPool.get(poolId);
+    if (!tableId) continue;
+    for (const positionId of posIds) checks.push({ tableId, positionId });
+  }
+  await mapPool(checks, RPC_CONCURRENCY, async ({ tableId, positionId }) => {
+    if (await positionListedInSnapshot(client, tableId, positionId)) {
+      locked.add(positionId);
+    }
+  });
+  return locked;
+}
+
+// src/utils/lpLifecycle.ts
+function liquidityRawState(liquidity) {
+  if (liquidity == null || liquidity === "") return "unknown";
+  if (!/^\d+$/.test(liquidity)) return "unknown";
+  try {
+    return BigInt(liquidity) === 0n ? "zero" : "positive";
+  } catch {
+    return "unknown";
+  }
+}
+function resolveLifecycleStatus(liquidity) {
+  const s = liquidityRawState(liquidity);
+  if (s === "zero") return "empty";
+  if (s === "positive") return "active";
+  return "unknown";
+}
+
 // src/services/cetusService.ts
-import Decimal6 from "decimal.js";
+import Decimal7 from "decimal.js";
 import BN4 from "bn.js";
 var CETUS_POSITION_TYPE = `${PROTOCOL_PACKAGES.CETUS_CLMM}::position::Position`;
 var MAX_SANE_POSITION_USD3 = 5e7;
@@ -7996,9 +8857,9 @@ function normTypeSafe2(raw) {
     return null;
   }
 }
-function normId(id) {
+function normId3(id) {
   try {
-    return normalizeSuiAddress9(id.trim());
+    return normalizeSuiAddress10(id.trim());
   } catch {
     return id.trim();
   }
@@ -8037,7 +8898,7 @@ function parseUID(val) {
   if (typeof innerFields.id === "string") return innerFields.id.trim();
   return "";
 }
-function readI32(val) {
+function readI322(val) {
   let bits;
   if (val != null && typeof val === "object") {
     const fields = unwrapStruct(val) ?? val;
@@ -8056,7 +8917,7 @@ function safeHumanFromBnRaw2(rawBn, decimals) {
   try {
     const raw = rawBn.toString(10);
     if (!/^\d+$/.test(raw) || !Number.isFinite(decimals) || decimals < 0) return 0;
-    const d = new Decimal6(raw).div(new Decimal6(10).pow(decimals));
+    const d = new Decimal7(raw).div(new Decimal7(10).pow(decimals));
     const n2 = d.toNumber();
     if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS3) return 0;
     return n2;
@@ -8077,6 +8938,36 @@ function spotPriceSafe(raw) {
   if (raw == null || !Number.isFinite(raw) || raw <= 0 || raw > 1e8) return null;
   return raw;
 }
+function cetusUnclaimedRewardRows(rewardOweds, rewarderCoinTypes, metaMap, spotsMap) {
+  const rows = [];
+  let usd = 0;
+  for (let i = 0; i < rewardOweds.length; i++) {
+    const rawAmt = rewardOweds[i];
+    if (!rawAmt || rawAmt === "0") continue;
+    const rewCt = rewarderCoinTypes[i];
+    if (!rewCt) continue;
+    const rewMeta = metaMap.get(rewCt) ?? {
+      symbol: symbolFromCoinType2(rewCt),
+      decimals: 9,
+      iconUrl: null
+    };
+    const decimals = rewMeta.decimals >= 0 ? rewMeta.decimals : 9;
+    const hum = safeHumanFromStringRaw(rawAmt, decimals);
+    if (!(hum > 0)) continue;
+    const spot = spotsMap.get(rewCt);
+    const px = spotPriceSafe(spot?.price);
+    const amountUsd = px != null ? clampUsd2(hum * px) : 0;
+    usd += amountUsd;
+    rows.push({
+      token: rewMeta.symbol || symbolFromCoinType2(rewCt),
+      coinType: rewCt,
+      amount: hum,
+      amount_usd: amountUsd,
+      price_source: spot?.priceSource ?? "unavailable"
+    });
+  }
+  return { rows, usd: clampUsd2(usd) };
+}
 function positionFieldsOf(raw) {
   if (!raw || typeof raw !== "object") return null;
   const f = raw;
@@ -8088,52 +8979,46 @@ function positionFieldsOf(raw) {
   }
   return null;
 }
-async function fetchPositionNFTs(wallet) {
+async function fetchPositionNFTs(wallet, incremental = false) {
   const results = [];
-  let cursor = void 0;
-  let hasMore = true;
-  while (hasMore) {
-    const page = await suiClient.getOwnedObjects({
-      owner: wallet,
-      filter: { StructType: CETUS_POSITION_TYPE },
-      options: { showContent: true, showType: true },
-      cursor,
-      limit: 50
-    });
-    for (const item of page.data) {
-      const obj = item.data;
-      if (!obj?.objectId || obj.content?.dataType !== "moveObject") continue;
-      const rawFields = obj.content.fields;
-      const f = positionFieldsOf(rawFields);
-      if (!f) {
-        console.warn("[cetus] position NFT has unknown field layout, objectId:", obj.objectId, "| raw keys:", rawFields && typeof rawFields === "object" ? Object.keys(rawFields) : String(rawFields));
-        continue;
-      }
-      const liquidity = String(f.liquidity ?? "0");
-      if (liquidity === "0") continue;
-      const coinTypeA = parseTypeName(f.coin_type_a);
-      const coinTypeB = parseTypeName(f.coin_type_b);
-      if (!coinTypeA || !coinTypeB) {
-        console.warn("[cetus] position has null coin types, id:", obj.objectId, "| coin_type_a:", f.coin_type_a, "coin_type_b:", f.coin_type_b);
-        continue;
-      }
-      const poolId = typeof f.pool === "string" ? normId(f.pool) : "";
-      if (!poolId) {
-        console.warn("[cetus] position has no pool id, id:", obj.objectId, "| pool field:", f.pool);
-        continue;
-      }
-      results.push({
-        objectId: normId(obj.objectId),
-        poolId,
-        coinTypeA,
-        coinTypeB,
-        liquidity,
-        lowerTick: readI32(f.tick_lower_index),
-        upperTick: readI32(f.tick_upper_index)
-      });
+  const page = await listOwnedMoveObjects(asRpcObjectClient(suiClient), {
+    owner: wallet,
+    filter: { StructType: CETUS_POSITION_TYPE },
+    incremental,
+    limit: 50
+  });
+  for (const item of page) {
+    const obj = item.data;
+    if (!obj?.objectId) continue;
+    const content = obj.content;
+    if (content?.dataType !== "moveObject") continue;
+    const rawFields = content.fields;
+    const f = positionFieldsOf(rawFields);
+    if (!f) {
+      console.warn("[cetus] position NFT has unknown field layout, objectId:", obj.objectId, "| raw keys:", rawFields && typeof rawFields === "object" ? Object.keys(rawFields) : String(rawFields));
+      continue;
     }
-    cursor = page.nextCursor;
-    hasMore = page.hasNextPage && !!cursor;
+    const liquidity = String(f.liquidity ?? "0");
+    const coinTypeA = parseTypeName(f.coin_type_a);
+    const coinTypeB = parseTypeName(f.coin_type_b);
+    if (!coinTypeA || !coinTypeB) {
+      console.warn("[cetus] position has null coin types, id:", obj.objectId, "| coin_type_a:", f.coin_type_a, "coin_type_b:", f.coin_type_b);
+      continue;
+    }
+    const poolId = typeof f.pool === "string" ? normId3(f.pool) : "";
+    if (!poolId) {
+      console.warn("[cetus] position has no pool id, id:", obj.objectId, "| pool field:", f.pool);
+      continue;
+    }
+    results.push({
+      objectId: normId3(obj.objectId),
+      poolId,
+      coinTypeA,
+      coinTypeB,
+      liquidity,
+      lowerTick: readI322(f.tick_lower_index),
+      upperTick: readI322(f.tick_upper_index)
+    });
   }
   return results;
 }
@@ -8147,17 +9032,18 @@ function poolFieldsOf(raw) {
   }
   return null;
 }
-async function fetchPools2(poolIds) {
+async function fetchPools2(poolIds, incremental = false) {
   const map = /* @__PURE__ */ new Map();
   if (!poolIds.length) return map;
-  const objs = await suiClient.multiGetObjects({
-    ids: poolIds,
-    options: { showContent: true }
+  const objs = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), poolIds, {
+    incremental,
+    showType: false
   });
   for (const item of objs) {
     const obj = item?.data;
-    if (!obj?.objectId || obj.content?.dataType !== "moveObject") continue;
-    const key = normId(obj.objectId);
+    const content = obj?.content;
+    if (!obj?.objectId || content?.dataType !== "moveObject") continue;
+    const key = normId3(obj.objectId);
     const rawFields = obj.content.fields;
     const f = poolFieldsOf(rawFields);
     if (!f) {
@@ -8181,12 +9067,19 @@ async function fetchPools2(poolIds) {
       rewarderCoinTypes.push(ct ?? "");
     }
     const feeRateRaw = Number(f.fee_rate ?? 0);
+    const tmFields = unwrapStruct(f.tick_manager);
+    const ticksTable = unwrapStruct(tmFields?.ticks);
+    const ticksHandleRaw = parseUID(ticksTable?.id ?? tmFields?.ticks_handle);
+    const rec = f;
     map.set(key, {
       sqrtPriceStr: String(f.current_sqrt_price),
-      currentTick: readI32(f.current_tick_index),
+      currentTick: readI322(f.current_tick_index),
       feeRate: Number.isFinite(feeRateRaw) ? feeRateRaw / 1e6 : 0,
-      positionsHandle: normId(posHandle),
-      rewarderCoinTypes
+      positionsHandle: normId3(posHandle),
+      rewarderCoinTypes,
+      feeGrowthGlobalA: rec.fee_growth_global_a != null ? String(rec.fee_growth_global_a) : void 0,
+      feeGrowthGlobalB: rec.fee_growth_global_b != null ? String(rec.fee_growth_global_b) : void 0,
+      ticksHandle: ticksHandleRaw ? normId3(ticksHandleRaw) : void 0
     });
   }
   return map;
@@ -8194,7 +9087,7 @@ async function fetchPools2(poolIds) {
 async function getCetusPositions(walletAddress, options) {
   let positions;
   try {
-    positions = await fetchPositionNFTs(walletAddress);
+    positions = await fetchPositionNFTs(walletAddress, options?.incremental === true);
   } catch (e) {
     console.warn("[cetus] fetchPositionNFTs failed", e);
     return [];
@@ -8203,7 +9096,7 @@ async function getCetusPositions(walletAddress, options) {
   const uniquePoolIds = [...new Set(positions.map((p) => p.poolId))];
   let poolMap;
   try {
-    poolMap = await fetchPools2(uniquePoolIds);
+    poolMap = await fetchPools2(uniquePoolIds, options?.incremental === true);
   } catch (e) {
     console.warn("[cetus] fetchPools failed", e);
     return [];
@@ -8221,20 +9114,17 @@ async function getCetusPositions(walletAddress, options) {
   const metaMap = await (async () => {
     const mm = /* @__PURE__ */ new Map();
     await mapPool([...allCoinTypes], RPC_CONCURRENCY, async (ct) => {
-      try {
-        const m = await suiClient.getCoinMetadata({ coinType: ct });
-        mm.set(ct, {
-          symbol: m?.symbol ?? symbolFromCoinType2(ct),
-          decimals: m?.decimals ?? 0,
-          iconUrl: typeof m?.iconUrl === "string" && m.iconUrl.startsWith("https://") ? m.iconUrl : null
-        });
-      } catch {
-        mm.set(ct, { symbol: symbolFromCoinType2(ct), decimals: 0, iconUrl: null });
-      }
+      const m = await resolveCoinMetadata(suiClient, ct);
+      if (!m) return;
+      mm.set(ct, {
+        symbol: m.symbol || symbolFromCoinType2(ct),
+        decimals: m.decimals,
+        iconUrl: m.iconUrl
+      });
     });
     return mm;
   })();
-  const getMeta = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType2(ct), decimals: 0, iconUrl: null };
+  const getMeta = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType2(ct), decimals: -1, iconUrl: null };
   const spotOpts = options?.forceRefreshPrices ? { forceRefresh: true } : void 0;
   let spotsMap;
   try {
@@ -8248,6 +9138,19 @@ async function getCetusPositions(walletAddress, options) {
   }
   const openedAt = Math.floor(Date.now() / 1e3);
   const out = [];
+  let closeLockedIds;
+  try {
+    closeLockedIds = await fetchCetusCloseLockedIds(
+      suiClient,
+      positions.map((p) => ({ poolId: p.poolId, positionId: p.objectId }))
+    );
+    if (closeLockedIds.size > 0) {
+      console.info("[cetus] hiding compensation-certificate positions:", closeLockedIds.size);
+    }
+  } catch (e) {
+    console.warn("[cetus] compensation-lock detect failed; Cert NFTs may still show", e);
+    closeLockedIds = /* @__PURE__ */ new Set();
+  }
   for (const pos of positions) {
     const pool = poolMap.get(pos.poolId);
     if (!pool) continue;
@@ -8280,10 +9183,11 @@ async function getCetusPositions(walletAddress, options) {
     const valueUsd = clampUsd2(
       (pxaF != null ? humA * pxaF : 0) + (pxbF != null ? humB * pxbF : 0)
     );
-    const priceInRange = pool.currentTick >= pos.lowerTick && pool.currentTick <= pos.upperTick;
-    const lifecycleStatus = resolveLifecycleStatus(pos.liquidity);
+    const inRange = pool.currentTick >= pos.lowerTick && pool.currentTick <= pos.upperTick;
     const feeLabelPct = `${(pool.feeRate * 100).toFixed(3)}%`;
-    const pair = `${symA}/${symB} \xB7 ${feeLabelPct}${priceInRange && lifecycleStatus !== "empty" ? "" : " \xB7 OUT"}`;
+    const pair = `${symA}/${symB} \xB7 ${feeLabelPct}${inRange ? "" : " \xB7 OUT"}`;
+    const lifecycleStatus = resolveLifecycleStatus(pos.liquidity);
+    if (closeLockedIds.has(normId3(pos.objectId))) continue;
     out.push({
       id: pos.objectId,
       protocol: "cetus",
@@ -8304,7 +9208,7 @@ async function getCetusPositions(walletAddress, options) {
       currentSqrtPrice: pool.sqrtPriceStr,
       liquidity: pos.liquidity,
       lifecycleStatus,
-      status: resolveRangeStatus(priceInRange, lifecycleStatus),
+      status: inRange ? "in_range" : "out_of_range",
       tokenAAmount: humA,
       tokenBAmount: humB,
       currentPriceA_USD: pxaF ?? 0,
@@ -8322,23 +9226,62 @@ async function getCetusPositions(walletAddress, options) {
       daysOpen: 0,
       lifetimeEarningsUSD: 0,
       vsHodlDeltaUSD: 0,
+      // Empty positions do not accrue range APR on zero principal.
       aprEstimatePct: 0
     });
   }
+  const useLocal = isLocalUnclaimedEnabled();
   await mapPool(out, RPC_CONCURRENCY, async (p) => {
     const pool = poolMap.get(p.poolId ?? "");
-    const result = await fetchCetusAccruedFees(suiClient, {
-      positionId: p.id,
-      poolId: p.poolId ?? "",
-      coinTypeA: p.tokenAAddress,
-      coinTypeB: p.tokenBAddress,
-      sender: walletAddress
-    });
-    if (!result.ok) {
-      console.warn("[cetus-accrued] failed for pos", p.id.slice(0, 10), "|", result.error);
-      return;
+    let feeOwedA = "0";
+    let feeOwedB = "0";
+    let rewardOweds = [];
+    let gotFees = false;
+    if (useLocal && pool) {
+      const local = await fetchCetusLocalAccrued(suiClient, {
+        positionId: p.id,
+        positionsHandle: pool.positionsHandle,
+        ticksHandle: pool.ticksHandle,
+        feeGrowthGlobalA: pool.feeGrowthGlobalA,
+        feeGrowthGlobalB: pool.feeGrowthGlobalB,
+        currentTick: p.currentTick,
+        lowerTick: p.tickLower,
+        upperTick: p.tickUpper,
+        liquidity: p.liquidity
+      });
+      if (local.ok) {
+        feeOwedA = local.feeOwedA;
+        feeOwedB = local.feeOwedB;
+        gotFees = true;
+      }
     }
-    const { feeOwedA, feeOwedB, rewardOweds } = result;
+    if (!gotFees) {
+      const result = await fetchCetusAccruedFees(suiClient, {
+        positionId: p.id,
+        poolId: p.poolId ?? "",
+        coinTypeA: p.tokenAAddress,
+        coinTypeB: p.tokenBAddress,
+        sender: walletAddress
+      });
+      if (!result.ok) {
+        console.warn("[cetus-accrued] failed for pos", p.id.slice(0, 10), "|", result.error);
+        p.unclaimedFeeUSD = Number.NaN;
+        p.unclaimedRewardUSD = Number.NaN;
+        return;
+      }
+      feeOwedA = result.feeOwedA;
+      feeOwedB = result.feeOwedB;
+      rewardOweds = result.rewardOweds;
+    } else if (pool?.rewarderCoinTypes.some((ct) => ct.length > 0)) {
+      const rewardsOnly = await fetchCetusAccruedFees(suiClient, {
+        positionId: p.id,
+        poolId: p.poolId ?? "",
+        coinTypeA: p.tokenAAddress,
+        coinTypeB: p.tokenBAddress,
+        sender: walletAddress
+      });
+      if (rewardsOnly.ok) rewardOweds = rewardsOnly.rewardOweds;
+    }
     const decA = p.tokenADecimals;
     const decB = p.tokenBDecimals;
     const pxaF = spotPriceSafe(spotsMap.get(p.tokenAAddress)?.price);
@@ -8349,24 +9292,17 @@ async function getCetusPositions(walletAddress, options) {
     if (pxaF != null) feeUsd += feeHumA * pxaF;
     if (pxbF != null) feeUsd += feeHumB * pxbF;
     feeUsd = clampUsd2(feeUsd);
-    let rewUsd = 0;
-    if (pool) {
-      for (let i = 0; i < rewardOweds.length; i++) {
-        const rawAmt = rewardOweds[i];
-        if (!rawAmt || rawAmt === "0") continue;
-        const rewCt = pool.rewarderCoinTypes[i];
-        if (!rewCt) continue;
-        const rewMeta = metaMap.get(rewCt) ?? { symbol: symbolFromCoinType2(rewCt), decimals: 9, iconUrl: null };
-        const hum = safeHumanFromStringRaw(rawAmt, rewMeta.decimals);
-        const pxRf = spotPriceSafe(spotsMap.get(rewCt)?.price);
-        if (pxRf != null) rewUsd += clampUsd2(hum * pxRf);
-      }
-      rewUsd = clampUsd2(rewUsd);
-    }
+    const rewards = cetusUnclaimedRewardRows(
+      rewardOweds,
+      pool?.rewarderCoinTypes ?? [],
+      metaMap,
+      spotsMap
+    );
     p.unclaimedFeeA = feeHumA;
     p.unclaimedFeeB = feeHumB;
     p.unclaimedFeeUSD = feeUsd;
-    p.unclaimedRewardUSD = rewUsd;
+    p.unclaimedRewardUSD = rewards.usd;
+    p.unclaimedRewardRows = rewards.rows;
   });
   for (const p of out) {
     const aIsStable = STABLECOIN_SYMS_CETUS.has(p.tokenA.toUpperCase());
@@ -8432,143 +9368,6 @@ function getCetusDlmmSdk() {
   return cached;
 }
 
-// src/services/coinBalanceAmount.ts
-import Decimal7 from "decimal.js";
-var MAX_COIN_DECIMALS = 18;
-function amountsFromCoinMetadata(totalBalance, decimals) {
-  if (typeof decimals !== "number" || !Number.isInteger(decimals) || decimals < 0 || decimals > MAX_COIN_DECIMALS) {
-    return { decimals: 0, humanBalance: 0, decimalsKnown: false };
-  }
-  let humanBalance;
-  try {
-    humanBalance = new Decimal7(totalBalance).div(new Decimal7(10).pow(decimals)).toNumber();
-  } catch {
-    return { decimals, humanBalance: 0, decimalsKnown: false };
-  }
-  if (!Number.isFinite(humanBalance)) {
-    return { decimals, humanBalance: 0, decimalsKnown: false };
-  }
-  return { decimals, humanBalance, decimalsKnown: true };
-}
-
-// src/utils/rpcBackoff.ts
-async function withRpcBackoff(fn, opts = {}) {
-  const retries = opts.retries ?? 4;
-  const baseMs = opts.baseMs ?? 700;
-  const maxTotalWaitMs = opts.maxTotalWaitMs ?? 18e3;
-  const retryOn = /429|timeout|ECONNRESET|ETIMEDOUT|ENOTFOUND|503|502|FetchError|fetch failed|rate limit|Too Many|too frequent|Unexpected status code/i;
-  let last;
-  let waited = 0;
-  for (let i = 0; i <= retries; i++) {
-    try {
-      return await fn();
-    } catch (e) {
-      last = e;
-      const msg = e instanceof Error ? e.message : String(e);
-      if (!retryOn.test(msg) || i === retries) break;
-      let wait = baseMs * 2 ** i + Math.floor(Math.random() * 350);
-      if (waited + wait > maxTotalWaitMs) wait = Math.max(0, maxTotalWaitMs - waited);
-      if (wait <= 0) break;
-      waited += wait;
-      if (opts.label) {
-        console.warn(
-          `[rpc-backoff] ${opts.label} attempt ${i + 1}/${retries + 1} wait ${wait}ms: ${msg.slice(0, 140)}`
-        );
-      }
-      await new Promise((r) => setTimeout(r, wait));
-    }
-  }
-  throw last instanceof Error ? last : new Error(String(last));
-}
-
-// src/services/coinMetadata.ts
-var METADATA_FALLBACK_RPCS = DASHBOARD_RPC_FALLBACK_URLS.filter(
-  (url) => !url.includes("blastapi.io")
-);
-var resolvedMetaCache = /* @__PURE__ */ new Map();
-var hardcodedByType = new Map(
-  HARDCODED_VERIFIED.map((coin) => [normalizeCoinTypeForMatch(coin.type), coin])
-);
-function hardcodedCoinMeta(coinType) {
-  const coin = hardcodedByType.get(normalizeCoinTypeForMatch(coinType));
-  if (!coin) return null;
-  const amounts = amountsFromCoinMetadata("0", coin.decimals);
-  if (!amounts.decimalsKnown) return null;
-  return {
-    decimals: amounts.decimals,
-    name: coin.name,
-    symbol: coin.symbol,
-    description: "",
-    iconUrl: coin.iconUrl || null
-  };
-}
-function usableMeta(meta) {
-  if (!meta) return null;
-  const amounts = amountsFromCoinMetadata("0", meta.decimals);
-  if (!amounts.decimalsKnown) return null;
-  return {
-    decimals: amounts.decimals,
-    name: meta.name ?? "",
-    symbol: meta.symbol ?? "",
-    description: meta.description ?? "",
-    iconUrl: meta.iconUrl || null
-  };
-}
-function parseMetadataResponse(body) {
-  if (!body || typeof body !== "object") return null;
-  const result = body.result;
-  if (!result || typeof result !== "object") return null;
-  return usableMeta(result);
-}
-async function fetchCoinMetadataFallback(coinType) {
-  for (const url of METADATA_FALLBACK_RPCS) {
-    try {
-      const response = await fetch(extFetchUrl(url), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "suix_getCoinMetadata",
-          params: [coinType]
-        }),
-        signal: AbortSignal.timeout(8e3)
-      });
-      if (!response.ok) continue;
-      const parsed = parseMetadataResponse(await response.json());
-      if (parsed) return parsed;
-    } catch {
-    }
-  }
-  return null;
-}
-async function resolveCoinMetadata(client, coinType, options) {
-  const cached2 = resolvedMetaCache.get(coinType);
-  if (cached2 !== void 0) return cached2;
-  const fromClient = usableMeta(
-    await withRpcBackoff(
-      () => client.getCoinMetadata({ coinType }),
-      { label: "wallet-coin-meta", retries: 3, baseMs: 450, maxTotalWaitMs: 1e4 }
-    ).catch(() => null)
-  );
-  if (fromClient) {
-    resolvedMetaCache.set(coinType, fromClient);
-    return fromClient;
-  }
-  const known = hardcodedCoinMeta(coinType);
-  if (known) {
-    resolvedMetaCache.set(coinType, known);
-    return known;
-  }
-  if (options?.allowNetworkFallback === false) {
-    resolvedMetaCache.set(coinType, null);
-    return null;
-  }
-  const fromFallback = await fetchCoinMetadataFallback(coinType);
-  resolvedMetaCache.set(coinType, fromFallback);
-  return fromFallback;
-}
-
 // src/services/cetusDlmmService.ts
 import Decimal8 from "decimal.js";
 var MAX_SANE_POSITION_USD4 = 5e7;
@@ -8623,16 +9422,21 @@ function feeFractionFromRaw(raw) {
   const n2 = Number(raw) / FEE_PRECISION;
   return Number.isFinite(n2) && n2 >= 0 ? n2 : 0;
 }
+function requireDlmmOwnerRows(rows, err) {
+  if (err) throw err instanceof Error ? err : new Error(String(err));
+  return rows ?? [];
+}
 async function getCetusDlmmPositions(walletAddress, options) {
   const sdk2 = getCetusDlmmSdk();
   sdk2.setSenderAddress(walletAddress);
-  let rows;
+  let listed;
+  let listErr;
   try {
-    rows = await sdk2.Position.getOwnerPositionList(walletAddress);
+    listed = await sdk2.Position.getOwnerPositionList(walletAddress);
   } catch (e) {
-    console.warn("[cetus-dlmm] getOwnerPositionList failed", e);
-    return [];
+    listErr = e;
   }
+  const rows = requireDlmmOwnerRows(listed, listErr);
   if (!rows.length) return [];
   const poolCache = /* @__PURE__ */ new Map();
   const feeCache = /* @__PURE__ */ new Map();
@@ -8864,201 +9668,9 @@ async function getCetusDlmmPositions(walletAddress, options) {
 
 // src/services/cetusVaultsService.ts
 import BN5 from "bn.js";
-import Decimal10 from "decimal.js";
-import { TickMath as TickMath5, Utils as Utils5 } from "@mmt-finance/clmm-sdk";
-import { normalizeStructTag as normalizeStructTag9, normalizeSuiAddress as normalizeSuiAddress11 } from "@mysten/sui/utils";
-
-// src/services/objectVersionCache.ts
-function asRpcObjectClient(client) {
-  return client;
-}
-var CHUNK2 = 50;
-function normId2(id) {
-  const t = id.trim().toLowerCase();
-  return t.startsWith("0x") ? t : `0x${t}`;
-}
-var ObjectVersionCache = class {
-  map = /* @__PURE__ */ new Map();
-  get(id) {
-    return this.map.get(normId2(id));
-  }
-  hasContent(id) {
-    const hit = this.get(id);
-    return hit != null && hit.content != null;
-  }
-  put(data) {
-    if (!data.objectId || data.content == null) return;
-    this.map.set(normId2(data.objectId), {
-      objectId: data.objectId,
-      version: String(data.version),
-      digest: data.digest,
-      type: data.type,
-      content: data.content
-    });
-  }
-  putResponses(res) {
-    for (const r of res) {
-      if (r.data?.content != null) this.put(r.data);
-    }
-  }
-  toResponse(id) {
-    const hit = this.get(id);
-    if (!hit) return null;
-    return { data: hit };
-  }
-  clear() {
-    this.map.clear();
-  }
-  size() {
-    return this.map.size;
-  }
-};
-var shared3 = null;
-function getObjectVersionCache() {
-  if (!shared3) shared3 = new ObjectVersionCache();
-  return shared3;
-}
-async function multiGetChunked(client, ids, options) {
-  const out = [];
-  for (let i = 0; i < ids.length; i += CHUNK2) {
-    const part = ids.slice(i, i + CHUNK2);
-    const res = await client.multiGetObjects({ ids: part, options });
-    out.push(...res);
-  }
-  return out;
-}
-async function multiGetObjectsHydrated(client, ids, opts) {
-  if (!ids.length) return [];
-  const cache3 = getObjectVersionCache();
-  const showType = opts?.showType !== false;
-  const showContent = opts?.showContent !== false;
-  const incremental = opts?.incremental === true;
-  if (!incremental) {
-    const res = await multiGetChunked(client, ids, { showContent, showType });
-    cache3.putResponses(res);
-    return res;
-  }
-  const needFull = [];
-  const versionCheck = [];
-  for (const id of ids) {
-    if (cache3.hasContent(id)) versionCheck.push(id);
-    else needFull.push(id);
-  }
-  if (versionCheck.length) {
-    const versionRes = await multiGetChunked(client, versionCheck, { showContent: false, showType: false });
-    for (const r of versionRes) {
-      const id = r.data?.objectId;
-      if (!id) continue;
-      const ver = r.data?.version != null ? String(r.data.version) : "";
-      const cached2 = cache3.get(id);
-      if (!cached2 || cached2.version !== ver) needFull.push(id);
-    }
-  }
-  const uniqueFull = [...new Set(needFull.map(normId2))];
-  const fullRes = uniqueFull.length ? await multiGetChunked(client, uniqueFull, { showContent: true, showType }) : [];
-  cache3.putResponses(fullRes);
-  const byId = /* @__PURE__ */ new Map();
-  for (const r of fullRes) {
-    if (r.data?.objectId) byId.set(normId2(r.data.objectId), r);
-  }
-  return ids.map((id) => {
-    const key = normId2(id);
-    const fresh = byId.get(key);
-    if (fresh) return fresh;
-    return cache3.toResponse(key) ?? { data: null };
-  });
-}
-
-// src/utils/cetusVault.ts
 import Decimal9 from "decimal.js";
-var CETUS_VAULTS_POOL_HANDLE = "0x9036bcc5aa7fd2cceec1659a6a1082871f45bc400c743f50063363457d1738bd";
-function shareLiquidityByLpAmount(lpTokenRaw, vaultLiquidity, totalSupply) {
-  if (totalSupply === "0" || totalSupply === "") return "0";
-  try {
-    const out = new Decimal9(lpTokenRaw || "0").mul(vaultLiquidity || "0").div(totalSupply).toFixed(0, Decimal9.ROUND_DOWN);
-    return out === "" ? "0" : out;
-  } catch {
-    return "0";
-  }
-}
-function typeArguments(structType) {
-  const lt = structType.indexOf("<");
-  const gt = structType.lastIndexOf(">");
-  if (lt < 0 || gt <= lt) return [];
-  const inner = structType.slice(lt + 1, gt);
-  const out = [];
-  let depth = 0;
-  let cur = "";
-  for (const ch of inner) {
-    if (ch === "<") {
-      depth++;
-      cur += ch;
-    } else if (ch === ">") {
-      depth--;
-      cur += ch;
-    } else if (ch === "," && depth === 0) {
-      const t = cur.trim();
-      if (t) out.push(t);
-      cur = "";
-    } else {
-      cur += ch;
-    }
-  }
-  const last = cur.trim();
-  if (last) out.push(last);
-  return out;
-}
-function firstTypeArgument(structType) {
-  return typeArguments(structType)[0] ?? null;
-}
-function vaultLpSharePct(lpTokenRaw, totalSupply) {
-  if (!totalSupply || totalSupply === "0") return null;
-  try {
-    const pct2 = new Decimal9(lpTokenRaw || "0").div(totalSupply).mul(100).toNumber();
-    return Number.isFinite(pct2) && pct2 >= 0 ? pct2 : null;
-  } catch {
-    return null;
-  }
-}
-function vaultFarmRewardAprPct(opts) {
-  const { vaultTvlUsd, vaultTotalSupply, farmLpStakedRaw, emissions } = opts;
-  if (!(vaultTvlUsd > 0) || !vaultTotalSupply || vaultTotalSupply === "0") return null;
-  if (!farmLpStakedRaw || farmLpStakedRaw === "0") return null;
-  try {
-    const farmTvl = new Decimal9(vaultTvlUsd).mul(farmLpStakedRaw).div(vaultTotalSupply);
-    if (farmTvl.lte(0)) return null;
-    const secYear = new Decimal9(365).mul(86400);
-    let usdPerYear = new Decimal9(0);
-    for (const e of emissions) {
-      if (!(e.priceUsd > 0) || !e.ratePerSec || e.ratePerSec === "0") continue;
-      const humanPerSec = new Decimal9(e.ratePerSec).div(new Decimal9(10).pow(e.decimals));
-      usdPerYear = usdPerYear.plus(humanPerSec.mul(secYear).mul(e.priceUsd));
-    }
-    if (usdPerYear.lte(0)) return null;
-    const apr = usdPerYear.div(farmTvl).mul(100).toNumber();
-    return Number.isFinite(apr) && apr >= 0 ? apr : null;
-  } catch {
-    return null;
-  }
-}
-function dynamicFieldChildId(item) {
-  const name = item.name;
-  const nameType = name && typeof name === "object" && "type" in name ? String(name.type ?? "") : "";
-  const fromName = (() => {
-    if (typeof name === "string" && name.startsWith("0x")) return name;
-    if (!name || typeof name !== "object") return null;
-    const n2 = name;
-    if (typeof n2.value === "string" && n2.value.startsWith("0x")) return n2.value;
-    if (n2.value && typeof n2.value === "object") {
-      const v = n2.value;
-      if (typeof v.id === "string" && v.id.startsWith("0x")) return v.id;
-    }
-    return null;
-  })();
-  if (/::object::ID$/i.test(nameType) && fromName) return fromName;
-  if (typeof item.objectId === "string" && item.objectId.startsWith("0x")) return item.objectId;
-  return fromName;
-}
+import { TickMath as TickMath5, Utils as Utils5 } from "@mmt-finance/clmm-sdk";
+import { normalizeStructTag as normalizeStructTag9, normalizeSuiAddress as normalizeSuiAddress12 } from "@mysten/sui/utils";
 
 // src/services/vaultLpStakeService.ts
 import { normalizeStructTag as normalizeStructTag7 } from "@mysten/sui/utils";
@@ -9076,7 +9688,7 @@ function currentRewardRate(cfg, nowSec) {
   const changeAt = readU642(cfg.rate_change_at);
   return nowSec < changeAt ? readU642(cfg.reward_rate_before) : readU642(cfg.reward_rate_after);
 }
-function unwrap(val) {
+function unwrap3(val) {
   if (!val || typeof val !== "object") return null;
   const o = val;
   if (o.fields && typeof o.fields === "object") return o.fields;
@@ -9105,7 +9717,7 @@ function readU642(v) {
 }
 function readTypeName(v) {
   if (typeof v === "string") return normType3(v);
-  const f = unwrap(v);
+  const f = unwrap3(v);
   if (typeof f?.name === "string") return normType3(f.name);
   return null;
 }
@@ -9114,12 +9726,12 @@ function symbolFromCoinType4(ct) {
   return parts[2] ?? parts[1] ?? "REWARD";
 }
 function vecMapEntries(raw) {
-  const f = unwrap(raw);
+  const f = unwrap3(raw);
   const contents = f?.contents;
   if (!Array.isArray(contents)) return [];
   const out = [];
   for (const item of contents) {
-    const row = unwrap(item);
+    const row = unwrap3(item);
     if (!row) continue;
     out.push({ key: row.key, value: row.value });
   }
@@ -9166,7 +9778,7 @@ async function getStakedVaultLpByType(owner) {
     for (const item of page.data ?? []) {
       const type = item.data?.type ?? "";
       const lpType = firstTypeArgument(type);
-      const fields = unwrap(
+      const fields = unwrap3(
         item.data?.content?.fields
       );
       const depositRaw = fields?.deposit;
@@ -9188,7 +9800,7 @@ async function getStakedVaultLpByType(owner) {
     const id = item?.data?.objectId;
     const content = item?.data?.content;
     if (!id || content?.dataType !== "moveObject") continue;
-    const f = unwrap(content.fields);
+    const f = unwrap3(content.fields);
     const amount = typeof f?.amount === "string" ? f.amount : null;
     if (!amount || !/^\d+$/.test(amount)) continue;
     amountByDeposit.set(id, amount);
@@ -9227,7 +9839,7 @@ async function getVaultStakeIncentiveSnapshot(owner) {
     for (const item of page.data ?? []) {
       const type = item.data?.type ?? "";
       const lpType = firstTypeArgument(type);
-      const fields = unwrap(
+      const fields = unwrap3(
         item.data?.content?.fields
       );
       const depositRaw = fields?.deposit;
@@ -9251,7 +9863,7 @@ async function getVaultStakeIncentiveSnapshot(owner) {
     const id = item?.data?.objectId;
     const content = item?.data?.content;
     if (!id || content?.dataType !== "moveObject") continue;
-    const f = unwrap(content.fields);
+    const f = unwrap3(content.fields);
     if (f) byId.set(id, f);
   }
   const nowSec = BigInt(Math.floor(Date.now() / 1e3));
@@ -9292,7 +9904,7 @@ async function getVaultStakeIncentiveSnapshot(owner) {
     const emissions = [];
     for (const e of vecMapEntries(pool.reward_configs)) {
       const rewardType = readTypeName(e.key);
-      const cfg = unwrap(e.value);
+      const cfg = unwrap3(e.value);
       if (!rewardType || !cfg) continue;
       const meta = await rewardMeta(rewardType);
       const rate = currentRewardRate(
@@ -9355,7 +9967,7 @@ async function getVaultStakeIncentiveSnapshot(owner) {
 }
 
 // src/services/cetusPoolStats.ts
-import { normalizeStructTag as normalizeStructTag8, normalizeSuiAddress as normalizeSuiAddress10 } from "@mysten/sui/utils";
+import { normalizeStructTag as normalizeStructTag8, normalizeSuiAddress as normalizeSuiAddress11 } from "@mysten/sui/utils";
 var STATS_URL = "https://api-sui.cetus.zone/v2/sui/stats_pools?limit=200";
 var CACHE_TTL_MS2 = 5 * 6e4;
 var HAEDAL_VAULT_PERFORMANCE_FEE = 0.16;
@@ -9375,7 +9987,7 @@ var cache = null;
 var inflight = null;
 function normPoolId(id) {
   try {
-    return normalizeSuiAddress10(id);
+    return normalizeSuiAddress11(id);
   } catch {
     return null;
   }
@@ -9607,22 +10219,22 @@ var MAX_SANE_POSITION_USD5 = 5e7;
 var MAX_SANE_HUMAN_TOKENS5 = 1e18;
 var VAULT_LIST_TTL_MS = 60 * 6e4;
 var vaultListCache = null;
-function unwrap2(val) {
+function unwrap4(val) {
   if (!val || typeof val !== "object") return null;
   const o = val;
   if (o.fields && typeof o.fields === "object") return o.fields;
   return o;
 }
-function parseUid(val) {
+function parseUid2(val) {
   if (typeof val === "string" && val.startsWith("0x")) return val;
-  const f = unwrap2(val);
+  const f = unwrap4(val);
   if (typeof f?.id === "string") return f.id;
   return null;
 }
-function readI322(val) {
+function readI323(val) {
   let bits;
   if (val != null && typeof val === "object") {
-    const fields = unwrap2(val) ?? val;
+    const fields = unwrap4(val) ?? val;
     bits = Number(fields.bits ?? 0);
   } else {
     bits = Number(val ?? 0);
@@ -9641,7 +10253,7 @@ function normType4(raw) {
 }
 function parseTypeName2(val) {
   if (typeof val === "string") return normType4(val);
-  const f = unwrap2(val);
+  const f = unwrap4(val);
   if (typeof f?.name === "string") return normType4(f.name);
   return null;
 }
@@ -9656,7 +10268,7 @@ function clampUsd4(v) {
 function humanFromRaw2(raw, decimals) {
   try {
     if (!/^\d+$/.test(raw) || !Number.isFinite(decimals) || decimals < 0) return 0;
-    const n2 = new Decimal10(raw).div(new Decimal10(10).pow(decimals)).toNumber();
+    const n2 = new Decimal9(raw).div(new Decimal9(10).pow(decimals)).toNumber();
     if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS5) return 0;
     return n2;
   } catch {
@@ -9664,31 +10276,31 @@ function humanFromRaw2(raw, decimals) {
   }
 }
 function parseFarmsNft(raw) {
-  const f = unwrap2(raw);
+  const f = unwrap4(raw);
   if (!f) return null;
   if (f.value != null && f.clmm_postion == null && f.clmm_position == null) {
     return parseFarmsNft(f.value);
   }
-  const clmm = unwrap2(f.clmm_postion) ?? unwrap2(f.clmm_position);
+  const clmm = unwrap4(f.clmm_postion) ?? unwrap4(f.clmm_position);
   if (!clmm) return null;
   const coinA = parseTypeName2(clmm.coin_type_a);
   const coinB = parseTypeName2(clmm.coin_type_b);
   if (!coinA || !coinB) return null;
   return {
-    tickLower: readI322(clmm.tick_lower_index),
-    tickUpper: readI322(clmm.tick_upper_index),
+    tickLower: readI323(clmm.tick_lower_index),
+    tickUpper: readI323(clmm.tick_upper_index),
     coinTypeA: coinA,
     coinTypeB: coinB
   };
 }
 function parseVaultObject(objectId, typeStr, fields) {
-  const f = unwrap2(fields);
+  const f = unwrap4(fields);
   if (!f) return null;
-  const id = parseUid(f.id) ?? objectId;
+  const id = parseUid2(f.id) ?? objectId;
   const poolId = typeof f.pool === "string" ? f.pool : null;
   const liquidity = f.liquidity != null ? String(f.liquidity) : "0";
-  const treasury = unwrap2(f.lp_token_treasury);
-  const supplyWrap = unwrap2(treasury?.total_supply);
+  const treasury = unwrap4(f.lp_token_treasury);
+  const supplyWrap = unwrap4(treasury?.total_supply);
   const totalSupply = supplyWrap?.value != null ? String(supplyWrap.value) : "0";
   const lpFromType = typeStr ? firstTypeArgument(typeStr) : null;
   const lpTokenType = lpFromType ? normType4(lpFromType) : null;
@@ -9697,8 +10309,8 @@ function parseVaultObject(objectId, typeStr, fields) {
   const fromVec = positions.length > 0 ? parseFarmsNft(positions[0]) : null;
   try {
     return {
-      id: normalizeSuiAddress11(id),
-      poolId: normalizeSuiAddress11(poolId),
+      id: normalizeSuiAddress12(id),
+      poolId: normalizeSuiAddress12(poolId),
       lpTokenType,
       liquidity,
       totalSupply,
@@ -10029,20 +10641,20 @@ async function getCetusVaultPositions(walletAddress, options) {
 
 // src/services/haedalVaultsService.ts
 import BN6 from "bn.js";
-import Decimal11 from "decimal.js";
+import Decimal10 from "decimal.js";
 import { TickMath as TickMath6, Utils as Utils6 } from "@mmt-finance/clmm-sdk";
-import { normalizeStructTag as normalizeStructTag10, normalizeSuiAddress as normalizeSuiAddress12 } from "@mysten/sui/utils";
+import { normalizeStructTag as normalizeStructTag10, normalizeSuiAddress as normalizeSuiAddress13 } from "@mysten/sui/utils";
 
 // src/services/haedalOraclePrices.ts
 var PRICE_URL = "https://haedal.xyz/api/v1/price/now";
 var CACHE_TTL_MS3 = 6e4;
 var cache2 = null;
 var inflight2 = /* @__PURE__ */ new Map();
-function symKey(symbol) {
+function symKey2(symbol) {
   return symbol.trim().toUpperCase();
 }
 async function fetchHaedalUsd(symbol) {
-  const key = symKey(symbol);
+  const key = symKey2(symbol);
   if (!key) return null;
   if (cache2 && Date.now() - cache2.at < CACHE_TTL_MS3) {
     const hit = cache2.bySym.get(key);
@@ -10175,23 +10787,23 @@ function rememberVaultList(vaults) {
   writeStoredVaultList(vaultListCache2);
   return vaults;
 }
-function unwrap3(val) {
+function unwrap5(val) {
   if (!val || typeof val !== "object") return null;
   const o = val;
   if (o.fields && typeof o.fields === "object") return o.fields;
   return o;
 }
-function parseUid2(val) {
+function parseUid3(val) {
   if (typeof val === "string" && val.startsWith("0x")) return val;
-  const f = unwrap3(val);
+  const f = unwrap5(val);
   if (typeof f?.id === "string") return f.id;
   if (typeof f?.bytes === "string") return f.bytes;
   return null;
 }
-function readI323(val) {
+function readI324(val) {
   let bits;
   if (val != null && typeof val === "object") {
-    const fields = unwrap3(val) ?? val;
+    const fields = unwrap5(val) ?? val;
     bits = Number(fields.bits ?? 0);
   } else {
     bits = Number(val ?? 0);
@@ -10210,7 +10822,7 @@ function normType5(raw) {
 }
 function parseTypeName3(val) {
   if (typeof val === "string") return normType5(val);
-  const f = unwrap3(val);
+  const f = unwrap5(val);
   if (typeof f?.name === "string") return normType5(f.name);
   if (typeof f?.pos0 === "string") return parseTypeName3(f.pos0);
   return null;
@@ -10220,7 +10832,7 @@ function parseQuoteCoinType(val, coinA, coinB) {
   if (direct) return direct;
   if (!val || typeof val !== "object") return null;
   const o = val;
-  const fields = unwrap3(o.fields) ?? unwrap3(val);
+  const fields = unwrap5(o.fields) ?? unwrap5(val);
   const fromPos = fields ? parseTypeName3(fields.pos0) : null;
   if (fromPos) return fromPos;
   const variant = typeof o.variant === "string" ? o.variant.toLowerCase() : "";
@@ -10239,7 +10851,7 @@ function clampUsd5(v) {
 function humanFromRaw3(raw, decimals) {
   try {
     if (!/^\d+$/.test(raw) || !Number.isFinite(decimals) || decimals < 0) return 0;
-    const n2 = new Decimal11(raw).div(new Decimal11(10).pow(decimals)).toNumber();
+    const n2 = new Decimal10(raw).div(new Decimal10(10).pow(decimals)).toNumber();
     if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS6) return 0;
     return n2;
   } catch {
@@ -10256,12 +10868,12 @@ function addAmt(map, coin, raw) {
 }
 function readBagAmounts(raw) {
   const out = /* @__PURE__ */ new Map();
-  const f = unwrap3(raw);
+  const f = unwrap5(raw);
   if (!f) return out;
-  const balances = unwrap3(f.balances) ?? f;
+  const balances = unwrap5(f.balances) ?? f;
   const contents = Array.isArray(balances?.contents) ? balances.contents : Array.isArray(f.contents) ? f.contents : [];
   for (const item of contents) {
-    const row = unwrap3(item);
+    const row = unwrap5(item);
     if (!row) continue;
     const key = parseTypeName3(row.key);
     if (!key || row.value == null) continue;
@@ -10270,22 +10882,22 @@ function readBagAmounts(raw) {
   return out;
 }
 function parseVaultObject2(objectId, typeStr, fields) {
-  const f = unwrap3(fields);
+  const f = unwrap5(fields);
   if (!f) return null;
-  const id = parseUid2(f.id) ?? objectId;
+  const id = parseUid3(f.id) ?? objectId;
   const lpFromType = typeStr ? firstTypeArgument(typeStr) : null;
   const lpTokenType = lpFromType ? normType5(lpFromType) : null;
   const coinA = parseTypeName3(f.coin_type_a);
   const coinB = parseTypeName3(f.coin_type_b);
-  const treasury = unwrap3(f.lp_token_treasury);
-  const supplyWrap = unwrap3(treasury?.total_supply);
+  const treasury = unwrap5(f.lp_token_treasury);
+  const supplyWrap = unwrap5(treasury?.total_supply);
   const totalSupply = supplyWrap?.value != null ? String(supplyWrap.value) : "0";
-  const markets = unwrap3(f.markets);
-  const marketsHandle = parseUid2(markets?.id);
+  const markets = unwrap5(f.markets);
+  const marketsHandle = parseUid3(markets?.id);
   if (!lpTokenType || !coinA || !coinB || !marketsHandle) return null;
   try {
     return {
-      id: normalizeSuiAddress12(id),
+      id: normalizeSuiAddress13(id),
       lpTokenType,
       totalSupply,
       coinTypeA: coinA,
@@ -10293,7 +10905,7 @@ function parseVaultObject2(objectId, typeStr, fields) {
       quoteType: parseQuoteCoinType(f.quote_type, coinA, coinB) ?? void 0,
       lastAum: f.last_aum != null ? String(f.last_aum) : "0",
       buffer: readBagAmounts(f.buffer_assets),
-      marketsHandle: normalizeSuiAddress12(marketsHandle)
+      marketsHandle: normalizeSuiAddress13(marketsHandle)
     };
   } catch {
     return null;
@@ -10390,28 +11002,28 @@ async function listVaults2(forceRefresh) {
   }
 }
 function parseMarketOrPosition(raw, typeStr) {
-  const f = unwrap3(raw);
+  const f = unwrap5(raw);
   if (!f) return null;
   if (f.value != null && f.positions == null && f.position == null && f.amounts == null) {
-    const inner = unwrap3(f.value) ?? f.value;
+    const inner = unwrap5(f.value) ?? f.value;
     const innerType = inner && typeof inner === "object" && "type" in inner ? String(inner.type ?? "") : typeStr;
     return parseMarketOrPosition(inner, innerType);
   }
   const type = typeStr ?? "";
-  const posHandle = parseUid2(unwrap3(f.positions)?.id);
+  const posHandle = parseUid3(unwrap5(f.positions)?.id);
   if (posHandle) {
     return {
       kind: "market",
-      positionsHandle: normalizeSuiAddress12(posHandle),
+      positionsHandle: normalizeSuiAddress13(posHandle),
       isClmm: /CLMMMarket/i.test(type)
     };
   }
-  const pos = unwrap3(f.position) ?? f;
+  const pos = unwrap5(f.position) ?? f;
   const amounts = readBagAmounts(f.amounts);
   const pool = typeof pos.pool === "string" ? pos.pool : typeof pos.pool_id === "string" ? pos.pool_id : void 0;
   const liqRaw = pos.liquidity != null ? String(pos.liquidity) : void 0;
-  const tickLower = pos.tick_lower_index != null ? readI323(pos.tick_lower_index) : void 0;
-  const tickUpper = pos.tick_upper_index != null ? readI323(pos.tick_upper_index) : void 0;
+  const tickLower = pos.tick_lower_index != null ? readI324(pos.tick_lower_index) : void 0;
+  const tickUpper = pos.tick_upper_index != null ? readI324(pos.tick_upper_index) : void 0;
   const isClmm = tickLower != null && tickUpper != null && liqRaw != null && /^\d+$/.test(liqRaw) && liqRaw !== "0" || /CLMM/i.test(type);
   return {
     kind: "position",
@@ -10419,7 +11031,7 @@ function parseMarketOrPosition(raw, typeStr) {
       amounts,
       tickLower,
       tickUpper,
-      poolId: pool ? normalizeSuiAddress12(pool) : void 0,
+      poolId: pool ? normalizeSuiAddress13(pool) : void 0,
       liquidity: liqRaw && /^\d+$/.test(liqRaw) ? liqRaw : void 0,
       isClmm
     }
@@ -10829,8 +11441,8 @@ async function getHaedalVaultPositions(walletAddress, options) {
 }
 
 // src/services/haedalLendingVaultsService.ts
-import Decimal12 from "decimal.js";
-import { normalizeStructTag as normalizeStructTag11, normalizeSuiAddress as normalizeSuiAddress13 } from "@mysten/sui/utils";
+import Decimal11 from "decimal.js";
+import { normalizeStructTag as normalizeStructTag11, normalizeSuiAddress as normalizeSuiAddress14 } from "@mysten/sui/utils";
 
 // src/utils/haedalLendingVault.ts
 var HAEDAL_LENDING_FARMING_PACKAGE = "0xbddc4ecfd16683d1859500a5db1fb2cf00eeecb6719b76066bdc39c74dd03251";
@@ -10886,7 +11498,7 @@ function pendingLendingFarmRewardRaw(opts) {
 // src/services/haedalLendingVaultsService.ts
 var MAX_SANE_POSITION_USD7 = 5e7;
 var MAX_SANE_HUMAN = 1e18;
-function unwrap4(val) {
+function unwrap6(val) {
   if (!val || typeof val !== "object") return null;
   const o = val;
   if (o.fields && typeof o.fields === "object") return o.fields;
@@ -10914,7 +11526,7 @@ function clampUsd6(v) {
 function humanFromRaw4(raw, decimals) {
   if (decimals < 0 || !Number.isFinite(decimals)) return 0;
   try {
-    const n2 = new Decimal12(raw.toString()).div(new Decimal12(10).pow(decimals)).toNumber();
+    const n2 = new Decimal11(raw.toString()).div(new Decimal11(10).pow(decimals)).toNumber();
     if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN) return 0;
     return n2;
   } catch {
@@ -10949,7 +11561,7 @@ async function listStakeInfos(owner) {
       const type = item.data?.type ?? "";
       const shareType = lendingStakeShareType(type);
       if (!shareType) continue;
-      const fields = unwrap4(item.data?.content?.fields);
+      const fields = unwrap6(item.data?.content?.fields);
       const poolId = typeof fields?.pool === "string" ? fields.pool : "";
       const objectId = item.data?.objectId;
       if (!poolId || !objectId) continue;
@@ -10961,15 +11573,15 @@ async function listStakeInfos(owner) {
   return out;
 }
 function parseRewardConfigs(raw) {
-  const f = unwrap4(raw);
+  const f = unwrap6(raw);
   const contents = f?.contents;
   if (!Array.isArray(contents)) return [];
   const out = [];
   for (const row of contents) {
-    const entry = unwrap4(row);
-    const key = unwrap4(entry?.key);
+    const entry = unwrap6(row);
+    const key = unwrap6(entry?.key);
     const name = typeof key?.name === "string" ? key.name : "";
-    const value = unwrap4(entry?.value);
+    const value = unwrap6(entry?.value);
     if (!name || !value) continue;
     out.push({
       coinType: normCoin(normalizeTypeName(name)),
@@ -10985,8 +11597,8 @@ function parseRewardConfigs(raw) {
 function parseFarmPool(objectId, type, fields) {
   const shareType = splitMoveTypeArgs(type)[0];
   const vaultId = typeof fields.source_addr === "string" ? fields.source_addr : "";
-  const positions = unwrap4(fields.positions);
-  const tableId = unwrap4(positions?.id)?.id;
+  const positions = unwrap6(fields.positions);
+  const tableId = unwrap6(positions?.id)?.id;
   if (!shareType || !vaultId || typeof tableId !== "string") return null;
   return {
     id: objectId,
@@ -11001,11 +11613,11 @@ function parseFarmPool(objectId, type, fields) {
 function debtFor(fields, coinType) {
   const want = normCoin(coinType);
   const read2 = (bag) => {
-    const contents = unwrap4(bag)?.contents;
+    const contents = unwrap6(bag)?.contents;
     if (!Array.isArray(contents)) return 0n;
     for (const row of contents) {
-      const entry = unwrap4(row);
-      const name = unwrap4(entry?.key)?.name;
+      const entry = unwrap6(row);
+      const name = unwrap6(entry?.key)?.name;
       if (typeof name !== "string") continue;
       if (normCoin(normalizeTypeName(name)) === want) return asBig(entry?.value);
     }
@@ -11014,7 +11626,7 @@ function debtFor(fields, coinType) {
   return { debt: read2(fields.debts), stored: read2(fields.pending_rewards) };
 }
 async function getHaedalLendingVaultPositions(owner, options) {
-  const ownerNorm = normalizeSuiAddress13(owner);
+  const ownerNorm = normalizeSuiAddress14(owner);
   const stakes = await listStakeInfos(ownerNorm);
   if (stakes.length === 0) return [];
   const poolIds = [...new Set(stakes.map((s) => s.poolId))];
@@ -11050,8 +11662,8 @@ async function getHaedalLendingVaultPositions(owner, options) {
         }),
         { label: "haedal-lending-position", retries: 3, baseMs: 500 }
       );
-      const value = unwrap4(
-        unwrap4(pos.data?.content?.fields)?.value
+      const value = unwrap6(
+        unwrap6(pos.data?.content?.fields)?.value
       );
       if (!value) return;
       const shares = asBig(value.shares);
@@ -11107,8 +11719,8 @@ async function getHaedalLendingVaultPositions(owner, options) {
     const farm = farmByVault.get(obj.objectId);
     if (!assetType || !farm) continue;
     const shareType = normCoin(shareFromType || farm.shareType);
-    const treasury = unwrap4(fields.share_treasury);
-    const totalSupply = asBig(unwrap4(treasury?.total_supply)?.value);
+    const treasury = unwrap6(fields.share_treasury);
+    const totalSupply = asBig(unwrap6(treasury?.total_supply)?.value);
     const staked = stakedByVault.get(obj.objectId) ?? 0n;
     const wallet = walletByShare.get(shareType) ?? 0n;
     const userShares = staked + wallet;
@@ -11251,6 +11863,12 @@ async function getHaedalLendingVaultPositions(owner, options) {
     });
   }
   return out;
+}
+
+// src/services/server/advisorWalletCacheKey.ts
+import { normalizeSuiAddress as normalizeSuiAddress15 } from "@mysten/sui/utils";
+function advisorWalletCacheKey(wallet) {
+  return normalizeSuiAddress15(wallet).toLowerCase();
 }
 
 // src/services/currentMultiplyVaultsService.ts
@@ -11403,7 +12021,7 @@ function finiteOrNull(n2) {
   return n2 != null && Number.isFinite(n2) ? n2 : null;
 }
 async function getCurrentMultiplyVaultPositions(walletAddress, _opts) {
-  const key = walletAddress.toLowerCase();
+  const key = advisorWalletCacheKey(walletAddress);
   const prev = multiplyInFlight.get(key);
   if (prev) return prev;
   const work = loadCurrentMultiplyVaultPositionsOnce(walletAddress, _opts).then((rows) => {
@@ -11705,8 +12323,8 @@ async function loadCurrentMultiplyVaultPositionsOnce(walletAddress, _opts) {
 
 // src/services/turbosService.ts
 import { TickMath as TickMath7, Utils as Utils7 } from "@mmt-finance/clmm-sdk";
-import { normalizeStructTag as normalizeStructTag12, normalizeSuiAddress as normalizeSuiAddress14 } from "@mysten/sui/utils";
-import Decimal13 from "decimal.js";
+import { normalizeStructTag as normalizeStructTag12, normalizeSuiAddress as normalizeSuiAddress16 } from "@mysten/sui/utils";
+import Decimal12 from "decimal.js";
 import BN7 from "bn.js";
 var TURBOS_POSITION_TYPE = `${PROTOCOL_PACKAGES.TURBOS}::position_nft::TurbosPositionNFT`;
 var MAX_SANE_POSITION_USD8 = 5e7;
@@ -11754,10 +12372,10 @@ function extractTypeName(val) {
   if (typeof name !== "string" || !name) return null;
   return normCoinType3(name);
 }
-function normId3(raw) {
+function normId4(raw) {
   if (typeof raw !== "string") return "";
   try {
-    return normalizeSuiAddress14(raw.trim());
+    return normalizeSuiAddress16(raw.trim());
   } catch {
     return raw.trim();
   }
@@ -11777,7 +12395,7 @@ function safeHumanFromBnRaw3(rawBn, decimals) {
   try {
     const raw = rawBn.toString(10);
     if (!/^\d+$/.test(raw) || !Number.isFinite(decimals) || decimals < 0) return 0;
-    const d = new Decimal13(raw).div(new Decimal13(10).pow(decimals));
+    const d = new Decimal12(raw).div(new Decimal12(10).pow(decimals));
     const n2 = d.toNumber();
     if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS7) return 0;
     return n2;
@@ -11812,9 +12430,9 @@ function parseNftObject(obj) {
   const content = data.content;
   if (!content) return null;
   const fields = content.fields ?? content;
-  const nftId = normId3(data.objectId ?? data.id?.id);
-  const poolId = normId3(fields.pool_id);
-  const positionId = normId3(fields.position_id);
+  const nftId = normId4(data.objectId ?? data.id?.id);
+  const poolId = normId4(fields.pool_id);
+  const positionId = normId4(fields.position_id);
   if (!nftId || !poolId || !positionId) return null;
   const coinTypeA = extractTypeName(fields.coin_type_a);
   const coinTypeB = extractTypeName(fields.coin_type_b);
@@ -11928,32 +12546,12 @@ async function fetchTurbosTickFeeGrowth(poolId, tickRaw, tickIndex) {
     return null;
   }
 }
-var U128_MAX_PLUS_1 = 2n ** 128n;
-function computeFeeGrowthInside(feeGrowthGlobal, lowerFeeGrowthOutside, upperFeeGrowthOutside, lowerTick, upperTick, currentTick) {
-  const feeGrowthBelow = currentTick >= lowerTick ? lowerFeeGrowthOutside : (feeGrowthGlobal - lowerFeeGrowthOutside + U128_MAX_PLUS_1) % U128_MAX_PLUS_1;
-  const feeGrowthAbove = currentTick < upperTick ? upperFeeGrowthOutside : (feeGrowthGlobal - upperFeeGrowthOutside + U128_MAX_PLUS_1) % U128_MAX_PLUS_1;
-  return (feeGrowthGlobal - feeGrowthBelow - feeGrowthAbove + 2n * U128_MAX_PLUS_1) % U128_MAX_PLUS_1;
-}
-var U64_MAX = 18446744073709551615n;
-function computeTotalOwed(tokensOwedRaw, feeGrowthInsideNow, feeGrowthInsideLast, liquidity) {
-  try {
-    const liq = BigInt(liquidity);
-    if (liq === 0n) return tokensOwedRaw;
-    const owed = BigInt(tokensOwedRaw);
-    const delta = (feeGrowthInsideNow - feeGrowthInsideLast + U128_MAX_PLUS_1) % U128_MAX_PLUS_1;
-    const live = delta * liq >> 128n;
-    const total = owed + live > U64_MAX ? owed : owed + live;
-    return total.toString();
-  } catch {
-    return tokensOwedRaw;
-  }
-}
 function computeTotalRewardOwed(amountOwedRaw, rewardGrowthInsideNow, rewardGrowthInsideLast, liquidity) {
   try {
     const liq = BigInt(liquidity);
     if (liq === 0n) return amountOwedRaw;
     const owed = BigInt(amountOwedRaw);
-    const delta = (rewardGrowthInsideNow - rewardGrowthInsideLast + U128_MAX_PLUS_1) % U128_MAX_PLUS_1;
+    const delta = (rewardGrowthInsideNow - rewardGrowthInsideLast + U128_MOD) % U128_MOD;
     const live = delta * liq >> 64n;
     const total = owed + live > U64_MAX ? owed : owed + live;
     return total.toString();
@@ -11961,27 +12559,24 @@ function computeTotalRewardOwed(amountOwedRaw, rewardGrowthInsideNow, rewardGrow
     return amountOwedRaw;
   }
 }
-async function getTurbosPositions(walletAddress) {
-  const nfts = [];
-  let cursor = null;
-  do {
-    const page = await suiClient.getOwnedObjects({
-      owner: walletAddress,
-      cursor: cursor ?? void 0,
-      filter: { StructType: TURBOS_POSITION_TYPE },
-      options: { showContent: true, showType: true }
-    });
-    for (const item of page.data) {
-      const parsed = parseNftObject(item);
-      if (parsed) nfts.push(parsed);
-    }
-    cursor = page.hasNextPage ? page.nextCursor ?? null : null;
-  } while (cursor);
-  if (nfts.length === 0) return [];
-  const positionObjs = await suiClient.multiGetObjects({
-    ids: nfts.map((n2) => n2.positionId),
-    options: { showContent: true }
+async function getTurbosPositions(walletAddress, options) {
+  const incremental = options?.incremental === true;
+  const owned = await listOwnedMoveObjects(asRpcObjectClient(suiClient), {
+    owner: walletAddress,
+    filter: { StructType: TURBOS_POSITION_TYPE },
+    incremental
   });
+  const nfts = [];
+  for (const item of owned) {
+    const parsed = parseNftObject(item);
+    if (parsed) nfts.push(parsed);
+  }
+  if (nfts.length === 0) return [];
+  const positionObjs = await multiGetObjectsHydrated(
+    asRpcObjectClient(suiClient),
+    nfts.map((n2) => n2.positionId),
+    { incremental }
+  );
   const posData = /* @__PURE__ */ new Map();
   for (let i = 0; i < nfts.length; i++) {
     const raw = positionObjs[i];
@@ -11994,10 +12589,7 @@ async function getTurbosPositions(walletAddress) {
   const openNfts = nfts.filter((n2) => posData.has(n2.positionId));
   if (openNfts.length === 0) return [];
   const uniquePoolIds = [...new Set(openNfts.map((n2) => n2.poolId))];
-  const poolObjs = await suiClient.multiGetObjects({
-    ids: uniquePoolIds,
-    options: { showContent: true }
-  });
+  const poolObjs = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), uniquePoolIds, { incremental });
   const poolData = /* @__PURE__ */ new Map();
   for (let i = 0; i < uniquePoolIds.length; i++) {
     const raw = poolObjs[i];
@@ -12246,8 +12838,10 @@ async function getAftermathSdk() {
   if (_sdkInflight) return _sdkInflight;
   _sdkInflight = (async () => {
     try {
-      const a = new Aftermath2("MAINNET");
-      await a.init({ fullnodeUrl: getRpcUrl() });
+      const a = await Aftermath2.create({
+        network: "MAINNET",
+        fullnodeUrl: getRpcUrl()
+      });
       _sdk = a;
       return a;
     } catch (err) {
@@ -12652,11 +13246,6 @@ function logSnapErr(part, e) {
   const msg = e instanceof Error ? e.message : String(e);
   console.error(`[snapshot] ${part}:`, msg);
 }
-async function loadPortfolioSnapshotForAddress(rawAddress) {
-  const full = await loadPortfolioSnapshotDetailed(rawAddress);
-  if (full.incomplete || !full.snapshot) return null;
-  return { ...full.snapshot, incomplete: false, lpSources: full.lpSources };
-}
 async function loadPortfolioSnapshotDetailed(rawAddress) {
   let result = await loadPortfolioSnapshotDetailedOnce(rawAddress);
   if (result.incomplete && resolveSuiDataTransport() !== "jsonrpc") {
@@ -12679,7 +13268,7 @@ async function loadPortfolioSnapshotDetailed(rawAddress) {
   return result;
 }
 async function loadPortfolioSnapshotDetailedOnce(rawAddress) {
-  const walletAddr = normalizeSuiAddress15(rawAddress).toLowerCase();
+  const walletAddr = normalizeSuiAddress17(rawAddress).toLowerCase();
   const client = createServerSuiClient();
   const lendingSources = [];
   let balanceOk = true;
@@ -12764,12 +13353,7 @@ function assemblePortfolioSnapshot(input) {
   let lpUSD = 0;
   let aftermathUSD = 0;
   for (const p of input.positions) {
-    let val = null;
-    if (isCurrentMultiplyVaultPosition(p)) {
-      val = multiplyPortfolioContribution(p).usd;
-    } else {
-      val = positionValueUsdOrNull(p) ?? liquidityUsdOrNull(p);
-    }
+    const val = isCurrentMultiplyVaultPosition(p) ? multiplyPortfolioContribution(p).usd : positionValueUsdOrNull(p) ?? liquidityUsdOrNull(p);
     if (val == null) continue;
     if (p.protocol === "aftermath") aftermathUSD += val;
     else lpUSD += val;
@@ -12809,7 +13393,9 @@ function assemblePortfolioSnapshot(input) {
 
 // server/cronEntry.ts
 async function runPortfolioSnapshotForWallet(wallet) {
-  return loadPortfolioSnapshotForAddress(wallet);
+  const full = await loadPortfolioSnapshotDetailed(wallet);
+  if (full.incomplete || !full.snapshot || full.snapshot.incomplete) return null;
+  return { ...full.snapshot, incomplete: false };
 }
 export {
   runPortfolioSnapshotForWallet

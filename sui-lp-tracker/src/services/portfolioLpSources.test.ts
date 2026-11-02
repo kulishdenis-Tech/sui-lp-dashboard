@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import type { OpenPosition } from '@/types'
 import { loadAllPortfolioLpSources, PORTFOLIO_LP_SOURCE_IDS } from './portfolioLpSources'
 
 // Mock all the LP service modules
@@ -105,7 +106,7 @@ describe('QA-2026-11-01-02: Portfolio LP sources parallelization', () => {
 		vi.mocked(getMomentumPositions).mockRejectedValueOnce(new Error('RPC timeout'))
 		// Bluefin succeeds with a position
 		vi.mocked(getBluefinSpotPositions).mockResolvedValueOnce([
-			{ id: 'bf-1', protocol: 'bluefin', currentValueUSD: 100 } as any,
+			{ id: 'bf-1', protocol: 'bluefin', currentValueUSD: 100 } as unknown as OpenPosition,
 		])
 		
 		const result = await loadAllPortfolioLpSources('0xtest')

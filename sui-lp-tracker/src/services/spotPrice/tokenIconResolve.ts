@@ -60,6 +60,16 @@ function fallbackVerifiedCoinTypeForSymbol(sym: string): string | null {
 	return normCanonicalType(candidates[0]!.type)
 }
 
+/** Chain metadata sometimes publishes a URL that never loads (Circle's USDC icon). */
+export function isDiscardedChainIconUrl(url: string): boolean {
+	try {
+		const host = new URL(url).hostname.toLowerCase()
+		return host === 'circle.com' || host === 'www.circle.com'
+	} catch {
+		return false
+	}
+}
+
 /** Канонічний move type або null, якщо без типу й символ не однозначний. */
 export function resolveEffectiveCoinType(
 	coinType: string | null | undefined,
@@ -89,7 +99,7 @@ export function getSyncTokenIconUrl(
 		return getStableNativeSuiIconUrl()
 	}
 	const c = chainIconUrl?.trim()
-	if (c && /^https?:\/\//i.test(c)) return c
+	if (c && /^https?:\/\//i.test(c) && !isDiscardedChainIconUrl(c)) return c
 	const hard = getHardcodedIconUrlForCoinType(effectiveType)
 	if (hard) return hard
 	return getCachedTokenIconIfReady(effectiveType, symbol)

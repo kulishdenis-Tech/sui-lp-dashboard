@@ -9,7 +9,6 @@ export function useLendingPositions() {
 			currentSnapshot: s.currentSnapshot,
 			isLoading: s.isLoadingLending,
 			error: s.lendingError,
-			lendingDataUpdatedAtMs: s.lendingDataUpdatedAtMs,
 		})),
 	)
 }

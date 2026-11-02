@@ -325,7 +325,7 @@ export async function momentumUserRowsFromOwnedRpc(
 	let positionRewardsInfo: Record<
 		string,
 		{ rewards: { coinType: string; amount: number }[]; feeCollected: { amountX: number; amountY: number } }
-	> = {}
+	>
 	try {
 		const forSdk = bodies.map((b) => ({
 			fields: fieldsForMomentumSdkFetchRewards(b.fields, b.objectId),

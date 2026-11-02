@@ -1,0 +1,393 @@
+/**
+ * Experimental Overview — isolated under `.overview-lab`.
+ * Aurora atmosphere + layered depth. No WebGL / cosmic landscape / table loops.
+ */
+
+.overview-lab {
+	--ol-cyan: #38bdf8;
+	--ol-mint: #34d399;
+	--ol-amber: #fbbf24;
+	--ol-rose: #fb7185;
+	--ol-violet: #818cf8;
+	--ol-panel: rgb(10 16 28 / 0.82);
+	--ol-panel-quiet: rgb(8 12 22 / 0.72);
+	--ol-border: rgb(71 85 105 / 0.55);
+	--ol-border-hero: rgb(56 189 248 / 0.22);
+	position: relative;
+	isolation: isolate;
+	color: rgb(226 232 240);
+}
+
+/* Aurora — full-bleed decorative layer (outside PageShell max-width).
+ * Overflow clipped so blobs never widen document scrollWidth. */
+.overview-lab__aurora {
+	pointer-events: none;
+	position: absolute;
+	inset: 0 0 auto 0;
+	height: min(72vh, 640px);
+	width: 100%;
+	z-index: -1;
+	overflow: hidden;
+}
+
+.overview-lab__aurora-blob {
+	position: absolute;
+	border-radius: 50%;
+	filter: blur(64px);
+	opacity: 0.45;
+	will-change: transform;
+}
+
+.overview-lab__aurora-blob--a {
+	width: 55%;
+	height: 55%;
+	left: -8%;
+	top: -15%;
+	background: radial-gradient(circle, rgb(14 165 233 / 0.35), transparent 70%);
+	animation: ol-aurora-a 28s ease-in-out infinite alternate;
+}
+
+.overview-lab__aurora-blob--b {
+	width: 45%;
+	height: 50%;
+	right: -5%;
+	top: -10%;
+	background: radial-gradient(circle, rgb(99 102 241 / 0.22), transparent 70%);
+	animation: ol-aurora-b 34s ease-in-out infinite alternate;
+}
+
+.overview-lab__aurora-blob--c {
+	width: 40%;
+	height: 35%;
+	left: 35%;
+	top: 20%;
+	background: radial-gradient(circle, rgb(56 189 248 / 0.12), transparent 70%);
+	animation: ol-aurora-c 40s ease-in-out infinite alternate;
+}
+
+@keyframes ol-aurora-a {
+	from { transform: translate(0, 0) scale(1); }
+	to { transform: translate(6%, 8%) scale(1.08); }
+}
+@keyframes ol-aurora-b {
+	from { transform: translate(0, 0) scale(1); }
+	to { transform: translate(-8%, 5%) scale(1.1); }
+}
+@keyframes ol-aurora-c {
+	from { transform: translate(0, 0); }
+	to { transform: translate(4%, -6%); }
+}
+
+.overview-lab[data-aurora='off'] .overview-lab__aurora-blob,
+.overview-lab[data-reduced-motion='true'] .overview-lab__aurora-blob {
+	animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.overview-lab__aurora-blob,
+	.overview-lab__enter,
+	.overview-lab__filter-pill {
+		animation: none !important;
+		transition: none !important;
+	}
+}
+
+.overview-lab__enter {
+	animation: ol-enter 0.45s ease-out both;
+}
+.overview-lab__enter--2 { animation-delay: 0.05s; }
+.overview-lab__enter--3 { animation-delay: 0.1s; }
+.overview-lab__enter--4 { animation-delay: 0.15s; }
+
+@keyframes ol-enter {
+	from { opacity: 0; transform: translateY(8px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
+.overview-lab__panel {
+	/* Shrink inside PageShell; chart canvas must not expand page width */
+	min-width: 0;
+	max-width: 100%;
+	border: 1px solid var(--ol-border);
+	border-radius: 1rem;
+	background: var(--ol-panel);
+	box-shadow:
+		0 1px 0 rgb(255 255 255 / 0.04) inset,
+		0 10px 28px rgb(0 0 0 / 0.28);
+	transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.overview-lab__panel:hover {
+	border-color: rgb(100 116 139 / 0.55);
+}
+
+.overview-lab__panel--hero {
+	border-color: var(--ol-border-hero);
+	background:
+		linear-gradient(155deg, rgb(14 165 233 / 0.14), transparent 42%),
+		linear-gradient(320deg, rgb(99 102 241 / 0.07), transparent 38%),
+		rgb(8 14 26 / 0.9);
+	box-shadow:
+		0 1px 0 rgb(186 230 253 / 0.08) inset,
+		0 0 0 1px rgb(56 189 248 / 0.06),
+		0 18px 48px rgb(0 0 0 / 0.4);
+	backdrop-filter: blur(10px);
+}
+
+.overview-lab__panel--quiet {
+	background: var(--ol-panel-quiet);
+	box-shadow:
+		0 1px 0 rgb(255 255 255 / 0.03) inset,
+		0 6px 18px rgb(0 0 0 / 0.22);
+}
+
+.overview-lab__net {
+	font-variant-numeric: tabular-nums;
+	letter-spacing: -0.03em;
+	line-height: 1.05;
+	text-shadow: 0 0 40px rgb(56 189 248 / 0.18);
+}
+
+.overview-lab__kpi-value {
+	font-variant-numeric: tabular-nums;
+	font-feature-settings: 'tnum' 1;
+	min-width: 5.5ch;
+}
+
+.overview-lab[data-hide-amounts='true'] .overview-lab__money,
+.overview-lab[data-hide-amounts='true'] .overview-lab__money * {
+	user-select: none;
+}
+
+.overview-lab__mix {
+	height: 0.35rem;
+	border-radius: 999px;
+	background: rgb(30 41 59 / 0.95);
+	overflow: hidden;
+	display: flex;
+}
+
+.overview-lab__mix > span {
+	display: block;
+	height: 100%;
+	min-width: 0;
+}
+
+/* Compact range counters + proportional strip (no nested bordered cards) */
+.overview-lab__range-strip {
+	display: flex;
+	flex-direction: column;
+	gap: 0.65rem;
+	min-height: 0;
+	flex: 1;
+}
+
+.overview-lab__range-bar {
+	display: flex;
+	height: 0.4rem;
+	border-radius: 999px;
+	overflow: hidden;
+	background: rgb(30 41 59 / 0.95);
+}
+
+.overview-lab__range-bar > span {
+	display: block;
+	height: 100%;
+	min-width: 0;
+}
+
+.overview-lab__range-counters {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem 0.85rem;
+}
+
+.overview-lab__range-counter {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 0.35rem;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	border-radius: 0.35rem;
+	min-width: 0;
+}
+
+.overview-lab__range-counter:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px rgb(56 189 248 / 0.45);
+}
+
+.overview-lab__range-counter strong {
+	font-variant-numeric: tabular-nums;
+	font-size: 1.05rem;
+	font-weight: 600;
+	color: rgb(241 245 249);
+}
+
+.overview-lab__range-counter span {
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: rgb(148 163 184);
+}
+
+.overview-lab__range-counter--on strong {
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+.overview-lab__range-counter--mint strong { color: var(--ol-mint); }
+.overview-lab__range-counter--amber strong { color: var(--ol-amber); }
+.overview-lab__range-counter--cyan strong { color: var(--ol-cyan); }
+.overview-lab__range-counter--violet strong { color: var(--ol-violet); }
+
+/* Desktop: right column stretches with Net Worth (KPI → Value Change → Range) */
+@media (min-width: 1024px) {
+	.overview-lab__hero-row {
+		align-items: stretch;
+	}
+	.overview-lab__kpi-col {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		min-height: 0;
+		height: 100%;
+	}
+	.overview-lab__kpi-grid {
+		display: grid;
+		gap: 0.75rem;
+		flex: 0 0 auto;
+		min-height: 0;
+	}
+	.overview-lab__kpi-grid--primary {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+	.overview-lab__kpi-grid--secondary {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.overview-lab__kpi-grid > .overview-lab__panel {
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		min-height: 0;
+		height: 100%;
+	}
+	.overview-lab__value-change-row {
+		flex: 0 0 auto;
+	}
+	.overview-lab__value-change-row > * {
+		min-height: 4.75rem;
+		height: 100%;
+	}
+	.overview-lab__range-panel {
+		display: flex;
+		flex-direction: column;
+		flex: 1 1 auto;
+		min-height: 0;
+	}
+}
+
+.overview-lab__filter-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem;
+	position: relative;
+}
+
+.overview-lab__filter {
+	position: relative;
+	z-index: 1;
+	border-radius: 999px;
+	padding: 0.28rem 0.7rem;
+	font-size: 11px;
+	font-weight: 500;
+	color: rgb(148 163 184);
+	border: 1px solid transparent;
+	background: transparent;
+	transition: color 0.15s ease;
+}
+
+.overview-lab__filter:hover { color: rgb(226 232 240); }
+.overview-lab__filter:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px rgb(56 189 248 / 0.45);
+}
+
+.overview-lab__filter--on {
+	color: rgb(186 230 253);
+	border-color: rgb(56 189 248 / 0.35);
+	background: rgb(14 165 233 / 0.16);
+}
+
+.overview-lab__pill {
+	display: inline-flex;
+	align-items: center;
+	border-radius: 999px;
+	padding: 0.1rem 0.45rem;
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+}
+
+.overview-lab__pill--in {
+	background: rgb(52 211 153 / 0.14);
+	color: rgb(110 231 183);
+	border: 1px solid rgb(52 211 153 / 0.3);
+}
+.overview-lab__pill--near {
+	background: rgb(251 191 36 / 0.12);
+	color: rgb(252 211 77);
+	border: 1px solid rgb(251 191 36 / 0.3);
+}
+.overview-lab__pill--above,
+.overview-lab__pill--below,
+.overview-lab__pill--out {
+	background: rgb(148 163 184 / 0.12);
+	color: rgb(203 213 225);
+	border: 1px solid rgb(148 163 184 / 0.28);
+}
+.overview-lab__pill--mixed {
+	background: rgb(129 140 248 / 0.14);
+	color: rgb(165 180 252);
+	border: 1px solid rgb(129 140 248 / 0.35);
+}
+.overview-lab__pill--empty,
+.overview-lab__pill--unknown {
+	background: rgb(71 85 105 / 0.25);
+	color: rgb(148 163 184);
+	border: 1px solid rgb(100 116 139 / 0.35);
+}
+
+.overview-lab__lp-head {
+	display: none;
+	grid-template-columns: minmax(0, 1fr) 5.5rem 5.5rem 8.5rem;
+	gap: 0.75rem;
+	padding: 0.4rem 1rem;
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: rgb(100 116 139);
+	border-bottom: 1px solid rgb(30 41 59 / 0.8);
+}
+@media (min-width: 640px) {
+	.overview-lab__lp-head { display: grid; }
+}
+
+.overview-lab[data-hide-amounts='true'] .overview-lab__money,
+.overview-lab[data-hide-amounts='true'] .overview-lab__money * {
+	/* Placeholder text from JS is authoritative; keep blur as soft visual only */
+	letter-spacing: 0.08em;
+}
+
+.overview-lab__attn-item {
+	border-left: 2px solid rgb(100 116 139 / 0.45);
+	padding-left: 0.7rem;
+}
+.overview-lab__attn-item--warn { border-left-color: rgb(251 191 36 / 0.75); }
+.overview-lab__attn-item--critical { border-left-color: rgb(251 113 133 / 0.85); }
+.overview-lab__attn-item--info { border-left-color: rgb(56 189 248 / 0.5); }

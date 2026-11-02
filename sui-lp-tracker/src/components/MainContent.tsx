@@ -1,24 +1,36 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
-import { useAppStore } from '@/store/appStore'
+import { useAppStore, type AppTab } from '@/store/appStore'
 import { SummaryCards } from '@/components/dashboard/SummaryCards'
 import { BalanceDashboard } from '@/components/balance/BalanceDashboard'
 import { LpModule } from '@/components/positions/LpModule'
 import { LendingModule } from '@/components/lending/LendingModule'
-import { AnalyticsModule } from '@/components/analytics/AnalyticsModule'
+import { PageShell } from '@/components/ui/PageShell'
+
 export function MainContent() {
 	const { isConnected } = useWalletAuth()
 	const tab = useAppStore((s) => s.activeTab)
+	const setActiveTab = useAppStore((s) => s.setActiveTab)
 	const lastLoadError = useAppStore((s) => s.lastLoadError)
+	const navigate = useNavigate()
+
+	// Legacy in-memory / HMR state: analytics → Overview (no empty panel).
+	useEffect(() => {
+		if ((tab as string) === 'analytics') {
+			setActiveTab('balance')
+			navigate('/', { replace: true })
+		}
+	}, [tab, setActiveTab, navigate])
 
 	if (!isConnected) {
 		return (
-			<div className="mx-auto max-w-2xl px-4 py-16 text-center">
+			<PageShell className="max-w-2xl py-16 text-center">
 				<p className="text-slate-400">
 					Connect a wallet, or paste a Sui address in the header (read-only) — for browsers without
 					an extension, e.g. Cursor Simple Browser.
 				</p>
-			</div>
+			</PageShell>
 		)
 	}
 
@@ -26,13 +38,13 @@ export function MainContent() {
 }
 
 type ConnectedMainProps = {
-	tab: 'balance' | 'lp' | 'lending' | 'analytics'
+	tab: AppTab
 	lastLoadError: string | null
 }
 
 /** Split from `MainContent` so the "not connected" branch doesn't mount tab panels. */
 function ConnectedMain({ tab, lastLoadError }: ConnectedMainProps) {
-	const tabPanel = (id: ConnectedMainProps['tab'], node: ReactNode) => (
+	const tabPanel = (id: AppTab, node: ReactNode) => (
 		<div
 			id={`tab-panel-${id}`}
 			role="tabpanel"
@@ -46,7 +58,7 @@ function ConnectedMain({ tab, lastLoadError }: ConnectedMainProps) {
 	)
 
 	return (
-		<main className="mx-auto min-w-0 max-w-6xl px-4 py-8">
+		<PageShell as="main" className="py-8">
 			{lastLoadError ? (
 				<div
 					role="alert"
@@ -60,7 +72,6 @@ function ConnectedMain({ tab, lastLoadError }: ConnectedMainProps) {
 			{tabPanel('balance', <BalanceDashboard />)}
 			{tabPanel('lp', <LpModule />)}
 			{tabPanel('lending', <LendingModule />)}
-			{tabPanel('analytics', <AnalyticsModule />)}
-		</main>
+		</PageShell>
 	)
 }

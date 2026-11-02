@@ -44,7 +44,7 @@ export function buildLpPositionLifecycles(actions: LpAction[]): LpPositionLifecy
 
 		const closeEv = [...actionsSorted].reverse().find((ra) => ra.actionType === 'CLOSE_POSITION')
 		const closed = closeEv != null
-		let closedAtMs =
+		const closedAtMs =
 			closeEv?.timestampMs ??
 			(actionsSorted.length ? actionsSorted[actionsSorted.length - 1]!.timestampMs || 0 : 0)
 

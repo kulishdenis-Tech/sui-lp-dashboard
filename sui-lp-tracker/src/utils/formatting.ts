@@ -36,29 +36,41 @@ export function formatDashboardTokenQty(symbol: string, qty: number, maxVolatile
 	})
 }
 
-/** Fiat and stable-ish USD displays: defaults to cents (fractional digits = 2). Override only for exceptional cases. */
+/** Finite number for display; rejects NaN/±Infinity. Collapses -0 to 0. */
+export function asFiniteNumber(n: number | null | undefined): number | null {
+	if (n == null || !Number.isFinite(n)) return null
+	return Object.is(n, -0) ? 0 : n
+}
+
+/**
+ * Fiat USD displays (en-US). Missing/nonfinite → em dash.
+ * Tiny non-zero amounts → `<$0.01` / `>-$0.01` so they are not rounded to $0.00.
+ */
 export function formatUSD(n: number | null | undefined, digits = 2): string {
-	if (n == null || Number.isNaN(n)) return '—'
+	const v = asFiniteNumber(n)
+	if (v == null) return '—'
+	if (v !== 0 && Math.abs(v) < 0.01 && digits >= 2) return v < 0 ? '>-$0.01' : '<$0.01'
+	const normalized = Object.is(v, -0) ? 0 : v
 	return new Intl.NumberFormat('en-US', {
 		style: 'currency',
 		currency: 'USD',
 		minimumFractionDigits: digits,
 		maximumFractionDigits: digits,
-	}).format(n)
+	}).format(normalized)
 }
 
-/**
- * USD для великих сум у дашборді: від $1,000 без центів ($83,242), менше — з центами.
- */
+/** Large dashboard USD: ≥$1,000 without cents; smaller with cents. */
 export function formatUSDAdaptive(n: number | null | undefined): string {
-	if (n == null || Number.isNaN(n)) return '—'
-	return formatUSD(n, Math.abs(n) >= 1_000 ? 0 : 2)
+	const v = asFiniteNumber(n)
+	if (v == null) return '—'
+	return formatUSD(v, Math.abs(v) >= 1_000 ? 0 : 2)
 }
 
 /** Format a decimal APR/APY fraction (e.g. 0.0512 → "5.12%"). */
 export function formatPct(n: number | null | undefined, digits = 2): string {
-	if (n == null || Number.isNaN(n)) return '—'
-	return (n * 100).toFixed(digits) + '%'
+	const v = asFiniteNumber(n)
+	if (v == null) return '—'
+	return (v * 100).toFixed(digits) + '%'
 }
 
 export function formatTokenAmount(
@@ -104,7 +116,9 @@ export function formatTokenAmountForCentStep(
 	if (!Number.isFinite(amount) || amount === 0) return '—'
 	const d = decimalsForCentEquivalent(usdPerToken)
 	const s = amount.toFixed(d)
-	return s.replace(/\.?0+$/, '') || '0'
+	// Only strip zeros after the decimal point. An optional dot would turn 200000 into 2.
+	if (!s.includes('.')) return s
+	return s.replace(/0+$/, '').replace(/\.$/, '') || '0'
 }
 
 /** Дата/час для історії (UTC), як на реф-скріні: 25/04/2026, 10:01:27 */

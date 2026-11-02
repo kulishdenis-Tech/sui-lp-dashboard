@@ -5,6 +5,8 @@ const IDB_DATABASES = [
 	'sui_lp_tracker',
 	'sui_portfolio_analytics',
 	'sui-lp-tracker-lp-indexer-v1',
+	/** Closed LP rows + events — without this, Clear cache leaves divergent Closed totals per browser. */
+	'sui_lp_closed_snapshot',
 ] as const
 
 function deleteIdb(name: string): Promise<void> {

@@ -16,9 +16,11 @@ import { getBluefinSpotPositions, hydrateBluefinUnclaimedBatch } from '@/service
 import { isBluefinLazyUnclaimedEnabled } from '@/services/lpFeatureFlags'
 import { getCetusPositions } from '@/services/cetusService'
 import { getCetusDlmmPositions } from '@/services/cetusDlmmService'
+import { PORTFOLIO_LP_SOURCE_IDS } from '@/services/portfolioLpSources'
 import { getCetusVaultPositions } from '@/services/cetusVaultsService'
 import { getHaedalVaultPositions } from '@/services/haedalVaultsService'
 import { getHaedalLendingVaultPositions } from '@/services/haedalLendingVaultsService'
+import { getCurrentMultiplyVaultPositions } from '@/services/currentMultiplyVaultsService'
 import { enrichAllCetusOpenPositions } from '@/services/cetusOpenEnrichment'
 import { enrichHaedalVaultPositions } from '@/services/haedalVaultEnrichment'
 import { getTurbosPositions } from '@/services/turbosService'
@@ -46,7 +48,12 @@ import { classifyAllBalances, sumVisibleWalletUSD } from '@/services/tokenClassi
 import { TURBOS_ENRICH_CONCURRENCY } from '@/utils/constants'
 import { mapPool } from '@/utils/concurrency'
 import { computeNetWorth } from '@/utils/netWorth'
-import { markLendingSnapshotLive, markLendingSnapshotStale } from '@/utils/advisorStalePolicy'
+import {
+	walletStatusOnFailure,
+	walletStatusOnLoadStart,
+	walletStatusOnSuccess,
+	type WalletBalancesStatus,
+} from '@/pages/overviewLab/overviewSourceStatus'
 import type { NetWorthSnapshot } from '@/types'
 
 /** Збільшується кожен `loadAll` — старі відповіді не перезаписують UI. */
@@ -81,18 +88,17 @@ function enqueuePortfolioLoad(address: string, worker: () => Promise<void>): Pro
 	return next
 }
 
-export type AppTab = 'balance' | 'lp' | 'lending' | 'analytics'
+export type AppTab = 'balance' | 'lp' | 'lending'
+/** Legacy tab id — normalized away (Analytics merged into Overview). */
+export type LegacyAppTab = AppTab | 'analytics'
 
 interface AppState {
 	tokenBalances: TokenBalance[]
 	isLoadingBalances: boolean
 	balancesLastUpdated: number | null
-	/** Last successful lending load (Alpha/Navi/Current). */
-	lendingDataUpdatedAtMs: number | null
-	/** Last successful open-positions load (all LP protocols). */
-	positionsDataUpdatedAtMs: number | null
-	/** Last refresh kept prior rows after RPC/gRPC failure — show STALE immediately. */
-	onChainReadDegraded: boolean
+	/** Structured wallet balance load status — do not infer from lastLoadError text. */
+	walletBalancesStatus: WalletBalancesStatus
+	walletBalancesError: string | null
 	openPositions: OpenPosition[]
 	closedPositions: ClosedPosition[]
 	/** Фонове завантаження закритих LP (не блокує Open tab). */
@@ -100,6 +106,8 @@ interface AppState {
 	/** Закриті ще не запитувались (lazy) або йдуть у фоні. */
 	closedCountPending: boolean
 	isLoadingPositions: boolean
+	/** Last successful LP open-positions settle (ms). */
+	positionsLastUpdated: number | null
 	/** Repeat Refresh / auto-refresh while previous rows stay on screen. */
 	isRefreshing: boolean
 	positionsError: string | null
@@ -109,6 +117,8 @@ interface AppState {
 	currentSnapshot: LendingSnapshot | null
 	isLoadingLending: boolean
 	lendingError: string | null
+	/** Last successful lending settle for all protocols (ms). */
+	lendingLastUpdated: number | null
 	positionEvents: Record<string, PositionEvent[]>
 	loadingEvents: Record<string, boolean>
 	activeTab: AppTab
@@ -124,7 +134,7 @@ interface AppState {
 		address: string,
 		options?: { forceRefresh?: boolean; reconcileOnly?: boolean; refreshScan?: boolean },
 	) => Promise<void>
-	setActiveTab: (t: AppTab) => void
+	setActiveTab: (t: AppTab | LegacyAppTab) => void
 	setProtocolFilter: (f: string) => void
 	clearPortfolio: () => void
 }
@@ -185,14 +195,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 	tokenBalances: [],
 	isLoadingBalances: false,
 	balancesLastUpdated: null,
-	lendingDataUpdatedAtMs: null,
-	positionsDataUpdatedAtMs: null,
-	onChainReadDegraded: false,
+	walletBalancesStatus: 'idle',
+	walletBalancesError: null,
 	openPositions: [],
 	closedPositions: [],
 	isLoadingClosed: false,
 	closedCountPending: false,
 	isLoadingPositions: false,
+	positionsLastUpdated: null,
 	isRefreshing: false,
 	positionsError: null,
 	lastLoadError: null,
@@ -201,6 +211,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 	currentSnapshot: null,
 	isLoadingLending: false,
 	lendingError: null,
+	lendingLastUpdated: null,
 	positionEvents: {},
 	loadingEvents: {},
 	activeTab: 'balance',
@@ -228,15 +239,17 @@ export const useAppStore = create<AppState>((set, get) => ({
 			manualViewAddress: normalized,
 			tokenBalances: [],
 			balancesLastUpdated: null,
-	lendingDataUpdatedAtMs: null,
-	positionsDataUpdatedAtMs: null,
+			walletBalancesStatus: 'idle',
+			walletBalancesError: null,
 			openPositions: [],
 			closedPositions: [],
 			isLoadingClosed: false,
 			closedCountPending: false,
+			positionsLastUpdated: null,
 			lendingSnapshot: null,
 			naviSnapshot: null,
-	currentSnapshot: null,
+			currentSnapshot: null,
+			lendingLastUpdated: null,
 			netWorth: null,
 			positionsError: null,
 			lastLoadError: null,
@@ -255,7 +268,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 		persistManualAddress(null)
 		set({ manualViewAddress: null })
 	},
-	setActiveTab: (activeTab) => set({ activeTab }),
+	setActiveTab: (activeTab) => {
+		const next = (activeTab as LegacyAppTab) === 'analytics' ? 'balance' : activeTab
+		set({ activeTab: next as AppTab })
+	},
 	setProtocolFilter: (protocolFilter) => set({ protocolFilter }),
 	clearPortfolio: () => {
 		_openPositionsAddress = null
@@ -263,15 +279,17 @@ export const useAppStore = create<AppState>((set, get) => ({
 		set((s) => ({
 			tokenBalances: [],
 			balancesLastUpdated: null,
-	lendingDataUpdatedAtMs: null,
-	positionsDataUpdatedAtMs: null,
+			walletBalancesStatus: 'idle',
+			walletBalancesError: null,
 			openPositions: [],
 			closedPositions: [],
 			isLoadingClosed: false,
 			closedCountPending: false,
+			positionsLastUpdated: null,
 			lendingSnapshot: null,
 			naviSnapshot: null,
-	currentSnapshot: null,
+			currentSnapshot: null,
+			lendingLastUpdated: null,
 			netWorth: null,
 			positionsError: null,
 			lastLoadError: null,
@@ -285,16 +303,32 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 	loadAll: async (address, options) =>
 		enqueuePortfolioLoad(address, async () => {
+			// Parity guard: server snapshot registry must include the same LP families (incl. DLMM).
+			if (!PORTFOLIO_LP_SOURCE_IDS.includes('cetus-dlmm')) {
+				throw new Error('portfolioLpSources registry missing cetus-dlmm')
+			}
 			if (!shouldApplyPortfolioLoad(get, address)) return
 
 			const toMsg = (e: unknown) => (e instanceof Error ? e.message : 'Request failed')
 			const myGen = ++_portfolioLoadGen
+			// Keep prior rows visible while refresh runs (stale-while-revalidate).
 			const keepExisting =
 				_openPositionsAddress === address &&
-				get().openPositions.length > 0 &&
-				options?.forceRescanLpHistory !== true
+				options?.forceRescanLpHistory !== true &&
+				(get().openPositions.length > 0 ||
+					get().tokenBalances.length > 0 ||
+					get().netWorth != null ||
+					get().lendingSnapshot != null ||
+					get().naviSnapshot != null ||
+					get().currentSnapshot != null)
 			_openPositionsAddress = address
 
+			const prevWallet = {
+				status: get().walletBalancesStatus,
+				error: get().walletBalancesError,
+				observedAtMs: get().balancesLastUpdated,
+			}
+			const nextWallet = walletStatusOnLoadStart(keepExisting, prevWallet)
 			set({
 				isLoadingBalances: keepExisting ? get().isLoadingBalances : true,
 				isLoadingPositions: true,
@@ -307,11 +341,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 							closedPositions: [] as ClosedPosition[],
 							isLoadingClosed: !isLpLazyClosedEnabled(),
 							closedCountPending: isLpLazyClosedEnabled(),
+							positionsLastUpdated: null,
+							lendingLastUpdated: null,
+							balancesLastUpdated: null,
 						}),
 				positionsError: null,
 				lendingError: null,
 				lastLoadError: null,
-				onChainReadDegraded: false,
+				walletBalancesStatus: nextWallet.status,
+				walletBalancesError: nextWallet.error,
 			})
 			if (!keepExisting) _closedPositionsAddress = null
 
@@ -398,30 +436,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 					],
 					protocol: 'AlphaLend+Navi+Current',
 				}
-				const lendingNetSegments = [
-					{
-						usd: alphaLend.netValueUSD,
-						readStale: alphaLend.readStale,
-						lastSuccessAtMs: alphaLend.lastSuccessAtMs,
-					},
-					{
-						usd: navi.netValueUSD,
-						readStale: navi.readStale,
-						lastSuccessAtMs: navi.lastSuccessAtMs,
-					},
-					{
-						usd: current.netValueUSD,
-						readStale: current.readStale,
-						lastSuccessAtMs: current.lastSuccessAtMs,
-					},
-				]
 				set({
 					netWorth: computeNetWorth(
 						st.tokenBalances,
 						st.openPositions,
 						mergedLending,
 						walletVisibleUSD,
-						lendingNetSegments,
 					),
 				})
 			}
@@ -429,23 +449,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 			// ── Protocol loading counter ──────────────────────────────────────
 			// isLoadingPositions stays true until all 5 protocols have settled.
 			let pendingProtocols = 5
-			let protocolLoadDegraded = false
-			let lendingLoadDegraded = false
-			const markProtocolDegraded = () => {
-				if (keepExisting) protocolLoadDegraded = true
-			}
 
 			const onProtocolDone = () => {
 				pendingProtocols--
 				if (pendingProtocols === 0 && !isStale()) {
-					set((st) => ({
+					set({
 						isLoadingPositions: false,
 						isRefreshing: false,
-						...(protocolLoadDegraded
-							? {}
-							: { positionsDataUpdatedAtMs: Date.now() }),
-						onChainReadDegraded: st.onChainReadDegraded || protocolLoadDegraded || lendingLoadDegraded,
-					}))
+						positionsLastUpdated: Date.now(),
+					})
 					recomputeNetWorth()
 				}
 			}
@@ -525,7 +537,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 				address,
 				suiClient,
 				(partial) => {
-					if (!isStale()) set({ tokenBalances: partial })
+					// During refresh, skip streaming partials over an already-filled table
+					// so rows don't blink empty mid-update.
+					if (!isStale()) {
+						if (!(keepExisting && get().tokenBalances.length > 0)) {
+							set({ tokenBalances: partial })
+						}
+					}
 					openBalanceGate()
 				},
 				priceOpts,
@@ -538,28 +556,47 @@ export const useAppStore = create<AppState>((set, get) => ({
 				} catch { /* ignore */ }
 				balanceDone = true
 				if (!isStale()) {
-					set({ tokenBalances: balance, balancesLastUpdated: Date.now(), isLoadingBalances: false })
+					const ok = walletStatusOnSuccess(Date.now())
+					set({
+						tokenBalances: balance,
+						balancesLastUpdated: ok.observedAtMs,
+						isLoadingBalances: false,
+						walletBalancesStatus: ok.status,
+						walletBalancesError: null,
+					})
 					recomputeNetWorth()
 				}
 			}).catch((e) => {
 				openBalanceGate()
 				if (isStale()) return
-				const msg = toMsg(e)
+				const msg = softRpcUserMessage(toMsg(e)) || toMsg(e)
 				const hasPrev = get().tokenBalances.length > 0
-				const rateLimited = /429|rate limit|Too Many|too frequent/i.test(msg)
+				const prev = {
+					status: get().walletBalancesStatus,
+					error: get().walletBalancesError,
+					observedAtMs: get().balancesLastUpdated,
+				}
+				const next = walletStatusOnFailure(msg, prev, hasPrev)
+				balanceDone = true
 				if (hasPrev) {
-					// Keep last good Balance rows; avoid sticky amber banner on every Refresh 429.
 					console.warn('[balance] refresh failed, keeping previous rows:', msg)
-					balanceDone = true
-					set({ isLoadingBalances: false, lastLoadError: null })
+					set({
+						isLoadingBalances: false,
+						walletBalancesStatus: next.status,
+						walletBalancesError: next.error,
+						balancesLastUpdated: next.observedAtMs,
+						// Do not sticky-banner rate-limit noise when prior rows remain.
+						lastLoadError: /429|rate limit|Too Many|too frequent/i.test(msg) ? null : msg,
+					})
 					recomputeNetWorth()
 					return
 				}
 				set({
 					isLoadingBalances: false,
-					lastLoadError: rateLimited
-						? softRpcUserMessage(msg)
-						: msg,
+					walletBalancesStatus: next.status,
+					walletBalancesError: next.error,
+					balancesLastUpdated: null,
+					lastLoadError: msg,
 				})
 			})
 
@@ -575,11 +612,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 			let currentDone = false
 			const onLendingAllDone = () => {
 				if (lendingDone && naviDone && currentDone && !isStale()) {
-					set((st) => ({
-						isLoadingLending: false,
-						...(lendingLoadDegraded ? {} : { lendingDataUpdatedAtMs: Date.now() }),
-						onChainReadDegraded: st.onChainReadDegraded || lendingLoadDegraded || protocolLoadDegraded,
-					}))
+					set({ isLoadingLending: false, lendingLastUpdated: Date.now() })
 				}
 			}
 			void afterBalanceRpc(() =>
@@ -587,23 +620,24 @@ export const useAppStore = create<AppState>((set, get) => ({
 			).then((lend) => {
 				if (isStale()) return
 				lendingDone = true
-				set({ lendingSnapshot: markLendingSnapshotLive(lend) })
+				set({ lendingSnapshot: lend, lendingError: null })
 				recomputeNetWorth()
 				onLendingAllDone()
 			}).catch((e) => {
 				if (!isStale()) {
 					lendingDone = true
+					const msg = softRpcUserMessage(toMsg(e))
 					const prev = get().lendingSnapshot
 					const keep =
-						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
-					if (keep) lendingLoadDegraded = true
-					const lastAt = get().lendingDataUpdatedAtMs ?? undefined
-					set({
-						lendingSnapshot: keep
-							? markLendingSnapshotStale(prev, lastAt)
-							: EMPTY_LEND,
-						lendingError: softRpcUserMessage(toMsg(e)),
-					})
+						keepExisting &&
+						prev != null &&
+						(prev.supplies.length > 0 || prev.borrows.length > 0 || (prev.netValueUSD ?? 0) !== 0)
+					if (keep) {
+						console.warn('[AlphaLend] refresh failed, keeping previous snapshot:', msg)
+						set({ lendingError: /429|rate limit|Too Many|too frequent/i.test(msg) ? null : msg })
+					} else {
+						set({ lendingSnapshot: EMPTY_LEND, lendingError: msg })
+					}
 					onLendingAllDone()
 				}
 			})
@@ -612,7 +646,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 			).then((snap) => {
 				if (isStale()) return
 				naviDone = true
-				set({ naviSnapshot: markLendingSnapshotLive(snap) })
+				set({ naviSnapshot: snap })
 				recomputeNetWorth()
 				onLendingAllDone()
 			}).catch((e) => {
@@ -622,16 +656,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 					const prev = get().naviSnapshot
 					const keep =
 						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
-					if (keep) lendingLoadDegraded = true
-					const lastAt = get().lendingDataUpdatedAtMs ?? undefined
-					set({ naviSnapshot: keep ? markLendingSnapshotStale(prev, lastAt) : EMPTY_NAVI_SNAP })
+					set({ naviSnapshot: keep ? prev : EMPTY_NAVI_SNAP })
 					onLendingAllDone()
 				}
 			})
 			void afterBalanceRpc(() => getCurrentPositions(address)).then((snap) => {
 				if (isStale()) return
 				currentDone = true
-				set({ currentSnapshot: markLendingSnapshotLive(snap) })
+				set({ currentSnapshot: snap })
 				recomputeNetWorth()
 				onLendingAllDone()
 			}).catch((e) => {
@@ -641,13 +673,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 					const prev = get().currentSnapshot
 					const keep =
 						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
-					if (keep) lendingLoadDegraded = true
-					const lastAt = get().lendingDataUpdatedAtMs ?? undefined
-					set({
-						currentSnapshot: keep
-							? markLendingSnapshotStale(prev, lastAt)
-							: EMPTY_CURRENT_SNAP,
-					})
+					set({ currentSnapshot: keep ? prev : EMPTY_CURRENT_SNAP })
 					onLendingAllDone()
 				}
 			})
@@ -660,10 +686,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 				runBfMmtEnrichment(positions)
 				onProtocolDone()
 			}).catch((e) => {
-				if (!isStale()) {
-					markProtocolDegraded()
-					set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
-				}
+				if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
 				onProtocolDone()
 			})
 
@@ -689,10 +712,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 				runBfMmtEnrichment(toEnrich)
 				onProtocolDone()
 			}).catch((e) => {
-				if (!isStale()) {
-					markProtocolDegraded()
-					set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
-				}
+				if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
 				onProtocolDone()
 			})
 
@@ -711,15 +731,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 					])
 					clmm = [...clmmRows, ...dlmmRows]
 				} catch (e) {
-					if (!isStale()) {
-						markProtocolDegraded()
-						set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
-					}
+					if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
 				}
-				let vaults: OpenPosition[] = []
+				const vaults: OpenPosition[] = []
 				let cetusVaultOk = false
 				let haedalVaultOk = false
 				let lendingVaultOk = false
+				let currentMultiplyOk = false
 				const vaultErrors: string[] = []
 				// Sequential vault fetches — parallel DF scans compete for the same public RPC (429).
 				try {
@@ -754,14 +772,30 @@ export const useAppStore = create<AppState>((set, get) => ({
 					console.warn('[haedal-lending-vaults]', e)
 					vaultErrors.push(`Haedal lending vaults: ${toMsg(e)}`)
 				}
+				try {
+					const multiplyV = await getCurrentMultiplyVaultPositions(address, {
+						forceRefreshPrices: priceOpts.forceRefreshPrices,
+					})
+					vaults.push(...multiplyV)
+					currentMultiplyOk = true
+				} catch (e) {
+					console.warn('[current-multiply]', e)
+					vaultErrors.push(`Current Multiply: ${toMsg(e)}`)
+				}
 				// Keep previous vault rows when one provider 429s mid-refresh (avoid wipe).
-				if (keepExisting && (!cetusVaultOk || !haedalVaultOk || !lendingVaultOk)) {
+				if (
+					keepExisting &&
+					(!cetusVaultOk || !haedalVaultOk || !lendingVaultOk || !currentMultiplyOk)
+				) {
 					const prevVaults = get().openPositions.filter((p) => p.cetusVault != null)
 					for (const p of prevVaults) {
 						const provider = p.cetusVault?.provider
 						const lending = p.cetusVault?.feeLabel === 'Lending'
+						const multiply = p.cetusVault?.feeLabel === 'Multiply'
 						if (lending) {
 							if (lendingVaultOk) continue
+						} else if (multiply) {
+							if (currentMultiplyOk) continue
 						} else if (provider === 'Haedal') {
 							if (haedalVaultOk) continue
 						} else if (cetusVaultOk) {
@@ -804,26 +838,41 @@ export const useAppStore = create<AppState>((set, get) => ({
 					})()
 				}
 				if (vaults.length > 0) {
-					markEnriching(vaults)
-					void (async () => {
-						try {
-							const rows = await enrichHaedalVaultPositions(address, vaults)
-							applyEnrichRows(rows)
-						} catch {
-							set((st) => {
-								const upd = { ...st.loadingEvents }
-								for (const p of vaults) delete upd[p.id]
-								return { loadingEvents: upd }
-							})
-						}
-					})()
+					const haedalVaults = vaults.filter((p) => p.cetusVault?.provider === 'Haedal')
+					const skipEnrichVaults = vaults.filter((p) => p.cetusVault?.provider !== 'Haedal')
+					// Current Multiply / Cetus Earn without Haedal history: clear loading immediately.
+					if (skipEnrichVaults.length) {
+						set((st) => {
+							const upd = { ...st.loadingEvents }
+							for (const p of skipEnrichVaults) delete upd[p.id]
+							return { loadingEvents: upd }
+						})
+					}
+					if (haedalVaults.length > 0) {
+						markEnriching(haedalVaults)
+						void (async () => {
+							try {
+								const rows = await enrichHaedalVaultPositions(address, haedalVaults)
+								applyEnrichRows(rows)
+								// Rows may be empty; always clear Haedal loading flags.
+								set((st) => {
+									const upd = { ...st.loadingEvents }
+									for (const p of haedalVaults) delete upd[p.id]
+									return { loadingEvents: upd }
+								})
+							} catch {
+								set((st) => {
+									const upd = { ...st.loadingEvents }
+									for (const p of haedalVaults) delete upd[p.id]
+									return { loadingEvents: upd }
+								})
+							}
+						})()
+					}
 				}
 				onProtocolDone()
 			}).catch((e) => {
-				if (!isStale()) {
-					markProtocolDegraded()
-					set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
-				}
+				if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
 				onProtocolDone()
 			})
 
@@ -875,10 +924,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 				onProtocolDone()
 			},
 			).catch((e) => {
-				if (!isStale()) {
-					markProtocolDegraded()
-					set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
-				}
+				if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
 				onProtocolDone()
 			})
 
@@ -887,10 +933,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 				upsertProtocolPositions('aftermath', positions)
 				onProtocolDone()
 			}).catch((e) => {
-				if (!isStale()) {
-					markProtocolDegraded()
-					set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
-				}
+				if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
 				onProtocolDone()
 			})
 
@@ -913,7 +956,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 								if (isStale()) return
 								await get().loadClosedPositions(address, { reconcileOnly: true })
 							} catch (e) {
-								// eslint-disable-next-line no-console
+								 
 								console.warn('[loadAll] closed reconcile failed', e)
 							}
 						})()
@@ -967,7 +1010,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 				}))
 				void saveClosedPositionsSnapshot(address, merged, eventsMap)
 			} catch (e) {
-				// eslint-disable-next-line no-console
+				 
 				console.warn('[loadClosedPositions] reconcile failed', e)
 			}
 			return
@@ -1035,7 +1078,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 							const merged = mergeNewClosed(snap.positions, added)
 							applyClosed(merged, { ...(snap.eventsById ?? {}), ...eventsFromClosed(added) }, true)
 						} catch (e) {
-							// eslint-disable-next-line no-console
+							 
 							console.warn('[loadClosedPositions] reconcile failed', e)
 						}
 					})()
@@ -1065,7 +1108,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 					closedCountPending: false,
 				})
 			}
-			// eslint-disable-next-line no-console
+			 
 			console.error('[loadClosedPositions] failed', e)
 		}
 	},

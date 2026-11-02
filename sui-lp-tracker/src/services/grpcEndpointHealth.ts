@@ -1,16 +1,32 @@
 import { PUBLICNODE_PUBLIC_GRPC_URL } from '@/services/suiData/config'
 import { grpcUrlToRpcSource } from '@/services/portfolioReadRpcSource'
 
+function readEnv(name: string): string | undefined {
+	if (typeof process !== 'undefined' && process.env) {
+		const v = process.env[name]
+		if (typeof v === 'string' && v.trim()) return v.trim()
+	}
+	try {
+		const meta = import.meta.env as Record<string, string | undefined> | undefined
+		const v = meta?.[name]
+		if (typeof v === 'string' && v.trim()) return v.trim()
+	} catch {
+		/* browser bundle without import.meta.env */
+	}
+	return undefined
+}
+
 /** Cheap availability probe (hedge / first endpoint pick) — not used for heavy RPC. */
 export const PORTFOLIO_GRPC_PROBE_TIMEOUT_MS = (() => {
-	const raw = Number(process.env.PORTFOLIO_GRPC_PROBE_TIMEOUT_MS ?? 4_000)
+	const raw = Number(readEnv('PORTFOLIO_GRPC_PROBE_TIMEOUT_MS') ?? 4_000)
 	return Number.isFinite(raw) && raw >= 500 && raw <= 10_000 ? raw : 4_000
 })()
 
 /** Per RPC call on a chosen endpoint (multiGetObjects, devInspect, …). */
 export const PORTFOLIO_GRPC_CALL_TIMEOUT_MS = (() => {
-	const raw =
-		Number(process.env.PORTFOLIO_GRPC_CALL_TIMEOUT_MS ?? process.env.PORTFOLIO_GRPC_ATTEMPT_TIMEOUT_MS ?? 15_000)
+	const raw = Number(
+		readEnv('PORTFOLIO_GRPC_CALL_TIMEOUT_MS') ?? readEnv('PORTFOLIO_GRPC_ATTEMPT_TIMEOUT_MS') ?? 15_000,
+	)
 	return Number.isFinite(raw) && raw >= 3_000 && raw <= 60_000 ? raw : 15_000
 })()
 
@@ -19,19 +35,19 @@ export const PORTFOLIO_GRPC_ATTEMPT_TIMEOUT_MS = PORTFOLIO_GRPC_PROBE_TIMEOUT_MS
 
 /** Extra attempts on the same endpoint after a slow/transport failure (0 = one try only). */
 export const PORTFOLIO_GRPC_CALL_RETRIES = (() => {
-	const raw = Number(process.env.PORTFOLIO_GRPC_CALL_RETRIES ?? 1)
+	const raw = Number(readEnv('PORTFOLIO_GRPC_CALL_RETRIES') ?? 1)
 	return Number.isFinite(raw) && raw >= 0 && raw <= 3 ? raw : 1
 })()
 
 /** Consecutive soft failures (e.g. call timeout) before endpoint cooldown. */
 export const PORTFOLIO_GRPC_COOLDOWN_AFTER_FAILURES = (() => {
-	const raw = Number(process.env.PORTFOLIO_GRPC_COOLDOWN_AFTER_FAILURES ?? 3)
+	const raw = Number(readEnv('PORTFOLIO_GRPC_COOLDOWN_AFTER_FAILURES') ?? 3)
 	return Number.isFinite(raw) && raw >= 1 && raw <= 10 ? raw : 3
 })()
 
 /** Do not retry a failed endpoint until cooldown elapses. */
 export const PORTFOLIO_GRPC_ENDPOINT_COOLDOWN_MS = (() => {
-	const raw = Number(process.env.PORTFOLIO_GRPC_ENDPOINT_COOLDOWN_MS ?? 5 * 60_000)
+	const raw = Number(readEnv('PORTFOLIO_GRPC_ENDPOINT_COOLDOWN_MS') ?? 5 * 60_000)
 	return Number.isFinite(raw) && raw >= 10_000 ? raw : 5 * 60_000
 })()
 

@@ -14,5 +14,22 @@ export function normalizeCoinTypeForMatch(coinType: string): string {
 	}
 }
 
-/** Канонічний `0x2::sui::SUI` після нормалізації адреси (OKX, іконки, spot). */
+/** Канонічний padded `0x000…0002::sui::SUI` для match / кешу. */
 export const NATIVE_SUI_COIN_TYPE = normalizeCoinTypeForMatch('0x2::sui::SUI')
+
+/** Short form OKX price-info очікує для нативного SUI (padded → порожня відповідь). */
+export const OKX_NATIVE_SUI_TOKEN_ADDRESS = '0x2::sui::SUI'
+
+export function isNativeSuiCoinType(coinType: string): boolean {
+	return normalizeCoinTypeForMatch(coinType) === NATIVE_SUI_COIN_TYPE
+}
+
+/**
+ * Адреса для OKX `price-info` body:
+ * - native SUI → короткий `0x2::sui::SUI` (не padded 0x000…2)
+ * - інші → normalizeSuiAddress (leading zeros), інакше OKX може віддати ghost-ціну
+ */
+export function okxPriceInfoTokenAddress(coinType: string): string {
+	if (isNativeSuiCoinType(coinType)) return OKX_NATIVE_SUI_TOKEN_ADDRESS
+	return normalizeCoinTypeForMatch(coinType)
+}

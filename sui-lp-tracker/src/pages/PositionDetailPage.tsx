@@ -18,6 +18,7 @@ import {
 	PositionValueCard,
 	PositionLifecycleIndexerCard,
 	PositionPerformanceCard,
+	PositionVaultInventoryCard,
 	PositionEarningsCard,
 } from '@/components/positions/PositionDetailCards'
 import {
@@ -27,9 +28,14 @@ import {
 	positionValueUsd,
 	totalLifetimeEarningsUsd,
 } from '@/utils/positionDerivedMetrics'
-import { isLpPositionHistoryEnriched, lpProtocolUsesOnChainHistory } from '@/utils/lpPositionHistoryUi'
+import { isLpPositionHistoryEnriched, isLpPositionEnrichmentPending, lpProtocolUsesOnChainHistory } from '@/utils/lpPositionHistoryUi'
 import { isBluefinUnclaimedUnavailable } from '@/utils/bluefinUnclaimedUi'
 import { hydrateBluefinUnclaimedForPosition } from '@/services/bluefinService'
+import { hydrateCetusUnclaimedForPosition } from '@/services/cetusService'
+import { isCetusVaultPosition } from '@/utils/cetusVault'
+import { isHaedalLendingVaultPosition } from '@/utils/haedalLendingVault'
+import { isCurrentMultiplyVaultPosition } from '@/utils/currentMultiplyVault'
+import { CurrentMultiplyDetailSection } from '@/components/positions/CurrentMultiplyDetailSection'
 import { syntheticOpenFromClosed } from '@/utils/syntheticOpenFromClosed'
 
 function eventTotalUsd(ev: PositionEvent): number {
@@ -79,7 +85,9 @@ export function PositionDetailPage() {
 	const openPositions = useAppStore((s) => s.openPositions)
 	const closedPositions = useAppStore((s) => s.closedPositions)
 	const positionEvents = useAppStore((s) => s.positionEvents)
+	const loadingEvents = useAppStore((s) => s.loadingEvents)
 	const isLoadingPositions = useAppStore((s) => s.isLoadingPositions)
+	const loadAll = useAppStore((s) => s.loadAll)
 
 	// Chart: collapsed by default, lazy-mount on first open (iframe only loads when expanded)
 	const [chartOpen, setChartOpen] = useState(false)
@@ -139,6 +147,21 @@ export function PositionDetailPage() {
 		}
 	}, [basePosition, walletAddress])
 
+	useEffect(() => {
+		if (!basePosition || !walletAddress) return
+		if (basePosition.protocol !== 'cetus') return
+		if (isCetusVaultPosition(basePosition)) return
+		let cancelled = false
+		void hydrateCetusUnclaimedForPosition(basePosition, walletAddress).then((patch) => {
+			if (!cancelled && Object.keys(patch).length > 0) {
+				setUnclaimedPatch((prev) => ({ ...(prev ?? {}), ...patch }))
+			}
+		})
+		return () => {
+			cancelled = true
+		}
+	}, [basePosition, walletAddress])
+
 	const position = useMemo((): OpenPosition | null => {
 		if (!basePosition) return null
 		return unclaimedPatch ? { ...basePosition, ...unclaimedPatch } : basePosition
@@ -146,6 +169,9 @@ export function PositionDetailPage() {
 
 	const showMetrics = position
 		? lpProtocolUsesOnChainHistory(position.protocol) && isLpPositionHistoryEnriched(position, positionEvents)
+		: false
+	const enrichmentPending = position
+		? isLpPositionEnrichmentPending(position.id, loadingEvents)
 		: false
 	const showHodlLiquidity =
 		!!position &&
@@ -158,11 +184,23 @@ export function PositionDetailPage() {
 	 * claimed fee/reward aggregates, and the filtered visible events list.
 	 * Previously three separate useMemo each iterating the same array.
 	 */
-	const { depositsUsd, withdrawsUsd, evsVisible, claimedFeeRewardAgg } = useMemo(() => {
+	const {
+		depositsUsd,
+		withdrawsUsd,
+		depositLegs,
+		withdrawLegs,
+		netDepositLegs,
+		evsVisible,
+		claimedFeeRewardAgg,
+	} = useMemo(() => {
+		const emptyLegs = { usdA: 0, usdB: 0, totalUsd: 0, qtyA: 0, qtyB: 0 }
 		const empty = {
 			depositsUsd: 0,
 			withdrawsUsd: 0,
-			evsVisible: [] as typeof evs,
+			depositLegs: emptyLegs,
+			withdrawLegs: emptyLegs,
+			netDepositLegs: null as null | { usdA: number; usdB: number; totalUsd: number },
+			evsVisible: [] as PositionEvent[],
 			claimedFeeRewardAgg: null as null | {
 				feeQtyA: number
 				feeQtyB: number
@@ -175,6 +213,14 @@ export function PositionDetailPage() {
 		const evs = positionEvents[position.id] ?? []
 		let depositsUsd = 0
 		let withdrawsUsd = 0
+		let depUsdA = 0
+		let depUsdB = 0
+		let depQtyA = 0
+		let depQtyB = 0
+		let wdUsdA = 0
+		let wdUsdB = 0
+		let wdQtyA = 0
+		let wdQtyB = 0
 		let feeQtyA = 0
 		let feeQtyB = 0
 		let feeUsdA = 0
@@ -183,9 +229,21 @@ export function PositionDetailPage() {
 
 		for (const e of evs) {
 			const t = eventTotalUsd(e)
-			if (e.type === 'add_liquidity' && t > 0) depositsUsd += t
-			else if (e.type === 'remove_liquidity' && t > 0) withdrawsUsd += t
-			else if (e.type === 'collect_fee') {
+			const ua = e.valueUsdA != null && Number.isFinite(e.valueUsdA) ? e.valueUsdA : 0
+			const ub = e.valueUsdB != null && Number.isFinite(e.valueUsdB) ? e.valueUsdB : 0
+			if (e.type === 'add_liquidity' && t > 0) {
+				depositsUsd += t
+				depUsdA += ua
+				depUsdB += ub
+				depQtyA += e.tokenAAmount
+				depQtyB += e.tokenBAmount
+			} else if (e.type === 'remove_liquidity' && t > 0) {
+				withdrawsUsd += t
+				wdUsdA += ua
+				wdUsdB += ub
+				wdQtyA += e.tokenAAmount
+				wdQtyB += e.tokenBAmount
+			} else if (e.type === 'collect_fee') {
 				feeQtyA += e.feeAmountA
 				feeQtyB += e.feeAmountB
 				feeUsdA += e.valueUsdA ?? 0
@@ -198,19 +256,80 @@ export function PositionDetailPage() {
 				rewardRows.set(sym, prev)
 			}
 		}
+		const usdA = depUsdA - wdUsdA
+		const usdB = depUsdB - wdUsdB
+		const totalUsd = depositsUsd - withdrawsUsd
+		const depositLegs = {
+			usdA: depUsdA,
+			usdB: depUsdB,
+			totalUsd: depositsUsd,
+			qtyA: depQtyA,
+			qtyB: depQtyB,
+		}
+		const withdrawLegs = {
+			usdA: wdUsdA,
+			usdB: wdUsdB,
+			totalUsd: withdrawsUsd,
+			qtyA: wdQtyA,
+			qtyB: wdQtyB,
+		}
+		const netDepositLegs =
+			depositsUsd > 0 || withdrawsUsd > 0
+				? {
+						usdA: Number.isFinite(usdA) ? usdA : 0,
+						usdB: Number.isFinite(usdB) ? usdB : 0,
+						totalUsd: Number.isFinite(totalUsd) ? totalUsd : 0,
+					}
+				: null
 		return {
 			depositsUsd,
 			withdrawsUsd,
+			depositLegs,
+			withdrawLegs,
+			netDepositLegs,
 			evsVisible: filterRedundantBluefinOpenEvents(evs),
 			claimedFeeRewardAgg: { feeQtyA, feeQtyB, feeUsdA, feeUsdB, rewardRows },
 		}
 	}, [position, positionEvents])
 
 	/**
-	 * HODL basket USD for the Value card.
-	 * Closed: at close-time historical prices (matches event history / vs-HODL).
-	 * Open: net deposited tokens × current spot.
+	 * Closed Value card: Capital = gross deposits; Liquidity = withdrawn exit;
+	 * open keeps add−remove net deposit vs in-pool mark.
 	 */
+	const valueCardCapitalLegs = detailFromClosed
+		? {
+				usdA: depositLegs.usdA,
+				usdB: depositLegs.usdB,
+				totalUsd: depositLegs.totalUsd,
+			}
+		: netDepositLegs
+
+	const valueCardPosition = useMemo((): OpenPosition | null => {
+		if (!position) return null
+		if (!detailFromClosed) return position
+		const liqUsd =
+			closedRec?.withdrawnLiquidityUsd != null && closedRec.withdrawnLiquidityUsd > 0
+				? closedRec.withdrawnLiquidityUsd
+				: withdrawLegs.totalUsd
+		return {
+			...position,
+			currentValueUSD: liqUsd,
+			tokenAAmount: withdrawLegs.qtyA,
+			tokenBAmount: withdrawLegs.qtyB,
+		}
+	}, [position, detailFromClosed, closedRec, withdrawLegs])
+
+	const totalMarkValueUsd = useMemo(() => {
+		if (!position) return 0
+		if (detailFromClosed && closedRec) {
+			const cv = closedRec.closedValueUSD
+			if (Number.isFinite(cv) && cv > 0) return cv
+			const lifeRaw = closedRec.lifetimeEarningsUSD
+			const life = typeof lifeRaw === 'number' && Number.isFinite(lifeRaw) ? lifeRaw : 0
+			return withdrawLegs.totalUsd + life
+		}
+		return positionValueUsd(position)
+	}, [position, detailFromClosed, closedRec, withdrawLegs.totalUsd])
 	const hodlTotalUsd = useMemo(() => {
 		if (!position) return null
 		if (position.hodlTokenAAmount == null || position.hodlTokenBAmount == null) return null
@@ -253,8 +372,14 @@ export function PositionDetailPage() {
 		return position.currentPriceB_USD
 	}, [position, detailFromClosed])
 
-	const totalMarkValueUsd = position ? positionValueUsd(position) : 0
 	const earnAprPct = position && showMetrics ? earningsAnnualizedAprPct(position) : null
+	const vaultAprPct =
+		position && isCetusVaultPosition(position)
+			? (typeof position.cetusVault?.vaultAprPct === 'number' &&
+			  Number.isFinite(position.cetusVault.vaultAprPct)
+					? position.cetusVault.vaultAprPct
+					: null)
+			: null
 	const dailyEarningsUsd = useMemo(() => {
 		if (!position || !showMetrics) return null
 		if (detailFromClosed) {
@@ -305,6 +430,20 @@ export function PositionDetailPage() {
 
 	const liquidityLegUsd = useMemo(() => {
 		if (!position) return null
+		if (detailFromClosed) {
+			const currA = withdrawLegs.usdA
+			const currB = withdrawLegs.usdB
+			const currTot = withdrawLegs.totalUsd
+			const hA =
+				showHodlLiquidity && position.hodlTokenAAmount != null
+					? position.hodlTokenAAmount * hodlLegPriceA
+					: null
+			const hB =
+				showHodlLiquidity && position.hodlTokenBAmount != null
+					? position.hodlTokenBAmount * hodlLegPriceB
+					: null
+			return { currA, currB, currTot, hA, hB }
+		}
 		const currA = position.tokenAAmount * position.currentPriceA_USD
 		const currB = position.tokenBAmount * position.currentPriceB_USD
 		const currTot = currA + currB
@@ -317,7 +456,7 @@ export function PositionDetailPage() {
 				? position.hodlTokenBAmount * hodlLegPriceB
 				: null
 		return { currA, currB, currTot, hA, hB }
-	}, [position, showHodlLiquidity, hodlLegPriceA, hodlLegPriceB])
+	}, [position, detailFromClosed, showHodlLiquidity, hodlLegPriceA, hodlLegPriceB, withdrawLegs])
 
 	if (!isConnected) {
 		return (
@@ -345,7 +484,7 @@ export function PositionDetailPage() {
 					className="mt-4 text-sky-400 hover:underline"
 					onClick={() => {
 						setActiveTab('lp')
-						navigate('/', { state: { lpView: 'open' } })
+						navigate('/home', { state: { lpView: 'open' } })
 					}}
 				>
 					← Back to LP
@@ -356,6 +495,34 @@ export function PositionDetailPage() {
 
 	const poolShort = position.poolId ? shortAddress(position.poolId, 6, 4) : '—'
 	const daysLabel = Number.isFinite(position.daysOpen) ? `${daysOpenRounded(position.daysOpen)}d` : '—'
+	const lendingVault = isHaedalLendingVaultPosition(position)
+
+	if (isCurrentMultiplyVaultPosition(position)) {
+		return (
+			<main className="mx-auto max-w-6xl px-4 py-6">
+				<button
+					type="button"
+					className="mb-3 text-sm text-sky-400 hover:underline"
+					onClick={() => {
+						setActiveTab('lp')
+						navigate('/home', { state: { lpView: 'vaults' } })
+					}}
+				>
+					← Back to Vaults
+				</button>
+				<CurrentMultiplyDetailSection
+					position={position}
+					onRefresh={
+						walletAddress
+							? () => {
+									void loadAll(walletAddress, { forceRefreshPrices: true })
+								}
+							: undefined
+					}
+				/>
+			</main>
+		)
+	}
 
 	return (
 		<main className="mx-auto max-w-6xl px-4 py-6">
@@ -365,7 +532,15 @@ export function PositionDetailPage() {
 					className="mb-3 text-sm text-sky-400 hover:underline"
 					onClick={() => {
 						setActiveTab('lp')
-						navigate('/', { state: { lpView: detailFromClosed ? 'closed' : 'open' } })
+						navigate('/home', {
+							state: {
+								lpView: detailFromClosed
+									? 'closed'
+									: isCetusVaultPosition(position)
+										? 'vaults'
+										: 'open',
+							},
+						})
 					}}
 				>
 					← Back to LP
@@ -379,30 +554,63 @@ export function PositionDetailPage() {
 								title={position.tokenA}
 								chainIconUrl={position.tokenAIconUrl}
 							/>
+							{lendingVault ? null : (
 							<TokenIconOkx
 								coinType={position.tokenBAddress}
 								symbol={position.tokenB}
 								title={position.tokenB}
 								chainIconUrl={position.tokenBIconUrl}
 							/>
+							)}
 						</div>
 						<div className="col-start-2 row-start-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
 							<span className="text-xl leading-7 font-semibold tracking-tight text-slate-100">
-								{position.tokenA}/{position.tokenB}
+								{lendingVault ? position.tokenA : `${position.tokenA}/${position.tokenB}`}
 							</span>
-							<span className="rounded-full bg-slate-800/95 px-2 py-0.5 text-xs leading-5 font-medium tabular-nums text-slate-200">
-								{(position.fee * 100).toFixed(3)}%
-							</span>
+							{isCetusVaultPosition(position) ? (
+								<span className="rounded-full bg-slate-800/95 px-2 py-0.5 text-xs leading-5 font-medium text-slate-200">
+									{position.cetusVault?.feeLabel ?? 'Earn'}
+								</span>
+							) : (
+								<span className="rounded-full bg-slate-800/95 px-2 py-0.5 text-xs leading-5 font-medium tabular-nums text-slate-200">
+									{(position.fee * 100).toFixed(3)}%
+								</span>
+							)}
 							{detailFromClosed ? (
 								<span className="rounded-full bg-amber-900/55 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200/95">
 									Closed
+								</span>
+							) : null}
+							{isCetusVaultPosition(position) ? (
+								<span className="rounded-full bg-sky-900/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-200/95">
+									{position.cetusVault?.provider === 'Haedal' ? 'Haedal Vault' : 'Vault'}
 								</span>
 							) : null}
 							{position.poolId ? <ExploreObjectIconLink poolId={position.poolId} /> : null}
 						</div>
 						<div className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs leading-5 text-slate-400">
 							<ProtocolIcon protocol={position.protocol} size={16} />
-							<span className="inline-flex items-center">{protocolLabel(position.protocol)}</span>
+							<span className="inline-flex items-center">
+								{isCetusVaultPosition(position)
+									? position.cetusVault?.provider === 'Haedal'
+										? 'Haedal Vault'
+										: 'Cetus Vault'
+									: protocolLabel(position.protocol)}
+							</span>
+							{position.cetusVault?.lpTokenAmount ? (
+								<>
+									<span className="inline-flex items-center text-slate-600" aria-hidden>
+										·
+									</span>
+									<span className="tabular-nums text-slate-400">
+										{position.cetusVault.lpTokenAmount.toLocaleString('en-US', {
+											maximumFractionDigits: 2,
+										})}{' '}
+										LP
+										{position.cetusVault.stakedLpTokenRaw ? ' staked' : ''}
+									</span>
+								</>
+							) : null}
 							<span className="inline-flex items-center text-slate-600" aria-hidden>
 								·
 							</span>
@@ -424,50 +632,44 @@ export function PositionDetailPage() {
 									<span className="inline-flex items-center text-slate-600" aria-hidden>
 										·
 									</span>
-									<span className="inline-flex items-center text-amber-500/90" title="History truncated">
+									<span
+										className="inline-flex items-center text-amber-500/90"
+										title="History truncated by RPC page limits — deposit/PnL basis may be incomplete."
+									>
 										partial history
 									</span>
 								</>
 							) : null}
 						</div>
 					</div>
-					<div className="w-full min-w-0 shrink-0 pt-1 sm:w-[min(100%,17rem)] sm:max-w-[20rem] sm:flex-initial sm:basis-auto sm:pt-0 md:w-64 lg:w-72 xl:w-[19rem]">
-						{detailFromClosed && closedRec?.tickLower == null ? (
-							<p className="rounded-lg border border-slate-700/75 bg-slate-900/40 px-3 py-2 text-center text-[11px] leading-snug text-slate-500">
-								Tick range unavailable — NFT burned on close; will appear after next scan.
-							</p>
-						) : (
-							<PositionRangeBar p={position} />
-						)}
-					</div>
+					{isCetusVaultPosition(position) ? null : (
+						<div className="w-full min-w-0 shrink-0 pt-1 sm:w-[min(100%,17rem)] sm:max-w-[20rem] sm:flex-initial sm:basis-auto sm:pt-0 md:w-64 lg:w-72 xl:w-[19rem]">
+							{detailFromClosed && closedRec?.tickLower == null ? (
+								<p className="rounded-lg border border-slate-700/75 bg-slate-900/40 px-3 py-2 text-center text-[11px] leading-snug text-slate-500">
+									Tick range unavailable — NFT burned on close; will appear after next scan.
+								</p>
+							) : (
+								<PositionRangeBar p={position} />
+							)}
+						</div>
+					)}
 				</div>
 			</div>
 
-			<div className="mb-6 grid min-h-0 gap-6 lg:grid-cols-2 lg:items-stretch">
-				<div className="flex h-full min-h-0 min-w-0 flex-col gap-6">
+			{isCetusVaultPosition(position) ? (
+				<div className="mb-6 grid min-h-0 gap-6 lg:grid-cols-2 lg:items-stretch">
 					<PositionValueCard
-						position={position}
+						position={valueCardPosition ?? position}
 						totalMarkValueUsd={totalMarkValueUsd}
 						depositsUsd={depositsUsd}
 						withdrawsUsd={withdrawsUsd}
+						netDepositLegs={valueCardCapitalLegs}
 						showHodlLiquidity={showHodlLiquidity}
 						liquidityLegUsd={liquidityLegUsd}
 						hodlTotalUsd={hodlTotalUsd}
+						vaultAprPct={vaultAprPct}
+						closedDetail={detailFromClosed}
 					/>
-
-					{indexerExtras ? (
-						<PositionLifecycleIndexerCard indexerExtras={indexerExtras} />
-					) : null}
-
-					<PositionPerformanceCard
-						position={position}
-						showMetrics={showMetrics}
-						vsHodlRoiPct={vsHodlRoiPct}
-						ilPctVsHodl={ilPctVsHodl}
-					/>
-				</div>
-
-				<div className="flex h-full min-h-0 min-w-0 flex-col">
 					<PositionEarningsCard
 						position={position}
 						showMetrics={showMetrics}
@@ -475,10 +677,61 @@ export function PositionDetailPage() {
 						earnAprPct={earnAprPct}
 						claimedFeeRewardAgg={claimedFeeRewardAgg}
 					/>
+					<PositionPerformanceCard
+						position={position}
+						showMetrics={showMetrics}
+						vsHodlRoiPct={vsHodlRoiPct}
+						ilPctVsHodl={ilPctVsHodl}
+					/>
+					<PositionVaultInventoryCard position={position} showMetrics={showMetrics} />
+					{indexerExtras ? (
+						<div className="lg:col-span-2">
+							<PositionLifecycleIndexerCard indexerExtras={indexerExtras} />
+						</div>
+					) : null}
 				</div>
-			</div>
+			) : (
+				<div className="mb-6 grid min-h-0 gap-6 lg:grid-cols-2 lg:items-stretch">
+					<div className="flex h-full min-h-0 min-w-0 flex-col gap-6">
+						<PositionValueCard
+							position={valueCardPosition ?? position}
+							totalMarkValueUsd={totalMarkValueUsd}
+							depositsUsd={depositsUsd}
+							withdrawsUsd={withdrawsUsd}
+							netDepositLegs={valueCardCapitalLegs}
+							showHodlLiquidity={showHodlLiquidity}
+							liquidityLegUsd={liquidityLegUsd}
+							hodlTotalUsd={hodlTotalUsd}
+							closedDetail={detailFromClosed}
+						/>
 
-			{detailFromClosed ? null : (
+						{indexerExtras ? (
+							<PositionLifecycleIndexerCard indexerExtras={indexerExtras} />
+						) : null}
+
+						<div className="flex min-h-0 flex-1 flex-col">
+							<PositionPerformanceCard
+								position={position}
+								showMetrics={showMetrics}
+								vsHodlRoiPct={vsHodlRoiPct}
+								ilPctVsHodl={ilPctVsHodl}
+							/>
+						</div>
+					</div>
+
+					<div className="flex h-full min-h-0 min-w-0 flex-col">
+						<PositionEarningsCard
+							position={position}
+							showMetrics={showMetrics}
+							dailyEarningsUsd={dailyEarningsUsd}
+							earnAprPct={earnAprPct}
+							claimedFeeRewardAgg={claimedFeeRewardAgg}
+						/>
+					</div>
+				</div>
+			)}
+
+			{detailFromClosed || isCetusVaultPosition(position) ? null : (
 				<AppCard className="mb-6">
 					{/* Collapsible header — chart only mounts on first expand */}
 					<button
@@ -511,15 +764,21 @@ export function PositionDetailPage() {
 			)}
 
 			{lpProtocolUsesOnChainHistory(position.protocol) && evsVisible.length > 0 ? (
-				<BluefinEventHistoryCards
-					position={position}
-					events={evsVisible}
-				/>
+				<div className="relative z-10 isolate">
+					<BluefinEventHistoryCards
+						position={position}
+						events={evsVisible}
+					/>
+				</div>
 			) : (
 				<p className="text-sm text-app-fg-muted">
-					{lpProtocolUsesOnChainHistory(position.protocol)
-						? 'No indexed LP events for this position from this wallet yet (or older activity is past the scan limit).'
-						: 'Event history is not available for this protocol in the dashboard yet.'}
+					{!lpProtocolUsesOnChainHistory(position.protocol)
+						? 'Event history is not available for this protocol in the dashboard yet.'
+						: enrichmentPending
+							? 'Scanning wallet history for vault deposit / withdraw events…'
+							: isCetusVaultPosition(position)
+								? 'No vault deposit/withdraw events found for this wallet yet (or older activity is past the scan limit).'
+								: 'No indexed LP events for this position from this wallet yet (or older activity is past the scan limit).'}
 				</p>
 			)}
 		</main>

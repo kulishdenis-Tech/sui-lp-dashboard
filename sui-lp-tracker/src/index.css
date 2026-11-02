@@ -47,8 +47,85 @@ html {
 		"Courier New", monospace;
 	/** Легасі: ті самі гліфи, що й `--font-mono` */
 	--font-mono-nums: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
-	/** Легасі: коли окремо не підключали sans — тепер збігається з основним текстом */
+	/** Legacy alias – same glyphs as --font-sans */
 	--font-display: var(--font-sans);
+
+	/* ─── Role-based typography scale ─────────────────────────────────────
+	 * Each role pairs a font-size token (generates text-{role} utility) with a
+	 * line-height token (generates leading-{role} utility).
+	 * Mono roles: summary-value and kpi are always rendered with font-mono.
+	 * ──────────────────────────────────────────────────────────────────── */
+
+	/* Page heading – one level for all page titles */
+	--text-page-title: 1.5rem;          /* 24px */
+	--leading-page-title: 2rem;         /* 32px */
+
+	/* Section / drawer title – equal across all modules */
+	--text-section: 1.125rem;           /* 18px */
+	--leading-section: 1.5rem;          /* 24px */
+
+	/* Body text, buttons, table cells – base reading size */
+	--text-body: 0.875rem;              /* 14px */
+	--leading-body: 1.25rem;            /* 20px */
+
+	/* Labels, help text, table column headers */
+	--text-label: 0.75rem;              /* 12px */
+	--leading-label: 1rem;              /* 16px */
+
+	/* Micro badges – only short non-critical context text */
+	--text-micro: 0.6875rem;            /* 11px */
+	--leading-micro: 1rem;              /* 16px */
+
+	/* Large portfolio / summary value (mono) */
+	--text-summary-value: 1.5rem;       /* 24px */
+	--leading-summary-value: 2rem;      /* 32px */
+
+	/* Section KPI value – LP / Lending / Analytics (mono) */
+	--text-kpi: 1.25rem;                /* 20px */
+	--leading-kpi: 1.75rem;             /* 28px */
+
+	/* ─── Spacing scale (4px base grid) ───────────────────────────────────
+	 * Supplement Tailwind's numeric scale with semantic gap roles.
+	 * Use gap-xs … gap-xl in flex/grid layouts for consistent rhythm.
+	 * ──────────────────────────────────────────────────────────────────── */
+	--spacing-gap-xs:   0.25rem;        /* 4px  – icon / chip internal gap */
+	--spacing-gap-sm:   0.5rem;         /* 8px  – inline label↔value */
+	--spacing-gap-md:   0.75rem;        /* 12px – intra-card gap */
+	--spacing-gap-base: 1rem;           /* 16px – card padding, column gap */
+	--spacing-gap-lg:   1.5rem;         /* 24px – between sections */
+	--spacing-gap-xl:   2rem;           /* 32px – page-level gap */
+
+	/* ─── Radii ────────────────────────────────────────────────────────────
+	 * radius-control  → buttons, inputs, chips, cards
+	 * radius-overlay  → drawers, modals, dropdown menus, tooltips
+	 * ──────────────────────────────────────────────────────────────────── */
+	--radius-control: 0.5rem;           /* 8px */
+	--radius-overlay: 0.75rem;          /* 12px */
+
+	/* ─── Control heights ──────────────────────────────────────────────────
+	 * All same-row interactive elements (button / input / select) share one height.
+	 * Compact variant for toolbar and table inline actions.
+	 * ──────────────────────────────────────────────────────────────────── */
+	--height-control:         2.25rem;  /* 36px – default */
+	--height-control-compact: 2rem;     /* 32px – toolbar / table actions */
+
+	/* ─── Content widths ───────────────────────────────────────────────────
+	 * Tailwind v4 maps --max-width-* → max-w-* utilities (not --max-w-*).
+	 * Keep equal to max-w-6xl (72rem) so Header / MainContent / PageShell align.
+	 * ──────────────────────────────────────────────────────────────────── */
+	--max-width-content:      72rem;    /* 1152px — same as max-w-6xl */
+	--max-width-content-wide: 90rem;    /* 1440px */
+
+	/* ─── Z-index layer scale ──────────────────────────────────────────────
+	 * Defined order prevents overlapping layers from fighting each other.
+	 * Tip: toast lives above tooltip; modal-backdrop sits between drawer and menu.
+	 *   header  < drawer < menu  < tooltip
+	 *     40       60      80      100
+	 * ──────────────────────────────────────────────────────────────────── */
+	--z-header:  40;
+	--z-drawer:  60;
+	--z-menu:    80;
+	--z-tooltip: 100;
 }
 
 body {

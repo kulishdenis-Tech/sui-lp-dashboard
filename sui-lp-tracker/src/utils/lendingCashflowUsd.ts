@@ -26,6 +26,6 @@ export function cashflowResultMatchesParts(
 	cf: LendingCashflowUsd,
 	toleranceUSD = 0.01,
 ): boolean {
-	const sum = cf.realizedUSD + cf.unclaimedRewardsUSD
+	const sum = (cf.realizedUSD ?? 0) + (cf.unclaimedRewardsUSD ?? 0)
 	return Math.abs(sum - cf.resultUSD) <= toleranceUSD
 }

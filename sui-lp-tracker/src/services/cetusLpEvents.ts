@@ -301,7 +301,7 @@ export function parseCetusEvent(
 	let feeAmountA = 0
 	let feeAmountB = 0
 	let liquidityDelta = 0
-	let rewardAmount = 0
+	const rewardAmount = 0
 	let rewardToken = ''
 	let rewardCoinType: string | undefined
 	let rewardRawAmount: string | undefined
@@ -491,7 +491,7 @@ export async function scanCetusWalletEvents(
 	try {
 		return await _scanCetusWalletEventsInner(walletAddress)
 	} catch (err) {
-		// eslint-disable-next-line no-console
+		 
 		console.error('[cetus-scan] FATAL ERROR in scanCetusWalletEvents:', err)
 		return new Map()
 	}
@@ -509,7 +509,7 @@ async function _scanCetusWalletEventsInner(
 
 	// ── IDB warm-start ────────────────────────────────────────────────────
 	const cached = await loadLpCacheEntry(walletNorm, 'cetus')
-	// eslint-disable-next-line no-console
+	 
 	console.log('[cetus-scan] IDB cache:', cached ? `${cached.rows.length} rows` : 'null')
 
 	let baseEvByPos: Map<string, ChainEventLike[]>
@@ -570,12 +570,12 @@ async function _scanCetusWalletEventsInner(
 		}
 	}
 
-	// eslint-disable-next-line no-console
+	 
 	console.log(`[cetus-scan] Sender scan: ${pagesScanned} pages, ${newEvents.length} Cetus LP events found (warm=${cached != null})`)
 
 	// Nothing new on warm start — return cached map as-is (no IDB write needed)
 	if (newEvents.length === 0 && cached) {
-		// eslint-disable-next-line no-console
+		 
 		console.log(`[cetus-scan] Warm start: returning ${baseEvByPos.size} cached positions, keys:`, [...baseEvByPos.keys()].map(k => k.slice(0, 16)))
 		return baseEvByPos
 	}
@@ -601,7 +601,7 @@ async function _scanCetusWalletEventsInner(
 			else {
 				// Log the first unmatched event so we can see what field names it uses
 				if (skippedNoPid === 0) {
-					// eslint-disable-next-line no-console
+					 
 					console.log('[cetus-scan] Event with no position field, type:', ev.type, 'parsedJson keys:', Object.keys(pj))
 				}
 				skippedNoPid++
@@ -634,10 +634,10 @@ async function _scanCetusWalletEventsInner(
 	}
 
 	if (skippedNoPid > 0) {
-		// eslint-disable-next-line no-console
+		 
 		console.warn(`[cetus-scan] ${skippedNoPid} events skipped — no position field in parsedJson`)
 	}
-	// eslint-disable-next-line no-console
+	 
 	console.log(`[cetus-scan] Result: ${baseEvByPos.size} positions attributed, keys:`, [...baseEvByPos.keys()].map(k => k.slice(0, 16)))
 
 	// ── Persist to IDB (fire-and-forget) ─────────────────────────────────
@@ -689,7 +689,7 @@ export async function scanCetusPositionEvents(
 
 	const rawByPosition = await loadCetusWalletRawEvents(walletAddress)
 
-	// eslint-disable-next-line no-console
+	 
 	console.log(`[cetus-scan] Looking up posNorm=${posNorm.slice(0, 16)}… map has ${rawByPosition.size} positions, hit=${rawByPosition.has(posNorm)}`)
 
 	const rawEvs = rawByPosition.get(posNorm) ?? []
@@ -803,7 +803,7 @@ async function scanCetusWalletTxs(
 		}
 	}
 
-	// eslint-disable-next-line no-console
+	 
 	console.log(`[cetus-tx-scan] TX scan done: ${byPosition.size} positions found, keys:`, [...byPosition.keys()].map(k => k.slice(0, 16)))
 
 	return byPosition

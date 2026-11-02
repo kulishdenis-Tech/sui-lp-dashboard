@@ -54,6 +54,24 @@ export function geckoTerminalPoolWebUrl(network: string, poolAddress: string): s
 	return `https://www.geckoterminal.com/${encodeURIComponent(net)}/pools/${encodeURIComponent(id)}`
 }
 
+type GeckoEmbedOpts = {
+	dark?: boolean
+	/** показувати бічні блоки всередині вкладення */
+	infoPanel?: boolean
+	swaps?: boolean
+	grayscale?: boolean
+}
+
+function applyGeckoEmbedParams(u: URL, opts?: GeckoEmbedOpts): string {
+	u.searchParams.set('embed', '1')
+	const dark = opts?.dark ?? true
+	u.searchParams.set('light_chart', dark ? '0' : '1')
+	u.searchParams.set('info', (opts?.infoPanel ?? false) ? '1' : '0')
+	u.searchParams.set('swaps', (opts?.swaps ?? false) ? '1' : '0')
+	u.searchParams.set('grayscale', opts?.grayscale ? '1' : '0')
+	return u.toString()
+}
+
 /**
  * URL для вкладення графіка GeckoTerminal Share → Embed / generator (або параметри того ж рівня, що підставляють {pool URL} у iframe).
  * Параметри: `embed`, `light_chart`, `info`, `swaps`, `grayscale` — режим лише для UI; офіційно описані на сторінці embed Charts.
@@ -63,26 +81,35 @@ export function geckoTerminalPoolWebUrl(network: string, poolAddress: string): s
 export function geckoTerminalPoolEmbedWebUrl(
 	network: string,
 	poolAddress: string,
-	opts?: {
-		dark?: boolean
-		/** показувати бічні блоки всередині вкладення */
-		infoPanel?: boolean
-		swaps?: boolean
-		grayscale?: boolean
-	},
+	opts?: GeckoEmbedOpts,
 ): string {
 	const id = normalizePoolAddressForGeckoOhlcv(poolAddress)
 	const net = network.trim() || 'sui-network'
 	const u = new URL(
 		`https://www.geckoterminal.com/${encodeURIComponent(net)}/pools/${encodeURIComponent(id)}`,
 	)
-	u.searchParams.set('embed', '1')
-	const dark = opts?.dark ?? true
-	u.searchParams.set('light_chart', dark ? '0' : '1')
-	u.searchParams.set('info', (opts?.infoPanel ?? false) ? '1' : '0')
-	u.searchParams.set('swaps', (opts?.swaps ?? false) ? '1' : '0')
-	u.searchParams.set('grayscale', opts?.grayscale ? '1' : '0')
-	return u.toString()
+	return applyGeckoEmbedParams(u, opts)
+}
+
+/** Сторінка токена в UI GeckoTerminal (ціна токена в USD, незалежно від орієнтації пулу). */
+export function geckoTerminalTokenWebUrl(network: string, tokenAddress: string): string {
+	const net = network.trim() || 'sui-network'
+	const id = tokenAddress.trim()
+	return `https://www.geckoterminal.com/${encodeURIComponent(net)}/tokens/${encodeURIComponent(id)}`
+}
+
+/**
+ * Embed за адресою токена — вісь показує ціну **цього** токена в USD
+ * (на відміну від pool embed, де USDC/NS дає ~83 NS за $1 замість ~$0.012 за NS).
+ * @see https://about.geckoterminal.com/embed-charts
+ */
+export function geckoTerminalTokenEmbedWebUrl(
+	network: string,
+	tokenAddress: string,
+	opts?: GeckoEmbedOpts,
+): string {
+	const u = new URL(geckoTerminalTokenWebUrl(network, tokenAddress))
+	return applyGeckoEmbedParams(u, opts)
 }
 
 export function poolCandleParams(id: PoolCandleTimeframeId) {

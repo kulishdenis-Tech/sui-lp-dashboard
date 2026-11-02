@@ -6,13 +6,17 @@ import type {
 	OpenPosition,
 } from '@/types'
 import { suiClient } from '@/services/suiClient'
+import {
+	listOwnedMoveObjects,
+	multiGetObjectsHydrated,
+	asRpcObjectClient,
+} from '@/services/objectVersionCache'
 import { type ResolveSpotsOptions, type Row, resolveSpots } from '@/services/spotPrice/resolveSpots'
 import { fetchBluefinAccruedRaws } from '@/services/bluefinAccruedInspect'
-import { readMoveUIntString, readMoveI32 } from '@/services/bluefinMoveRead'
+import { readMoveUIntString } from '@/services/bluefinMoveRead'
 import { logBluefinUnclaimedDebug } from '@/services/bluefinUnclaimedDebug'
 import { getBluefinAccruedFeesAndRewards } from '@/services/bluefinAccruedSdk'
 import { isBluefinLazyUnclaimedEnabled } from '@/services/lpFeatureFlags'
-import { resolveLifecycleStatus, resolveRangeStatus } from '@/utils/lpLifecycle'
 import { PROTOCOL_PACKAGES } from '@/utils/constants'
 import { normalizeSuiAddress, normalizeStructTag } from '@mysten/sui/utils'
 import Decimal from 'decimal.js'
@@ -31,9 +35,30 @@ const POS_STRUCT = `${PKG}::position::Position`
 const BLUEFIN_UNCLAIMED_VALIDATION_POS =
 	'0x3197153a08f2429bbb9f3343efc5a495539c7b1065343fd0fe5e011df02e423c'
 
+function i32ToSigned(n: number): number {
+	if (n > 0x7fffffff) return n - 0x1_0000_0000
+	return n
+}
+
 function httpsIconUrlFromCoinMetadata(m: { iconUrl?: string | null } | null | undefined): string | null {
 	const u = m?.iconUrl?.trim()
 	return typeof u === 'string' && u.startsWith('https://') ? u : null
+}
+
+function readI32(field: unknown): number {
+	if (field == null) return 0
+	// gRPC / GraphQL json: `{ bits: u32 }` (no nested `fields`)
+	if (typeof field === 'object' && field !== null && 'bits' in (field as object)) {
+		const b = (field as { bits?: string | number }).bits
+		if (b !== undefined) return i32ToSigned(typeof b === 'string' ? parseInt(b, 10) : Number(b))
+	}
+	// Legacy JSON-RPC: `{ fields: { bits } }`
+	if (typeof field === 'object' && 'fields' in (field as object)) {
+		const b = (field as { fields?: { bits?: string | number } }).fields?.bits
+		if (b !== undefined) return i32ToSigned(typeof b === 'string' ? parseInt(b, 10) : b)
+	}
+	if (typeof field === 'number') return i32ToSigned(field)
+	return 0
 }
 
 function asMoveFields(data: unknown): Record<string, unknown> | null {
@@ -184,6 +209,8 @@ export type BluefinSpotOptions = {
 	forceRefreshPrices?: boolean
 	/** `true` — devInspect unclaimed у списку (повільніше). За замовч. залежить від `VITE_BLUEFIN_LAZY_UNCLAIMED`. */
 	includeUnclaimed?: boolean
+	/** Skip full object content when cached version is unchanged. */
+	incremental?: boolean
 }
 
 export async function getBluefinSpotPositions(
@@ -194,23 +221,18 @@ export async function getBluefinSpotPositions(
 		options?.includeUnclaimed === true ||
 		(options?.includeUnclaimed !== false && !isBluefinLazyUnclaimedEnabled())
 	const owner = walletAddress
+	const incremental = options?.incremental === true
+	const owned = await listOwnedMoveObjects(asRpcObjectClient(suiClient), {
+		owner,
+		filter: { StructType: POS_STRUCT },
+		incremental,
+	})
 	const posIds: { id: string; fields: Record<string, unknown> }[] = []
-	let cursor: string | null | undefined
-	for (;;) {
-		const page = await suiClient.getOwnedObjects({
-			owner,
-			filter: { StructType: POS_STRUCT },
-			options: { showContent: true, showType: true },
-			cursor: cursor ?? null,
-		})
-		for (const it of page.data) {
-			const d = it.data
-			if (!d?.objectId) continue
-			const f = asMoveFields(d)
-			if (f) posIds.push({ id: d.objectId, fields: f })
-		}
-		if (!page.hasNextPage) break
-		cursor = page.nextCursor ?? null
+	for (const it of owned) {
+		const d = it.data
+		if (!d?.objectId) continue
+		const f = asMoveFields(d)
+		if (f) posIds.push({ id: d.objectId, fields: f })
 	}
 	if (posIds.length === 0) return []
 
@@ -227,18 +249,14 @@ export async function getBluefinSpotPositions(
 	}
 	const poolMap = new Map<string, Record<string, unknown>>()
 	const poolIds = [...poolIdSet]
-	const chunk = 50
-	for (let i = 0; i < poolIds.length; i += chunk) {
-		const part = poolIds.slice(i, i + chunk)
-		const res = await suiClient.multiGetObjects({
-			ids: part,
-			options: { showContent: true, showType: true },
-		})
-		for (const r of res) {
-			if (r.data?.objectId) {
-				const f = asMoveFields(r.data)
-				if (f) poolMap.set(normalizeSuiAddress(r.data.objectId), f)
-			}
+	const poolRes = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), poolIds, {
+		incremental,
+		showType: true,
+	})
+	for (const r of poolRes) {
+		if (r.data?.objectId) {
+			const f = asMoveFields(r.data)
+			if (f) poolMap.set(normalizeSuiAddress(r.data.objectId), f)
 		}
 	}
 
@@ -303,15 +321,15 @@ export async function getBluefinSpotPositions(
 		const symA = meta.get(tA)?.symbol ?? 'A'
 		const symB = meta.get(tB)?.symbol ?? 'B'
 		const liqStr = readMoveUIntString(f.liquidity)
-		const lowerT = readMoveI32(f.lower_tick)
-		const upperT = readMoveI32(f.upper_tick)
+		const lowerT = readI32(f.lower_tick)
+		const upperT = readI32(f.upper_tick)
 		const feeBps = typeof f.fee_rate === 'string' ? parseInt(f.fee_rate, 10) : Number(f.fee_rate ?? 0)
 
 		const poolF = poolKey ? (poolMap.get(poolKey) ?? null) : null
 		const sqrtField =
 			(poolF && (poolF as Record<string, unknown>)['current_sqrt_price']) ?? null
 		const curSqrtStr = readMoveUIntString(sqrtField)
-		const currentTickI32 = readMoveI32(poolF?.current_tick_index)
+		const currentTickI32 = readI32(poolF?.current_tick_index)
 		const lowerSqrt = TickMath.tickIndexToSqrtPriceX64(lowerT)
 		const upperSqrt = TickMath.tickIndexToSqrtPriceX64(upperT)
 
@@ -377,10 +395,10 @@ export async function getBluefinSpotPositions(
 				rewRaws = accrued.rewardRaws
 			} else {
 				unclaimedSource = 'unavailable'
-				// eslint-disable-next-line no-console
+				 
 				console.warn('Bluefin accrued fees/rewards unavailable: devInspect / pool view failed —', accrued.error)
 				if (import.meta.env.VITE_DEBUG_BLUEFIN === '1') {
-					// eslint-disable-next-line no-console
+					 
 					console.warn('[bluefin] detail', p.id, accrued.error)
 				}
 			}
@@ -388,7 +406,7 @@ export async function getBluefinSpotPositions(
 			unclaimedSource = 'unavailable'
 		} else {
 			unclaimedSource = 'unavailable'
-			// eslint-disable-next-line no-console
+			 
 			console.warn('Bluefin accrued fees/rewards unavailable: missing pool or coin types for position', p.id)
 		}
 		const feeHumA = safeHumanFromRaw(rawFeeA, decA)
@@ -449,7 +467,7 @@ export async function getBluefinSpotPositions(
 			if (hum <= 0) continue
 			const pR = spots.get(coinType)?.price
 			const pRf = pR != null && Number.isFinite(pR) && pR > 0 && pR <= 1e8 ? pR : null
-			let leg = 0
+			let leg: number
 			if (pRf != null) leg = hum * pRf
 			else leg = getUsd(coinType, rawO)
 			if (leg > 0 && leg <= MAX_SANE_POSITION_USD) {
@@ -467,8 +485,7 @@ export async function getBluefinSpotPositions(
 
 		const openedAt = Date.now() / 1000
 		const feeLabel = parseFeeMillionthsToPctLabel(feeBps)
-		const lifecycleStatus = resolveLifecycleStatus(liqStr)
-		const rangeLabel = inRange && lifecycleStatus !== 'empty' ? '' : ' · OUT'
+		const rangeLabel = inRange ? '' : ' · OUT'
 
 		const poolIdOut = poolIdRaw || poolKey
 		const bluefinUnclaimed: BluefinUnclaimedSnapshot = {
@@ -489,7 +506,7 @@ export async function getBluefinSpotPositions(
 		}
 		logBluefinUnclaimedDebug(bluefinUnclaimed)
 		if (import.meta.env.VITE_DEBUG_BLUEFIN === '1' && p.id === BLUEFIN_UNCLAIMED_VALIDATION_POS) {
-			// eslint-disable-next-line no-console
+			 
 			console.log('[bluefin validate] pool view raw', {
 				position: p.id,
 				pool: poolIdOut,
@@ -519,8 +536,7 @@ export async function getBluefinSpotPositions(
 			currentTick: currentTickI32,
 			currentSqrtPrice: curSqrt.isZero() ? curSqrtStr : curSqrt.toString(10),
 			liquidity: liqStr,
-			lifecycleStatus,
-			status: resolveRangeStatus(inRange, lifecycleStatus),
+			status: inRange ? 'in_range' : 'out_of_range',
 			tokenAAmount: humA,
 			tokenBAmount: humB,
 			currentPriceA_USD: pxaF ?? 0,

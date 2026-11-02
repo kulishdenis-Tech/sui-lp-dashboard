@@ -1,14 +1,15 @@
 /**
  * Cetus CLMM closed positions.
  *
- * "Closed" = position NFT still in wallet but with liquidity === '0'.
- * The user removed all liquidity but hasn't burned the NFT yet.
+ * "Closed" = confirmed final close when the position object is burned
+ * (`ClosePositionEvent`). Owned NFTs with liquidity === 0 are **Empty** and
+ * stay on the open list via getCetusPositions — never listed here.
  *
  * Flow:
- *  1. getOwnedObjects → zero-liquidity Cetus position NFTs
+ *  1. Wallet event map → burned position seeds
  *  2. fetchPools → feeRate, rewarder coin types
  *  3. getCoinMetadata → decimals + symbols
- *  4. scanCetusPositionEvents (InputObject/ChangedObject) → full event history
+ *  4. scanCetusPositionEvents → full event history
  *  5. resolveSpots → current spot prices for pair display
  *  6. Build ClosedPosition[]
  */
@@ -16,8 +17,14 @@ import type { ClosedPosition, PositionEvent } from '@/types'
 import { suiClient } from '@/services/suiClient'
 import { normalizeSuiAddress } from '@mysten/sui/utils'
 import type { ParsedPool, ParsedPosition } from '@/services/cetusService'
-import { fetchClosedPositionNFTs, fetchPools } from '@/services/cetusService'
-import { scanCetusPositionEvents, scanCetusPositionEventsByWalletTxs } from '@/services/cetusLpEvents'
+import { fetchPools } from '@/services/cetusService'
+import {
+	cetusBurnedSeedsFromWalletMap,
+	cetusPoolCoinsFromEventType,
+	loadCetusWalletRawEvents,
+	scanCetusPositionEvents,
+	scanCetusPositionEventsByWalletTxs,
+} from '@/services/cetusLpEvents'
 import { resolveSpots, type Row } from '@/services/spotPrice/resolveSpots'
 import {
 	loadClosedPosTxEntries,
@@ -98,7 +105,7 @@ async function fetchCoinMetas(coinTypes: string[]): Promise<Map<string, CoinMeta
 
 /**
  * Returns Cetus CLMM closed positions for `walletAddress`.
- * Only zero-liquidity NFTs still held in wallet are included.
+ * Burned NFTs only (ClosePositionEvent). Owned empty NFTs are not Closed.
  */
 export async function getCetusClosedPositions(
 	walletAddress: string,
@@ -110,15 +117,52 @@ export async function getCetusClosedPositions(
 		walletNorm = walletAddress
 	}
 
-	// 1. Fetch zero-liquidity NFTs
-	let closed: ParsedPosition[]
+	// 1. Burned closes from wallet events only (never owned liquidity===0 NFTs).
+	const closed: ParsedPosition[] = []
+	let burnedSeeds: ReturnType<typeof cetusBurnedSeedsFromWalletMap> = []
 	try {
-		closed = await fetchClosedPositionNFTs(walletAddress)
+		burnedSeeds = cetusBurnedSeedsFromWalletMap(await loadCetusWalletRawEvents(walletAddress))
 	} catch (e) {
-		// eslint-disable-next-line no-console
-		console.warn('[cetus-closed] fetchClosedPositionNFTs failed', e)
-		return []
+		 
+		console.warn('[cetus-closed] burned-position scan failed', e)
 	}
+	const needPoolCoins = burnedSeeds.filter((s) => !s.coinTypeA || !s.coinTypeB)
+	if (needPoolCoins.length > 0) {
+		const ids = [...new Set(needPoolCoins.map((s) => s.poolId))]
+		const objs = await suiClient.multiGetObjects({
+			ids,
+			options: { showType: true },
+		}).catch(() => [])
+		const coinsByPool = new Map<string, { coinTypeA: string; coinTypeB: string }>()
+		for (let i = 0; i < ids.length; i++) {
+			const type = objs[i]?.data?.type
+			if (!type) continue
+			const pair = cetusPoolCoinsFromEventType(type)
+			if (pair) coinsByPool.set(ids[i]!, pair)
+		}
+		for (const seed of needPoolCoins) {
+			const pair = coinsByPool.get(seed.poolId)
+			if (!pair) continue
+			seed.coinTypeA = pair.coinTypeA
+			seed.coinTypeB = pair.coinTypeB
+		}
+	}
+	const seen = new Set<string>()
+	for (const seed of burnedSeeds) {
+		if (!seed.coinTypeA || !seed.coinTypeB) continue
+		if (seen.has(seed.objectId)) continue
+		seen.add(seed.objectId)
+		closed.push({
+			objectId: seed.objectId,
+			poolId: seed.poolId,
+			coinTypeA: seed.coinTypeA,
+			coinTypeB: seed.coinTypeB,
+			liquidity: '0',
+			lowerTick: seed.lowerTick,
+			upperTick: seed.upperTick,
+		})
+	}
+
 	if (closed.length === 0) return []
 
 	// 2. Fetch pool metadata (fee rate, rewarder coin types)
@@ -127,7 +171,7 @@ export async function getCetusClosedPositions(
 	try {
 		poolMap = await fetchPools(uniquePoolIds)
 	} catch (e) {
-		// eslint-disable-next-line no-console
+		 
 		console.warn('[cetus-closed] fetchPools failed', e)
 		poolMap = new Map()
 	}
@@ -220,11 +264,11 @@ export async function getCetusClosedPositions(
 								cachedAt: Date.now(),
 							})
 						} else {
-							// eslint-disable-next-line no-console
+							 
 							console.warn('[cetus-closed] no events found for position', pos.objectId.slice(0, 16), '— both Sender and deep TX scans returned empty')
 						}
 					} catch (err) {
-						// eslint-disable-next-line no-console
+						 
 						console.warn('[cetus-closed] targeted scan failed for', pos.objectId.slice(0, 16), err)
 					}
 				}
@@ -241,7 +285,7 @@ export async function getCetusClosedPositions(
 			const openedAt = openEvt ? openEvt.timestamp : firstTs
 
 			// "Closed" = last remove_liquidity event (or last event overall)
-			const removeEvts = events.filter((e) => e.type === 'remove_liquidity')
+			const removeEvts = events.filter((e) => e.type === 'remove_liquidity' || e.type === 'close_position')
 			const closedAt = removeEvts.length > 0
 				? Math.max(...removeEvts.map((e) => e.timestamp))
 				: lastTs

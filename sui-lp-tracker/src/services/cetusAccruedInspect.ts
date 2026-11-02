@@ -13,9 +13,13 @@
  *
  * We call both in a single devInspect TX and parse the emitted events.
  *
- * Constants sourced from `@cetusprotocol/sui-clmm-sdk` mainnet config:
- *   integrate.published_at = 0xae9c208c…
+ * Constants sourced from `@cetusprotocol/sui-clmm-sdk` 1.4.9
+ * `CetusClmmSDK.createSDK({ env: 'mainnet' }).sdkOptions`:
+ *   integrate.published_at = 0x9ee0534b… (version 17)
  *   clmm_pool.global_config_id = 0xdaa46292…
+ *
+ * Stale integrate.published_at aborts with checked_package_version (code 10)
+ * and drops both fees and rewards from fetch_position_* views.
  */
 import type { SuiJsonRpcClient } from '@mysten/sui/jsonRpc'
 import { Transaction } from '@mysten/sui/transactions'
@@ -26,11 +30,11 @@ import { normalizeStructTag, normalizeSuiAddress, SUI_CLOCK_OBJECT_ID } from '@m
 // ---------------------------------------------------------------------------
 
 /**
- * Cetus integrate package `published_at`.
- * This is the *current* version — update here if Cetus upgrades the package.
+ * Cetus integrate package `published_at` (mainnet).
+ * Keep in sync with `@cetusprotocol/sui-clmm-sdk` mainnet sdkOptions.integrate.
  */
 const CETUS_INTEGRATE_AT =
-	'0xae9c208cf58fd5ba36737c9ee5dcfa7f152d0fb5a5a99eebb7c881ebc2fe59e0' as const
+	'0x9ee0534b703b14457aee7698ea3a07a5080f954ed2b7e9910fbb7a55506824fa' as const
 
 /**
  * Cetus CLMM global config object ID.

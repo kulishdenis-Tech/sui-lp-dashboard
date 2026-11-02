@@ -24,7 +24,7 @@ export async function getBluefinAccruedFeesAndRewards(
 	const client = options?.client ?? suiClient
 	const raw = await fetchBluefinAccruedRaws(client, input)
 	if (!raw.ok) {
-		// eslint-disable-next-line no-console
+		 
 		console.warn('Bluefin accrued fees/rewards unavailable: devInspect failed —', raw.error)
 		return null
 	}

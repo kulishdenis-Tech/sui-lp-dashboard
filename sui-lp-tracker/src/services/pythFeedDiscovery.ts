@@ -79,13 +79,13 @@ function getMap(): Map<string, `0x${string}`> {
 }
 
 export function getCachedPythFeedId(symbol: string): `0x${string}` | null {
-	const k = symbol.toUpperCase().split(/[\/\s-]/)[0] ?? ''
+	const k = symbol.toUpperCase().split(/[/]|[\s-]/)[0] ?? ''
 	if (getNegative().has(k)) return null
 	return getMap().get(k) ?? null
 }
 
 export function setCachedPythFeedId(symbol: string, id: `0x${string}`) {
-	const k = symbol.toUpperCase().split(/[\/\s-]/)[0] ?? ''
+	const k = symbol.toUpperCase().split(/[/]|[\s-]/)[0] ?? ''
 	const m = getMap()
 	m.set(k, id)
 	persist(m)
@@ -93,7 +93,7 @@ export function setCachedPythFeedId(symbol: string, id: `0x${string}`) {
 
 /** Позначає, що в Hermes для символа немає /USD (не повторювати search). */
 export function setPythUnknown(symbol: string) {
-	const k = symbol.toUpperCase().split(/[\/\s-]/)[0] ?? ''
+	const k = symbol.toUpperCase().split(/[/]|[\s-]/)[0] ?? ''
 	const s = getNegative()
 	s.add(k)
 	negativeMemory = s
@@ -102,7 +102,7 @@ export function setPythUnknown(symbol: string) {
 
 /** Hermes search: перший /USD match за base. */
 export async function searchPythPriceFeedId(symbol: string): Promise<`0x${string}` | null> {
-	const base = symbol.toUpperCase().split(/[\/\s-]/)[0] ?? ''
+	const base = symbol.toUpperCase().split(/[/]|[\s-]/)[0] ?? ''
 	if (!base) return null
 	const u = new URL(HERMES_SEARCH)
 	u.searchParams.set('query', base)
@@ -145,7 +145,7 @@ export async function discoverPythFeedIds(
 	let n = 0
 	for (const s of symbols) {
 		if (n >= cap) break
-		const base = s.toUpperCase().split(/[\/\s-]/)[0] ?? ''
+		const base = s.toUpperCase().split(/[/]|[\s-]/)[0] ?? ''
 		if (!base || seen.has(base)) continue
 		seen.add(base)
 		if (getPythStaticFeedId(s)) continue

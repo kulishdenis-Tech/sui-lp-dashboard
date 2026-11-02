@@ -199,12 +199,9 @@ export function assemblePortfolioSnapshot(input: {
 	let lpUSD = 0
 	let aftermathUSD = 0
 	for (const p of input.positions) {
-		let val: number | null = null
-		if (isCurrentMultiplyVaultPosition(p)) {
-			val = multiplyPortfolioContribution(p).usd
-		} else {
-			val = positionValueUsdOrNull(p) ?? liquidityUsdOrNull(p)
-		}
+		const val = isCurrentMultiplyVaultPosition(p)
+			? multiplyPortfolioContribution(p).usd
+			: (positionValueUsdOrNull(p) ?? liquidityUsdOrNull(p))
 		if (val == null) continue
 		if (p.protocol === 'aftermath') aftermathUSD += val
 		else lpUSD += val

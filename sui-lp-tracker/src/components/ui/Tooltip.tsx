@@ -15,6 +15,11 @@ type TooltipProps = {
 	children: ReactNode
 	/** e.g. `w-full min-w-0` for cards in a CSS grid */
 	className?: string
+	/**
+	 * When true, click/tap on the wrapper also opens the tip (and outside press closes).
+	 * Use for compact marks that must work without relying on `title`.
+	 */
+	openOnClick?: boolean
 }
 
 const panelCls =
@@ -43,7 +48,7 @@ function computePanelStyle(wrapEl: HTMLElement): CSSProperties {
 		transform: placeAbove ? 'translate(-50%, -100%)' : 'translate(-50%, 0)',
 		width: maxW,
 		maxWidth: maxW,
-		zIndex: 5000,
+		zIndex: 'var(--z-tooltip, 100)',
 	}
 }
 
@@ -51,12 +56,14 @@ function computePanelStyle(wrapEl: HTMLElement): CSSProperties {
  * Hover / focus tooltip — fixed panel via portal; layout measured in `useLayoutEffect`
  * so первий кадр вже із позицією (без «стрибу»). Scroll/resize — максимум 1 оновлення/кадр.
  */
-export function Tooltip({ tip, children, className }: TooltipProps) {
+export function Tooltip({ tip, children, className, openOnClick = false }: TooltipProps) {
 	const [open, setOpen] = useState(false)
+	const [pinned, setPinned] = useState(false)
 	const tooltipId = useId()
 	const wrapRef = useRef<HTMLDivElement>(null)
 	const [panelStyle, setPanelStyle] = useState<CSSProperties | null>(null)
 	const rafRef = useRef<number | undefined>(undefined)
+	const show = open || pinned
 
 	const syncPositionFromEl = useCallback(() => {
 		const el = wrapRef.current
@@ -66,15 +73,15 @@ export function Tooltip({ tip, children, className }: TooltipProps) {
 
 	/** Передаємо позицію до paint — без проміжного кадру з порожнім style на body. */
 	useLayoutEffect(() => {
-		if (!open) {
+		if (!show) {
 			setPanelStyle(null)
 			return
 		}
 		syncPositionFromEl()
-	}, [open, tip, syncPositionFromEl])
+	}, [show, tip, syncPositionFromEl])
 
 	useEffect(() => {
-		if (!open) return
+		if (!show) return
 		const schedule = () => {
 			if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
 			rafRef.current = requestAnimationFrame(() => {
@@ -89,12 +96,24 @@ export function Tooltip({ tip, children, className }: TooltipProps) {
 			window.removeEventListener('scroll', schedule, true)
 			if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
 		}
-	}, [open, syncPositionFromEl])
+	}, [show, syncPositionFromEl])
+
+	useEffect(() => {
+		if (!openOnClick || !pinned) return
+		const onPointerDown = (e: PointerEvent) => {
+			const el = wrapRef.current
+			if (!el) return
+			if (e.target instanceof Node && el.contains(e.target)) return
+			setPinned(false)
+		}
+		document.addEventListener('pointerdown', onPointerDown, true)
+		return () => document.removeEventListener('pointerdown', onPointerDown, true)
+	}, [openOnClick, pinned])
 
 	const wrapperCls = className ?? 'relative inline-flex'
 
 	const panel =
-		open && typeof document !== 'undefined' && panelStyle ? (
+		show && typeof document !== 'undefined' && panelStyle ? (
 			<div id={tooltipId} role="tooltip" className={panelCls} style={panelStyle}>
 				{tip}
 			</div>
@@ -108,7 +127,14 @@ export function Tooltip({ tip, children, className }: TooltipProps) {
 			onMouseLeave={() => setOpen(false)}
 			onFocus={() => setOpen(true)}
 			onBlur={() => setOpen(false)}
-			aria-describedby={open ? tooltipId : undefined}
+			onClickCapture={
+				openOnClick
+					? () => {
+							setPinned((p) => !p)
+						}
+					: undefined
+			}
+			aria-describedby={show ? tooltipId : undefined}
 		>
 			{children}
 			{panel ? createPortal(panel, document.body) : null}
@@ -117,7 +143,7 @@ export function Tooltip({ tip, children, className }: TooltipProps) {
 }
 
 export type TooltipIconButtonProps = {
-	tip: string
+	tip: ReactNode
 	/** For screen readers */
 	'aria-label'?: string
 	/** Classes for the circular button (color, vertical nudge). */
@@ -137,8 +163,9 @@ export function TooltipIconButton({
 		<Tooltip tip={tip} className={'relative inline-flex shrink-0 ' + leadingClassName}>
 			<button
 				type="button"
+				data-tooltip-icon=""
 				className={
-					'inline-flex rounded-full p-0.5 text-slate-500 transition-colors hover:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/45 ' +
+					'inline-flex rounded-full border-0 bg-transparent p-0.5 text-slate-500 shadow-none transition-colors hover:bg-transparent hover:text-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/45 ' +
 					className
 				}
 				aria-label={ariaLabel}

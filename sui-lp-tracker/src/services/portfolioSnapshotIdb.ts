@@ -41,6 +41,19 @@ export type PortfolioSnapshot = {
 	walletUSD: number
 	/** Sum of all components */
 	totalUSD: number
+	/**
+	 * Wall-clock observation time (ms) when this sample was taken.
+	 * Distinct from `hourBucket` (chart bucket) and legacy `ts` (often == hourBucket).
+	 */
+	observedAtMs?: number
+	/**
+	 * True when any required source failed or was unknown (error ≠ confirmed zero).
+	 * `undefined` = legacy record (usable for chart continuity; not proven complete).
+	 * New writers always set an explicit boolean.
+	 */
+	incomplete?: boolean
+	/** Per-source load status from portfolioLpSources registry. */
+	lpSources?: Array<{ id: string; ok: boolean; error?: string; count: number }>
 }
 
 let _dbPromise: Promise<IDBDatabase> | null = null
@@ -86,8 +99,23 @@ function idbRequest<T>(req: IDBRequest<T>): Promise<T> {
 	})
 }
 
-/** Upsert a snapshot (overwrites same bucket). */
+/** Read one snapshot by primary key (or null). */
+export async function getSnapshotById(id: string): Promise<PortfolioSnapshot | null> {
+	const db = await openDb()
+	const tx = db.transaction(STORE_NAME, 'readonly')
+	const row = await idbRequest(tx.objectStore(STORE_NAME).get(id) as IDBRequest<PortfolioSnapshot | undefined>)
+	return row ?? null
+}
+
+/**
+ * Upsert a snapshot for its bucket.
+ * A proven-complete bucket is never overwritten by an incomplete sample.
+ */
 export async function saveSnapshot(snap: PortfolioSnapshot): Promise<void> {
+	const existing = await getSnapshotById(snap.id)
+	if (existing && existing.incomplete === false && snap.incomplete === true) {
+		return
+	}
 	const db = await openDb()
 	const tx = db.transaction(STORE_NAME, 'readwrite')
 	await idbRequest(tx.objectStore(STORE_NAME).put(snap))

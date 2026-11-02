@@ -14,9 +14,11 @@ const LS_KEY = 'sui_lp_current_spot_v4'
 const MAX_PERSIST_KEYS = 450
 
 type Entry = {
+	/** Wall time when the price was observed from the network (or first seeded). */
 	observedAt: number
+	/** Last local read / change24h patch — must NOT extend freshness TTL. */
 	lastReadAt: number
-	/** @deprecated use observedAt */
+	/** @deprecated alias of observedAt for older call sites */
 	cachedAt: number
 	price: number
 	change24h: number | null
@@ -27,9 +29,9 @@ type Entry = {
 
 const mem = new Map<string, Entry>()
 
+/** Test seam — fake clock for TTL regression. */
 let nowFn: () => number = () => Date.now()
 
-/** Test seam — fake clock for TTL regression. */
 export function __setSpotCacheNow(fn: (() => number) | null): void {
 	nowFn = fn ?? (() => Date.now())
 }
@@ -44,8 +46,9 @@ type StoredEntry = {
 	change5m?: number | null
 	change1h?: number | null
 	source: SpotSource
-	observedAt?: number
+	observedAt: number
 	lastReadAt?: number
+	/** Legacy v3 field */
 	cachedAt?: number
 }
 
@@ -109,8 +112,10 @@ function getFromPersisted(coinType: string): Entry | null {
 	}
 }
 
-export const SPOT_MEM_TTL_MS = MEM_TTL_MS
-
+/**
+ * Лише in-memory, не старіше `MEM_TTL_MS` від observedAt (без localStorage) —
+ * для рішення «чи йти в мережу в resolveSpots».
+ */
 export function getFreshMemSpot(coinType: string): Entry | null {
 	const e0 = mem.get(coinType)
 	if (!e0) return null
@@ -118,6 +123,10 @@ export function getFreshMemSpot(coinType: string): Entry | null {
 	return null
 }
 
+/**
+ * In-session memory first, then last session’s persisted spot (F5), then null.
+ * Reading bumps lastReadAt only — never observedAt / TTL.
+ */
 export function getCurrentSpot(coinType: string): Entry | null {
 	const e0 = mem.get(coinType)
 	if (e0) {
@@ -144,6 +153,7 @@ export function setCurrentSpot(
 		change5m?: number | null
 		change1h?: number | null
 		source: SpotSource
+		/** When the price was observed on the network. Defaults to now. */
 		observedAt?: number
 	},
 ) {
@@ -162,9 +172,16 @@ export function setCurrentSpot(
 	writePersisted(coinType, e)
 }
 
+/**
+ * Patch change windows / metadata without refreshing observedAt (cache-hit safe).
+ */
 export function patchCurrentSpotMeta(
 	coinType: string,
-	patch: { change24h?: number | null; change5m?: number | null; change1h?: number | null },
+	patch: {
+		change24h?: number | null
+		change5m?: number | null
+		change1h?: number | null
+	},
 ): boolean {
 	const e = mem.get(coinType) ?? getFromPersisted(coinType)
 	if (!e) return false
@@ -190,13 +207,10 @@ export function seedFromCache(
 	return { hits, missing: [...new Set(missing)] }
 }
 
-function isCompleteSpotEntry(e: Entry): boolean {
-	if (e.source === 'okx' || e.source === 'dexscreener') {
-		return e.change5m != null && e.change1h != null
-	}
-	return true
-}
-
+/**
+ * Для `resolveSpots`: «skip network» тільки якщо в RAM є свіже значення. Persist не дає зняти work.
+ * Incomplete OKX rows (price but missing 5m/1h) are not fresh — Force/Refresh must refill short windows.
+ */
 export function seedForNetworkRefetch(
 	coinTypes: string[],
 ): { freshHits: Map<string, Entry>; needNetwork: string[] } {
@@ -210,6 +224,15 @@ export function seedForNetworkRefetch(
 	return { freshHits, needNetwork: [...new Set(need)] }
 }
 
+/** Rows used as fresh must carry short-window % when we expect them (OKX / DexScreener). */
+function isCompleteSpotEntry(e: Entry): boolean {
+	if (e.source === 'okx' || e.source === 'dexscreener') {
+		return e.change5m != null && e.change1h != null
+	}
+	return true
+}
+
+/** Clear in-memory + persisted spot cache (Header «Clear cache»). */
 export function clearCurrentSpotCache(): void {
 	mem.clear()
 	if (typeof window === 'undefined') return
@@ -220,3 +243,5 @@ export function clearCurrentSpotCache(): void {
 		/* */
 	}
 }
+
+export const SPOT_MEM_TTL_MS = MEM_TTL_MS

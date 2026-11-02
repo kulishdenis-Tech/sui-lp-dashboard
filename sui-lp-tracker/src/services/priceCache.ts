@@ -9,7 +9,9 @@ const HOUR_MS = 60 * 60 * 1000
 // Cache key is still hour-bucketed, so all events in the same hour share one entry.
 // For Pyth (null offset): every event in the bucket gets its own tsSec → 0 skew (accurate).
 // For OHLCV (midpoint stored): every event in the bucket gets the same candle midpoint → honest skew.
-const LS_KEY = 'sui_lp_price_cache_v5'
+// v6: a same-day event must not keep yesterday's 1Dutc close. v5 stored that close for the
+// whole hour, and the unfinished daily candle is not a confirmed bar.
+const LS_KEY = 'sui_lp_price_cache_v6'
 
 /** Historical prices are immutable; 30-day TTL is safe. */
 const CACHE_TTL_MS = 30 * 24 * HOUR_MS

@@ -26,7 +26,7 @@ const LST_VIA_SUI: Set<string> = new Set(
 )
 
 function normSymbol(symbol: string): string {
-	return symbol.toUpperCase().split(/[\/\s-]/)[0] ?? ''
+	return symbol.toUpperCase().split(/[/]|[\s-]/)[0] ?? ''
 }
 
 /**

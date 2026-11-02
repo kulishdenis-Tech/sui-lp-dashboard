@@ -111,6 +111,25 @@ function preexistingEventUsd(e: PositionEvent): {
 	return { usdA: 0, usdB: 0, total: 0, legsComplete: false, hadAny: false }
 }
 
+/** A quote this far from the event is a previous candle that does not cover it. */
+const STALE_QUOTE_SEC = 15 * 3600
+
+function dropStaleLegPrices(e: PositionEvent): PositionEvent {
+	const ts = e.timestamp
+	if (!Number.isFinite(ts) || ts <= 0) return e
+	const far = (q: number | null | undefined) =>
+		q != null && Number.isFinite(q) && Math.abs(q - ts) > STALE_QUOTE_SEC
+	if (!far(e.quoteAsOfUnixSecA) && !far(e.quoteAsOfUnixSecB)) return e
+	return {
+		...e,
+		valueUsdA: far(e.quoteAsOfUnixSecA) ? null : e.valueUsdA,
+		valueUsdB: far(e.quoteAsOfUnixSecB) ? null : e.valueUsdB,
+		priceA_USD: far(e.quoteAsOfUnixSecA) ? null : e.priceA_USD,
+		priceB_USD: far(e.quoteAsOfUnixSecB) ? null : e.priceB_USD,
+		totalValueUSD: null,
+	}
+}
+
 export async function enrichBluefinOpenPositionWithEvents(
 	p: OpenPosition,
 	events: PositionEvent[],
@@ -193,7 +212,7 @@ export async function enrichBluefinOpenPositionWithEvents(
 		if (e.type === 'add_liquidity' || e.type === 'remove_liquidity') {
 			const a = e.tokenAAmount
 			const b = e.tokenBAmount
-			const pre = preexistingEventUsd(e)
+			const pre = preexistingEventUsd(dropStaleLegPrices(e))
 			let usdA = pre.usdA
 			let usdB = pre.usdB
 			let usedSpot = false
@@ -286,7 +305,7 @@ export async function enrichBluefinOpenPositionWithEvents(
 		} else if (e.type === 'collect_fee') {
 			const fa = e.feeAmountA
 			const fb = e.feeAmountB
-			const pre = preexistingEventUsd(e)
+			const pre = preexistingEventUsd(dropStaleLegPrices(e))
 			let usdA = pre.usdA
 			let usdB = pre.usdB
 			let qA: HistoricalUsdQuote = {
@@ -572,7 +591,7 @@ export async function enrichAllBluefinOpenPositions(
 	positions: OpenPosition[],
 	options?: {
 		session?: LpWalletScanSession | null
-		/** Events from Supabase `/api/lp-history?status=open` — skip cold scan when deposit is present. */
+		/** Events from Supabase `/api/lp-history?status=open` — merged with on-chain session (do not replace scan). */
 		seedEventsByPositionId?: Record<string, PositionEvent[]>
 	},
 ): Promise<
@@ -588,7 +607,8 @@ export async function enrichAllBluefinOpenPositions(
 
 	const session = options?.session ?? getLpWalletScanSession()
 	const eventsByPositionId = new Map<string, PositionEvent[]>()
-	let scanPartial = false
+	let bfScanPartial = false
+	let mmtScanPartial = false
 
 	const seedMap = options?.seedEventsByPositionId
 	if (seedMap) {
@@ -607,7 +627,9 @@ export async function enrichAllBluefinOpenPositions(
 	}
 
 	if (session) {
-		scanPartial = session.bluefin.historyPartial || session.momentum.historyPartial
+		// Per-protocol only — Momentum page-limit / empty fallback must not mark Bluefin as partial.
+		bfScanPartial = session.bluefin.historyPartial
+		mmtScanPartial = session.momentum.historyPartial
 		for (const p of tracked) {
 			let posKey: string
 			try {
@@ -651,7 +673,10 @@ export async function enrichAllBluefinOpenPositions(
 				protocol: p.protocol,
 			})),
 		)
-		scanPartial = scanPartial || tx.historyPartial
+		if (tx.historyPartial) {
+			if (needTxScan.some((p) => p.protocol === 'bluefin')) bfScanPartial = true
+			if (needTxScan.some((p) => p.protocol === 'momentum')) mmtScanPartial = true
+		}
 		for (const [k, evs] of tx.eventsByPositionId) {
 			const existing = eventsByPositionId.get(k) ?? []
 			eventsByPositionId.set(k, mergePositionEvents(evs, existing))
@@ -835,7 +860,12 @@ export async function enrichAllBluefinOpenPositions(
 					posKey = p.id
 				}
 				const evs = eventsByPositionId.get(posKey) ?? []
-				return enrichBluefinOpenPositionWithEvents(p, evs, scanPartial, { quoteMemo })
+				const protocolPartial = p.protocol === 'momentum' ? mmtScanPartial : bfScanPartial
+				// Badge only when scan was truncated AND we still lack deposit basis for PnL.
+				// Active wallets often hit the Sender page limit on non-LP events while seed/delta
+				// already has deposits — showing "partial history" then is a false alarm.
+				const historyPartial = protocolPartial && !positionHasDeposit(evs)
+				return enrichBluefinOpenPositionWithEvents(p, evs, historyPartial, { quoteMemo })
 			}),
 		)
 		for (let j = 0; j < batch.length; j++) {
@@ -889,7 +919,7 @@ export async function enrichAllBluefinClosedPositions(
 	if (walletAddress) {
 		// 1. Normalize wallet key for IDB
 		let walletNorm = walletAddress
-		try { walletNorm = normalizeSuiAddress(walletAddress) } catch {}
+		try { walletNorm = normalizeSuiAddress(walletAddress) } catch { /* keep raw address */ }
 
 		// 2. Normalize all position IDs
 		const normIds = tracked.map((c) => {
@@ -996,7 +1026,7 @@ export async function enrichAllBluefinClosedPositions(
 	let walletNormForCache = walletAddress ?? ''
 	try {
 		if (walletAddress) walletNormForCache = normalizeSuiAddress(walletAddress)
-	} catch {}
+	} catch { /* keep raw address */ }
 	const [bfTickCache, mmtTickCache] = await Promise.all([
 		walletAddress ? loadTicksFromLpCache(walletNormForCache, 'bluefin') : Promise.resolve(new Map<string, { tickLower: number; tickUpper: number }>()),
 		walletAddress ? loadTicksFromLpCache(walletNormForCache, 'momentum') : Promise.resolve(new Map<string, { tickLower: number; tickUpper: number }>()),
