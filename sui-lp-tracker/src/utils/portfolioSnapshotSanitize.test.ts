@@ -3,7 +3,9 @@ import type { PortfolioSnapshot } from '@/services/portfolioSnapshotIdb'
 import {
 	findOutlierSnapshotIds,
 	isOutlierTotalUsd,
+	isReturningPartialCluster,
 	isVNeedleArtifact,
+	mergeSnapshotsByBucket,
 	sanitizePortfolioSnapshots,
 	shouldSaveSnapshot,
 } from './portfolioSnapshotSanitize'
@@ -122,5 +124,44 @@ describe('portfolioSnapshotSanitize', () => {
 		expect(clean.some((s) => s.totalUSD > 100_000)).toBe(true)
 		expect(clean.at(-1)?.totalUSD).toBe(104_196)
 		expect(shouldSaveSnapshot(snap(3, 104_196), [snap(1, 1_353), snap(2, 1_486)])).toBe(true)
+	})
+
+	it('drops a two-bucket partial LP hole that returns, and keeps a price wick and a real exit', () => {
+		const full = (ts: number, lp: number, lend: number): PortfolioSnapshot => ({
+			...snap(ts, lp + lend + 39),
+			lpUSD: lp,
+			lendingNetUSD: lend,
+			walletUSD: 39,
+			aftermathUSD: 0,
+		})
+		const before = full(1, 36_279, 119_377)
+		const holeA = full(2, 26_177, 115_839)
+		const holeB = full(3, 26_095, 115_703)
+		const after = full(4, 36_169, 119_030)
+		expect(isReturningPartialCluster(before, [holeA, holeB], after)).toBe(true)
+		const clean = sanitizePortfolioSnapshots([before, holeA, holeB, after])
+		expect(clean.map((s) => s.ts)).toEqual([1, 4])
+
+		// Both legs move together: a price wick that recovers stays.
+		const wick = [
+			full(1, 36_000, 118_000),
+			full(2, 33_100, 108_500),
+			full(3, 33_000, 108_200),
+			full(4, 35_900, 117_800),
+		]
+		expect(sanitizePortfolioSnapshots(wick).map((s) => s.ts)).toEqual([1, 2, 3, 4])
+
+		// LP actually left and stayed out.
+		const exited = [
+			full(1, 36_279, 119_377),
+			full(2, 26_177, 119_200),
+			full(3, 26_100, 119_100),
+			full(4, 26_050, 119_000),
+		]
+		expect(sanitizePortfolioSnapshots(exited)).toHaveLength(4)
+
+		const good = { ...before, hourBucket: 2, observedAtMs: 1 }
+		const badLater = { ...holeA, hourBucket: 2, observedAtMs: 2 }
+		expect(mergeSnapshotsByBucket([badLater], [good])[0]?.lpUSD).toBe(36_279)
 	})
 })

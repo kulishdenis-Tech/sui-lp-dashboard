@@ -138,6 +138,8 @@ export function sanitizePortfolioSnapshots(
 		if (next.length === kept.length) break
 		kept = next
 	}
+
+	kept = dropReturningPartialClusters(kept)
 	return kept
 }
 
@@ -171,6 +173,78 @@ export function isLocalNeedleSpike(totalUSD: number, neighbors: number[]): boole
 	if (nMax / nMin > LOCAL_NEIGHBOR_AGREE_RATIO) return false
 
 	return true
+}
+
+/**
+ * A short run (two or three 15-min buckets) where one leg falls out and the
+ * next full point is back at the same total. A real sale stays down. A price
+ * move takes the legs together, so those points stay.
+ */
+const PARTIAL_CLUSTER_MAX = 3
+const PARTIAL_LEG_MIN_USD = 800
+const PARTIAL_LEG_DROP = 0.12
+const PARTIAL_LEG_GAP = 0.08
+
+function legDropFraction(prev: number, next: number): number | null {
+	if (!(prev >= PARTIAL_LEG_MIN_USD)) return null
+	const nextPos = Number.isFinite(next) ? next : 0
+	return (prev - nextPos) / prev
+}
+
+/** One major leg dropped hard; another major leg did not. Not a price move. */
+function oneLegFellOut(edge: PortfolioSnapshot, mid: PortfolioSnapshot): boolean {
+	const drops = [
+		legDropFraction(
+			(edge.lpUSD || 0) + (edge.aftermathUSD || 0),
+			(mid.lpUSD || 0) + (mid.aftermathUSD || 0),
+		),
+		legDropFraction(edge.lendingNetUSD, mid.lendingNetUSD),
+		legDropFraction(edge.walletUSD, mid.walletUSD),
+	].filter((d): d is number => d != null)
+	if (drops.length < 2) return false
+	const max = Math.max(...drops)
+	const min = Math.min(...drops)
+	return max >= PARTIAL_LEG_DROP && max - min >= PARTIAL_LEG_GAP
+}
+
+/**
+ * True when `mids` are a partial-load hole between two agreeing full points.
+ * Does not rewrite the totals — the caller drops the hole.
+ */
+export function isReturningPartialCluster(
+	left: PortfolioSnapshot,
+	mids: PortfolioSnapshot[],
+	right: PortfolioSnapshot,
+): boolean {
+	if (mids.length === 0 || mids.length > PARTIAL_CLUSTER_MAX) return false
+	if (!(left.totalUSD > 0 && right.totalUSD > 0)) return false
+	const bridge = (left.totalUSD + right.totalUSD) / 2
+	if (bridge <= 0) return false
+	const neighborAgree = Math.abs(left.totalUSD - right.totalUSD) / bridge
+	if (neighborAgree > SNAPSHOT_V_NEEDLE_NEIGHBOR_AGREE) return false
+	const firstSide = mids[0]!.totalUSD - bridge
+	if (firstSide === 0) return false
+	for (const mid of mids) {
+		if (!(mid.totalUSD > 0)) return false
+		const side = mid.totalUSD - bridge
+		if (side * firstSide <= 0) return false
+		if (Math.abs(side) / bridge < SNAPSHOT_V_NEEDLE_MIN_DROP) return false
+		if (!oneLegFellOut(left, mid) && !oneLegFellOut(right, mid)) return false
+	}
+	return true
+}
+
+function dropReturningPartialClusters(arr: PortfolioSnapshot[]): PortfolioSnapshot[] {
+	const drop = new Set<string>()
+	for (let len = 2; len <= PARTIAL_CLUSTER_MAX; len++) {
+		for (let i = 1; i + len < arr.length; i++) {
+			const mids = arr.slice(i, i + len)
+			if (mids.some((m) => drop.has(m.id))) continue
+			if (!isReturningPartialCluster(arr[i - 1]!, mids, arr[i + len]!)) continue
+			for (const mid of mids) drop.add(mid.id)
+		}
+	}
+	return drop.size === 0 ? arr : arr.filter((s) => !drop.has(s.id))
 }
 
 /** A bucket "collapsed" when it loses most of its own value, not a few percent. */
@@ -275,6 +349,9 @@ function preferSnapshot(a: PortfolioSnapshot, b: PortfolioSnapshot): PortfolioSn
 	const bComplete = b.incomplete === false
 	if (aComplete && !bComplete) return a
 	if (bComplete && !aComplete) return b
+	// Same bucket: a later partial load must not replace a sample whose legs are still there.
+	if (oneLegFellOut(a, b) && a.totalUSD > b.totalUSD) return a
+	if (oneLegFellOut(b, a) && b.totalUSD > a.totalUSD) return b
 	const aObs = a.observedAtMs ?? a.ts
 	const bObs = b.observedAtMs ?? b.ts
 	return bObs >= aObs ? b : a
