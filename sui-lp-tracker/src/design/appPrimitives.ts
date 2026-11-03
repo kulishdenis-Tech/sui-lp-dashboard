@@ -40,7 +40,8 @@ export const appCardSurface =
 	'rounded-lg border border-app-border bg-app-card'
 
 /** Floating header: semi-transparent backdrop above content */
-export const appHeaderSurface = 'border-b border-app-border bg-app-header-bg'
+export const appHeaderSurface =
+	'sticky top-0 z-30 border-b border-app-border bg-app-bg'
 
 // ─── Button primitives ────────────────────────────────────────────────────────
 // Use the Button component in src/components/ui/Button.tsx for new surfaces.
