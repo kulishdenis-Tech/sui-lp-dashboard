@@ -193,4 +193,60 @@ describe('enrichBluefinOpenPositionWithEvents preexisting USD', () => {
 		)
 		expect(merged.depositedUSD).toBe(35)
 	})
+
+	it('keeps PnL and ROI for an emptied LP when the exit was worth more than the entry', async () => {
+		const add = ev({
+			id: 'a::0',
+			txDigest: 'a',
+			type: 'add_liquidity',
+			timestamp: 1_700_000_100,
+			tokenAAmount: 0,
+			tokenBAmount: 1000,
+			valueUsdB: 1000,
+			totalValueUSD: 1000,
+			priceUnavailable: false,
+		})
+		const remove = ev({
+			id: 'r::0',
+			txDigest: 'r',
+			type: 'remove_liquidity',
+			timestamp: 1_700_100_000,
+			tokenAAmount: 1100,
+			tokenBAmount: 0,
+			valueUsdA: 1011,
+			totalValueUSD: 1011,
+			priceUnavailable: false,
+		})
+		const { merged } = await enrichBluefinOpenPositionWithEvents(
+			basePos({
+				liquidity: '0',
+				lifecycleStatus: 'empty',
+				currentValueUSD: 0,
+				unclaimedFeeUSD: 15.54,
+				currentPriceA_USD: 0.86,
+				currentPriceB_USD: 1,
+			}),
+			[add, remove],
+			false,
+		)
+		expect(merged.depositedUSD).toBe(1000)
+		expect(merged.pnlUSD).toBeCloseTo(26.54, 2)
+		expect(merged.pnlPct).toBeCloseTo(2.654, 2)
+		expect(merged.vsHodlDeltaUSD).toBeCloseTo(26.54, 2)
+		expect(merged.hodlTokenAAmount).toBe(0)
+		expect(merged.hodlTokenBAmount).toBe(1000)
+
+		const funded = await enrichBluefinOpenPositionWithEvents(
+			basePos({
+				liquidity: '100',
+				currentValueUSD: 1000,
+				unclaimedFeeUSD: 0,
+				currentPriceA_USD: 0.86,
+				currentPriceB_USD: 1,
+			}),
+			[add, remove],
+			false,
+		)
+		expect(funded.merged.depositedUSD).toBeCloseTo(-11, 2)
+	})
 })

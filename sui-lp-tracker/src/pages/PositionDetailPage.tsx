@@ -33,6 +33,7 @@ import { isBluefinUnclaimedUnavailable } from '@/utils/bluefinUnclaimedUi'
 import { hydrateBluefinUnclaimedForPosition } from '@/services/bluefinService'
 import { hydrateCetusUnclaimedForPosition } from '@/services/cetusService'
 import { isCetusVaultPosition } from '@/utils/cetusVault'
+import { isEmptyLpPosition } from '@/utils/lpLifecycle'
 import { isHaedalLendingVaultPosition } from '@/utils/haedalLendingVault'
 import { isCurrentMultiplyVaultPosition } from '@/utils/currentMultiplyVault'
 import { CurrentMultiplyDetailSection } from '@/components/positions/CurrentMultiplyDetailSection'
@@ -293,10 +294,22 @@ export function PositionDetailPage() {
 	}, [position, positionEvents])
 
 	/**
+	 * Empty NFT with a completed withdrawal is economically closed: principal is out,
+	 * fees may still sit on the NFT. Capital = what was deposited, not adds−removes
+	 * (that net goes negative when the exit was worth more than the entry).
+	 */
+	const settledEmpty =
+		!!position &&
+		!detailFromClosed &&
+		isEmptyLpPosition(position) &&
+		depositsUsd > 0 &&
+		withdrawsUsd > 0
+
+	/**
 	 * Closed Value card: Capital = gross deposits; Liquidity = withdrawn exit;
 	 * open keeps add−remove net deposit vs in-pool mark.
 	 */
-	const valueCardCapitalLegs = detailFromClosed
+	const valueCardCapitalLegs = detailFromClosed || settledEmpty
 		? {
 				usdA: depositLegs.usdA,
 				usdB: depositLegs.usdB,
@@ -306,6 +319,14 @@ export function PositionDetailPage() {
 
 	const valueCardPosition = useMemo((): OpenPosition | null => {
 		if (!position) return null
+		if (settledEmpty) {
+			return {
+				...position,
+				currentValueUSD: withdrawLegs.totalUsd,
+				tokenAAmount: withdrawLegs.qtyA,
+				tokenBAmount: withdrawLegs.qtyB,
+			}
+		}
 		if (!detailFromClosed) return position
 		const liqUsd =
 			closedRec?.withdrawnLiquidityUsd != null && closedRec.withdrawnLiquidityUsd > 0
@@ -317,7 +338,7 @@ export function PositionDetailPage() {
 			tokenAAmount: withdrawLegs.qtyA,
 			tokenBAmount: withdrawLegs.qtyB,
 		}
-	}, [position, detailFromClosed, closedRec, withdrawLegs])
+	}, [position, detailFromClosed, settledEmpty, closedRec, withdrawLegs])
 
 	const totalMarkValueUsd = useMemo(() => {
 		if (!position) return 0
@@ -372,7 +393,7 @@ export function PositionDetailPage() {
 		return position.currentPriceB_USD
 	}, [position, detailFromClosed])
 
-	const earnAprPct = position && showMetrics ? earningsAnnualizedAprPct(position) : null
+	const earnAprPct = position && showMetrics && !settledEmpty ? earningsAnnualizedAprPct(position) : null
 	const vaultAprPct =
 		position && isCetusVaultPosition(position)
 			? (typeof position.cetusVault?.vaultAprPct === 'number' &&
@@ -390,8 +411,9 @@ export function PositionDetailPage() {
 
 	const ilPctVsHodl = useMemo(() => {
 		if (!position || !showMetrics) return null
-		if (detailFromClosed) {
-			// For closed positions: pure IL = vsHodlDelta − (fees + rewards).
+		if (detailFromClosed || settledEmpty) {
+			// Closed, and an empty NFT whose principal is already out:
+			// pure IL = vsHodlDelta − (fees + rewards).
 			// This strips the income component so we see only the price-path divergence.
 			// Denominator: HODL basket valued at close price (hodlBasketUsdAtHorizon).
 			const hz = position.hodlBasketUsdAtHorizon
@@ -412,7 +434,7 @@ export function PositionDetailPage() {
 		// Open position: (current liquidity − net HODL at spot) ÷ HODL at spot.
 		if (!showHodlLiquidity || hodlTotalUsd == null) return null
 		return liquidityVsHodlIlPct(position.currentValueUSD, hodlTotalUsd)
-	}, [detailFromClosed, position, showMetrics, showHodlLiquidity, hodlTotalUsd, closedRec])
+	}, [detailFromClosed, settledEmpty, position, showMetrics, showHodlLiquidity, hodlTotalUsd, closedRec])
 
 	const vsHodlRoiPct = useMemo(() => {
 		if (!position || !showMetrics) return null
@@ -430,7 +452,7 @@ export function PositionDetailPage() {
 
 	const liquidityLegUsd = useMemo(() => {
 		if (!position) return null
-		if (detailFromClosed) {
+		if (detailFromClosed || settledEmpty) {
 			const currA = withdrawLegs.usdA
 			const currB = withdrawLegs.usdB
 			const currTot = withdrawLegs.totalUsd
@@ -456,7 +478,7 @@ export function PositionDetailPage() {
 				? position.hodlTokenBAmount * hodlLegPriceB
 				: null
 		return { currA, currB, currTot, hA, hB }
-	}, [position, detailFromClosed, showHodlLiquidity, hodlLegPriceA, hodlLegPriceB, withdrawLegs])
+	}, [position, detailFromClosed, settledEmpty, showHodlLiquidity, hodlLegPriceA, hodlLegPriceB, withdrawLegs])
 
 	if (!isConnected) {
 		return (
@@ -668,7 +690,7 @@ export function PositionDetailPage() {
 						liquidityLegUsd={liquidityLegUsd}
 						hodlTotalUsd={hodlTotalUsd}
 						vaultAprPct={vaultAprPct}
-						closedDetail={detailFromClosed}
+						closedDetail={detailFromClosed || settledEmpty}
 					/>
 					<PositionEarningsCard
 						position={position}
@@ -702,7 +724,7 @@ export function PositionDetailPage() {
 							showHodlLiquidity={showHodlLiquidity}
 							liquidityLegUsd={liquidityLegUsd}
 							hodlTotalUsd={hodlTotalUsd}
-							closedDetail={detailFromClosed}
+							closedDetail={detailFromClosed || settledEmpty}
 						/>
 
 						{indexerExtras ? (

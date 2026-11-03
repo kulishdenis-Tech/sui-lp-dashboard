@@ -22,6 +22,7 @@ import {
 import { loadClosedPosTxEntries, loadTicksFromLpCache, saveClosedPosTxEntry, deleteLpCacheEntry } from '@/services/lpEventIdbCache'
 import { normalizeSuiAddress } from '@mysten/sui/utils'
 import { syntheticOpenFromClosed } from '@/utils/syntheticOpenFromClosed'
+import { isEmptyLpPosition } from '@/utils/lpLifecycle'
 import { scanCetusPositionEventsByWalletTxs } from '@/services/cetusLpEvents'
 import { scanTurbosPositionEvents } from '@/services/turbosLpEvents'
 
@@ -536,6 +537,38 @@ export async function enrichBluefinOpenPositionWithEvents(
 	let lifeOut = lifetimeEarningsUSD
 	let vsHodlOut = vsHodlDeltaUSD
 	let aprOut = Number.isFinite(aprEstimatePct) ? aprEstimatePct : 0
+	let hodlA = lifecycle === 'closed' ? grossDepA : netA
+	let hodlB = lifecycle === 'closed' ? grossDepB : netB
+	let hodlBasketOut = lifecycle === 'closed' && Number.isFinite(hodlUsd) ? hodlUsd : null
+	// Empty NFT: principal is already out. Net deposit (adds − removes) goes to ~0 or
+	// negative when the exit was worth more than the entry, and the UI then hides
+	// PnL / ROI / vs HODL. Score these like a close: gross capital in, full proceeds out
+	// (withdrawal + claimed + fees still sitting on the NFT).
+	const drained =
+		lifecycle === 'open' &&
+		isEmptyLpPosition(p) &&
+		sumDepositsUsd > 0 &&
+		sumWithdrawsUsd > 0
+	if (drained) {
+		const currentValue = Number.isFinite(p.currentValueUSD) ? p.currentValueUSD : 0
+		const proceeds =
+			sumWithdrawsUsd + sumClaimedFeeUsd + sumClaimedRewardUsd + uFeeE + uRewE + currentValue
+		const pxA = Number.isFinite(p.currentPriceA_USD) ? p.currentPriceA_USD : 0
+		const pxB = Number.isFinite(p.currentPriceB_USD) ? p.currentPriceB_USD : 0
+		const hodlGross = grossDepA * pxA + grossDepB * pxB
+		depOut = sumDepositsUsd
+		pnlOut = proceeds - sumDepositsUsd
+		pnlPctOut = sumDepositsUsd > 0 ? (pnlOut / sumDepositsUsd) * 100 : 0
+		vsHodlOut = proceeds - hodlGross
+		const apr =
+			daysOpen > 0.02 && sumDepositsUsd > 0
+				? (pnlOut / sumDepositsUsd / (daysOpen / 365)) * 100
+				: 0
+		aprOut = Number.isFinite(apr) ? apr : 0
+		hodlA = grossDepA
+		hodlB = grossDepB
+		hodlBasketOut = Number.isFinite(hodlGross) ? hodlGross : null
+	}
 	if (Math.abs(depOut) > ABSURD || Math.abs(pnlOut) > ABSURD) {
 		console.warn('[enrichment] ABSURD value detected — zeroing metrics for position', { depOut, pnlOut })
 		depOut = 0
@@ -564,11 +597,11 @@ export async function enrichBluefinOpenPositionWithEvents(
 			historyPartial,
 			// Open: net amounts (what's still at risk in LP, reflecting partial withdrawals).
 			// Closed: gross deposit amounts (what you put in — shown as the HODL basket).
-			hodlTokenAAmount: lifecycle === 'closed' ? grossDepA : netA,
-			hodlTokenBAmount: lifecycle === 'closed' ? grossDepB : netB,
-			...(lifecycle === 'closed'
+			hodlTokenAAmount: hodlA,
+			hodlTokenBAmount: hodlB,
+			...(lifecycle === 'closed' || drained
 				? {
-						hodlBasketUsdAtHorizon: Number.isFinite(hodlUsd) ? hodlUsd : null,
+						hodlBasketUsdAtHorizon: hodlBasketOut,
 						horizonPriceA_USD:
 							horizonPriceA_USD != null && Number.isFinite(horizonPriceA_USD)
 								? horizonPriceA_USD
