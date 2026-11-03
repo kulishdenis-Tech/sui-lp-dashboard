@@ -12,6 +12,15 @@ function normalize(addr: string | null | undefined): string {
 	return (addr ?? '').trim().toLowerCase()
 }
 
+interface CachedWatchRisk {
+	extra: Record<string, LendingSnapshot | null>
+	extraMultiply: OpenPosition[]
+	extraMultiplyOwner: Record<string, string>
+}
+
+/** Last successful watch-wallet books. Overview unmounts on tab change, so the next visit would otherwise paint an empty Risk table until the refetch lands. */
+const watchRiskCache = new Map<string, CachedWatchRisk>()
+
 export interface WatchWalletRisk {
 	books: OverviewWalletBook[]
 	/** Multiply vaults on watch wallets other than the open address. */
@@ -38,15 +47,27 @@ export function useWatchWalletRiskBooks(
 		return [...set].sort().join('|')
 	}, [active])
 	const addresses = useMemo(() => (addressKey ? addressKey.split('|') : []), [addressKey])
-	const [extra, setExtra] = useState<Record<string, LendingSnapshot | null>>({})
-	const [extraMultiply, setExtraMultiply] = useState<OpenPosition[]>([])
-	const [extraMultiplyOwner, setExtraMultiplyOwner] = useState<Record<string, string>>({})
+	const seeded = watchRiskCache.get(addressKey)
+	const [seenKey, setSeenKey] = useState(addressKey)
+	const [extra, setExtra] = useState<Record<string, LendingSnapshot | null>>(seeded?.extra ?? {})
+	const [extraMultiply, setExtraMultiply] = useState<OpenPosition[]>(seeded?.extraMultiply ?? [])
+	const [extraMultiplyOwner, setExtraMultiplyOwner] = useState<Record<string, string>>(
+		seeded?.extraMultiplyOwner ?? {},
+	)
+	if (seenKey !== addressKey) {
+		const hit = watchRiskCache.get(addressKey)
+		setSeenKey(addressKey)
+		setExtra(hit?.extra ?? {})
+		setExtraMultiply(hit?.extraMultiply ?? [])
+		setExtraMultiplyOwner(hit?.extraMultiplyOwner ?? {})
+	}
 	const { wallets: nicknameWallets } = useWalletNicknames()
 
 	useEffect(() => {
 		if (isLoadingLending) return
 		const others = addresses.filter((addr) => addr !== active)
 		if (others.length === 0) {
+			watchRiskCache.delete(addressKey)
 			setExtra({})
 			setExtraMultiply([])
 			setExtraMultiplyOwner({})
@@ -69,16 +90,22 @@ export function useWatchWalletRiskBooks(
 			}),
 		).then((rows) => {
 			if (cancelled) return
+			const prev = watchRiskCache.get(addressKey)
 			const next: Record<string, LendingSnapshot | null> = {}
 			const multiply: OpenPosition[] = []
 			const owners: Record<string, string> = {}
 			for (const row of rows) {
-				next[row.addr] = row.snap
+				next[row.addr] = row.snap ?? prev?.extra[row.addr] ?? null
 				for (const position of row.multiply) {
 					multiply.push(position)
 					owners[position.id] = row.addr
 				}
 			}
+			watchRiskCache.set(addressKey, {
+				extra: next,
+				extraMultiply: multiply,
+				extraMultiplyOwner: owners,
+			})
 			setExtra(next)
 			setExtraMultiply(multiply)
 			setExtraMultiplyOwner(owners)
