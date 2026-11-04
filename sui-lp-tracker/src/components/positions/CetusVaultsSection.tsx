@@ -367,6 +367,11 @@ function MultiplyTable({ positions }: { positions: OpenPosition[] }) {
 										) : (
 											<span className="text-slate-500">—</span>
 										)}
+										{m?.claimedRewardsUsd != null && m.claimedRewardsUsd > 0 ? (
+											<div className="mt-0.5 text-[11px] text-slate-400">
+												claimed {formatUSD(m.claimedRewardsUsd)}
+											</div>
+										) : null}
 									</td>
 								</tr>
 							)

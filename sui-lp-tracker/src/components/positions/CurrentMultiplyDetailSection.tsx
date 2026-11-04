@@ -194,7 +194,7 @@ export function CurrentMultiplyDetailSection({ position, onRefresh }: Props) {
 				<AppCard className="p-4">
 					<Metric
 						label="Net Value"
-						tip="Equity = collateral USD − debt USD. Claimable rewards are separate."
+						tip="Equity = collateral USD − debt USD. Claimable rewards are still in the obligation. Claimed rewards are already in the wallet and are not added here."
 						value={equity != null ? formatUSD(equity) : '—'}
 					/>
 				</AppCard>
@@ -398,9 +398,50 @@ export function CurrentMultiplyDetailSection({ position, onRefresh }: Props) {
 							))}
 						</ul>
 					)}
-					<p className="text-[11px] text-slate-500">
-						Claimed lifetime totals require Current Multiply transaction history — not shown as $0 here.
-					</p>
+					<div className="border-t border-slate-800 pt-3">
+						<div className="mb-2 text-xs text-slate-400">Claimed</div>
+						{m?.claimedStatus === 'unavailable' ? (
+							<p className="text-sm text-app-fg-muted">Claim history unavailable.</p>
+						) : m?.claimedStatus === 'empty' ? (
+							<p className="text-sm text-app-fg-muted">No claimed rewards.</p>
+						) : (m?.claimedRewards.length ?? 0) === 0 ? (
+							<p className="text-sm text-app-fg-muted">Claim history is incomplete.</p>
+						) : (
+							<ul className="space-y-2 text-sm">
+								{m!.claimedRewards.map((r, index) => (
+									<li key={`${r.coinType}-${r.timestampMs ?? 't'}-${index}`} className="flex justify-between gap-3">
+										<span className="text-slate-300">
+											{r.amount != null ? `${fmtQty(r.symbol, r.amount)} ${r.symbol}` : r.symbol}
+											{r.timestampMs != null ? (
+												<span className="ml-2 text-[11px] text-slate-500">
+													{new Date(r.timestampMs).toLocaleString('uk-UA', {
+														timeZone: 'Europe/Kyiv',
+														dateStyle: 'medium',
+														timeStyle: 'short',
+													})}
+												</span>
+											) : null}
+										</span>
+										<span className="font-mono text-slate-100">
+											{r.amountUsd != null ? formatUSD(r.amountUsd) : '—'}
+										</span>
+									</li>
+								))}
+							</ul>
+						)}
+						{m?.claimedRewardsUsd != null && m.claimedStatus !== 'empty' ? (
+							<div className="mt-2 flex justify-between gap-3 text-sm">
+								<span className="text-slate-300">Claimed total</span>
+								<span className="font-mono text-slate-100">{formatUSD(m.claimedRewardsUsd)}</span>
+							</div>
+						) : null}
+						{m?.claimedStatus === 'partial' ? (
+							<p className="mt-2 text-[11px] text-amber-500/90">Older claims may be missing.</p>
+						) : null}
+						<p className="mt-2 text-[11px] text-slate-500">
+							Claimed coins are already in the wallet. They are not added to Net Value.
+						</p>
+					</div>
 				</AppCard>
 			</div>
 
@@ -439,17 +480,40 @@ export function CurrentMultiplyDetailSection({ position, onRefresh }: Props) {
 				)}
 			</AppCard>
 
-			{/* History unavailable */}
 			<AppCard className="p-4">
-				<p className="text-sm text-app-fg-muted">
-					History unavailable
-					<TooltipIconButton
-						tip="No verified Current Multiply cash-flow / claim history is wired yet. Generic Cetus LP history is not used for obligations. PnL/ROI and price charts stay hidden until a Multiply-specific source exists."
-						aria-label="About history"
-						className="ml-1 text-slate-600"
-						leadingClassName="ml-0"
-					/>
-				</p>
+				{(m?.claimedRewards.length ?? 0) > 0 ? (
+					<div className="space-y-2 text-sm">
+						<p className="text-slate-200">Reward claims</p>
+						<ul className="space-y-1 text-slate-300">
+							{m!.claimedRewards.map((r, index) => (
+								<li key={`hist-${r.coinType}-${index}`}>
+									{r.amount != null ? `${fmtQty(r.symbol, r.amount)} ${r.symbol}` : r.symbol}
+									{r.amountUsd != null ? ` · ${formatUSD(r.amountUsd)}` : ''}
+									{r.timestampMs != null
+										? ` · ${new Date(r.timestampMs).toLocaleString('uk-UA', {
+												timeZone: 'Europe/Kyiv',
+												dateStyle: 'medium',
+												timeStyle: 'short',
+											})}`
+										: ''}
+								</li>
+							))}
+						</ul>
+						<p className="text-[11px] text-slate-500">
+							Deposits, borrows and price history are still not on this page.
+						</p>
+					</div>
+				) : (
+					<p className="text-sm text-app-fg-muted">
+						History unavailable
+						<TooltipIconButton
+							tip="No verified Current Multiply cash-flow history is wired yet. Generic Cetus LP history is not used for obligations. PnL/ROI and price charts stay hidden until a Multiply-specific source exists."
+							aria-label="About history"
+							className="ml-1 text-slate-600"
+							leadingClassName="ml-0"
+						/>
+					</p>
+				)}
 			</AppCard>
 		</div>
 	)

@@ -18,7 +18,7 @@
  * SDK: https://github.com/current-finance/current-sdk
  */
 import type { OpenPosition } from '@/types'
-import type { CurrentMultiplyPosition } from '@/types/currentMultiply'
+import type { CurrentMultiplyClaimEvent, CurrentMultiplyPosition } from '@/types/currentMultiply'
 import { suiClient } from '@/services/suiClient'
 import {
 	currentMarketListMeta,
@@ -38,6 +38,10 @@ import {
 	parseRawIntegerAmount,
 } from '@/utils/currentMultiplyVault'
 import { advisorWalletCacheKey } from '@/services/server/advisorWalletCacheKey'
+import { readWalletRewardClaims, type ObligationClaims } from '@/services/currentMultiplyClaims'
+import { resolveSpots } from '@/services/spotPrice/resolveSpots'
+import type { CurrentMarketRow } from '@/services/currentService'
+import { normalizeSuiAddress } from '@mysten/sui/utils'
 import { Transaction } from '@mysten/sui/transactions'
 import { bcs } from '@mysten/sui/bcs'
 
@@ -283,9 +287,78 @@ function finiteOrNull(n: number | null | undefined): number | null {
 	return n != null && Number.isFinite(n) ? n : null
 }
 
+function claimCoinMeta(
+	rows: CurrentMarketRow[],
+	coinType: string,
+): { symbol: string; decimals: number | null; price: number | null } {
+	const key = typeKey(coinType)
+	const row = rows.find((item) => typeKey(item.token ?? '') === key)
+	const symbol = row?.tokenInfo?.symbol ?? coinType.split('::').pop() ?? '?'
+	const decimals = readDecimals(row?.tokenInfo) ?? (key === '2::sui::sui' ? 9 : null)
+	return { symbol, decimals, price: readPrice(row?.tokenInfo) }
+}
+
+async function pricesForClaimCoins(
+	rows: CurrentMarketRow[],
+	byObligation: Map<string, ObligationClaims>,
+): Promise<Map<string, number>> {
+	const missing: string[] = []
+	for (const bag of byObligation.values()) {
+		for (const total of bag.totals) {
+			if (claimCoinMeta(rows, total.coinType).price != null) continue
+			if (missing.some((coin) => typeKey(coin) === typeKey(total.coinType))) continue
+			missing.push(total.coinType)
+		}
+	}
+	if (missing.length === 0) return new Map()
+	const spots = await resolveSpots(missing, (coin) => coin.split('::').pop() ?? '').catch(() => new Map())
+	const out = new Map<string, number>()
+	for (const coin of missing) {
+		const px = spots.get(coin)?.price
+		if (px != null && px > 0) out.set(typeKey(coin), px)
+	}
+	return out
+}
+
+function buildClaimedRewards(
+	bag: ObligationClaims | undefined,
+	scan: 'complete' | 'partial' | 'unavailable',
+	rows: CurrentMarketRow[],
+	prices: Map<string, number>,
+): {
+	events: CurrentMultiplyClaimEvent[]
+	usd: number | null
+	status: CurrentMultiplyPosition['claimedStatus']
+} {
+	if (scan === 'unavailable') return { events: [], usd: null, status: 'unavailable' }
+	const events: CurrentMultiplyClaimEvent[] = (bag?.events ?? []).map((event) => {
+		const meta = claimCoinMeta(rows, event.coinType)
+		const price = meta.price ?? prices.get(typeKey(event.coinType)) ?? null
+		const amount = meta.decimals != null ? humanFromRawBigint(BigInt(event.amountRaw), meta.decimals) : null
+		return {
+			symbol: meta.symbol,
+			coinType: event.coinType,
+			amountRaw: event.amountRaw,
+			decimals: meta.decimals,
+			amount,
+			amountUsd: amount != null && price != null ? amount * price : null,
+			timestampMs: event.timestampMs,
+		}
+	})
+	if (events.length === 0) {
+		return scan === 'partial'
+			? { events, usd: null, status: 'partial' }
+			: { events, usd: 0, status: 'empty' }
+	}
+	const priced = events.every((event) => event.amountUsd != null)
+	const usd = priced ? events.reduce((sum, event) => sum + (event.amountUsd ?? 0), 0) : null
+	return { events, usd, status: scan === 'partial' || !priced ? 'partial' : 'complete' }
+}
+
 /**
  * Live Multiply positions for Vaults.
- * Equity = collateral USD − debt USD. Rewards tracked separately (added only via unclaimedRewardUSD).
+ * Equity = collateral USD − debt USD. Claimable rewards are still in the obligation.
+ * Claimed rewards are history: they already sit in the wallet and are not added to equity.
  */
 export async function getCurrentMultiplyVaultPositions(
 	walletAddress: string,
@@ -329,6 +402,10 @@ async function loadCurrentMultiplyVaultPositionsOnce(
 	)
 	if (active.length === 0) return []
 
+	const claimScan = readWalletRewardClaims(
+		walletAddress,
+		active.map((r) => r.lendingObligationId!),
+	)
 	const vaultMeta = await fetchMultiplyList().catch(() => ({
 		rows: [] as MultiplyVaultRow[],
 		receivedAtMs: Date.now(),
@@ -337,6 +414,8 @@ async function loadCurrentMultiplyVaultPositionsOnce(
 	const vaultList = vaultMeta.rows
 	const marketRows = await fetchAllMarketRows().catch(() => [])
 	const marketMeta = currentMarketListMeta()
+	const claims = await claimScan
+	const claimPrices = await pricesForClaimCoins(marketRows, claims.byObligation)
 	const out: OpenPosition[] = []
 
 	for (const row of active) {
@@ -471,6 +550,19 @@ async function loadCurrentMultiplyVaultPositionsOnce(
 			completenessFlags.push('partial_missing_rewards')
 		}
 
+		let claimKey = obligationId
+		try {
+			claimKey = normalizeSuiAddress(obligationId)
+		} catch {
+			/* keep the id the API returned */
+		}
+		const claimed = buildClaimedRewards(
+			claims.byObligation.get(claimKey),
+			claims.status,
+			marketRows,
+			claimPrices,
+		)
+
 		const apr = multiplyNetAprBreakdown({
 			collateralUsd: supplyUsd,
 			debtUsd: borrowUsd,
@@ -543,6 +635,9 @@ async function loadCurrentMultiplyVaultPositionsOnce(
 			claimableRewards,
 			claimableRewardsUsd,
 			rewardsStatus,
+			claimedRewards: claimed.events,
+			claimedRewardsUsd: claimed.usd,
+			claimedStatus: claimed.status,
 			initialNetValueUsd: initialNet,
 			lastUpdateTimeMs: lastUpdate,
 			observedAtMs: requestFinishedAtMs,
@@ -608,7 +703,7 @@ async function loadCurrentMultiplyVaultPositionsOnce(
 			unclaimedRewardUSD,
 			openedAt: 0,
 			daysOpen: 0,
-			lifetimeEarningsUSD: Number.NaN,
+			lifetimeEarningsUSD: claimed.usd != null ? claimed.usd : Number.NaN,
 			vsHodlDeltaUSD: 0,
 			aprEstimatePct: apr.netAprPct ?? Number.NaN,
 			currentMultiply,

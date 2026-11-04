@@ -43,6 +43,11 @@ export interface CurrentMultiplyRewardRow {
 	amountUsd: number | null
 }
 
+/** One `RewardClaimedEvent` on this obligation. Already paid to the wallet. */
+export interface CurrentMultiplyClaimEvent extends CurrentMultiplyRewardRow {
+	timestampMs: number | null
+}
+
 export type MultiplyAprCoverage = 'complete' | 'partial' | 'unavailable'
 
 export interface CurrentMultiplyAprBreakdown {
@@ -146,6 +151,14 @@ export interface CurrentMultiplyPosition {
 	claimableRewards: CurrentMultiplyRewardRow[]
 	claimableRewardsUsd: number | null
 	rewardsStatus: CurrentMultiplyMetricStatus
+	/**
+	 * Liquidity-mining rewards already claimed from this obligation.
+	 * Not added to equity: the coins are in the wallet.
+	 * `unavailable` is not $0.
+	 */
+	claimedRewards: CurrentMultiplyClaimEvent[]
+	claimedRewardsUsd: number | null
+	claimedStatus: CurrentMultiplyMetricStatus
 	/** API initialNetValue — informational; not a full PnL basis after size changes. */
 	initialNetValueUsd: number | null
 	/** API updateTime — last update, not open date. */
