@@ -4,6 +4,7 @@ import {
 	aggregateCascadeNetworkFees,
 	aggregateCascadeReceives,
 	cascadeBatchReady,
+	cascadeStepReceivesChanged,
 	humanizeAggregatedReceives,
 } from './cascadeManageAggregate'
 
@@ -95,5 +96,30 @@ describe('cascadeManageAggregate', () => {
 		expect(cascadeBatchReady([{ owner: OWNER, ok: true }, { owner: OWNER, ok: true }])).toBe(true)
 		expect(cascadeBatchReady([{ owner: OWNER, ok: true }, { owner: OWNER, ok: false }])).toBe(false)
 		expect(cascadeBatchReady([])).toBe(false)
+	})
+
+	it('ignores a rebuild whose receives stay within 2%', () => {
+		const prev = [
+			{ coinType: USDC, address: OWNER, amount: '7570950000' },
+			{ coinType: SUI, address: OWNER, amount: '98672300000' },
+		]
+		const next = [
+			{ coinType: USDC, address: OWNER, amount: '7575710000' },
+			{ coinType: SUI, address: OWNER, amount: '98672300000' },
+		]
+		expect(cascadeStepReceivesChanged(prev, next, OWNER)).toBe(false)
+	})
+
+	it('stops when a receive moves by more than 2% or a coin appears', () => {
+		const prev = [{ coinType: USDC, address: OWNER, amount: '1000000' }]
+		const moved = [{ coinType: USDC, address: OWNER, amount: '1030000' }]
+		const extra = [
+			{ coinType: USDC, address: OWNER, amount: '1000000' },
+			{ coinType: SUI, address: OWNER, amount: '1000000000' },
+		]
+		expect(cascadeStepReceivesChanged(prev, moved, OWNER)).toBe(true)
+		expect(cascadeStepReceivesChanged(prev, extra, OWNER)).toBe(true)
+		expect(cascadeStepReceivesChanged(undefined, prev, OWNER)).toBe(true)
+		expect(cascadeStepReceivesChanged(undefined, undefined, OWNER)).toBe(false)
 	})
 })

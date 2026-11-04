@@ -48,7 +48,7 @@ import {
 	type ManageProtocol,
 } from './manageProtocol'
 import { estimateNetworkFee, formatSuiAmount, mistToSui } from './manageAmounts'
-import { cascadeBatchReady } from './cascadeManageAggregate'
+import { cascadeBatchReady, cascadeStepReceivesChanged } from './cascadeManageAggregate'
 import {
 	outOfRangeDepositDisplaySide,
 	outOfRangeDepositSymbol,
@@ -1333,9 +1333,9 @@ export function PreviewDrawer({
 		}
 	}
 
-	async function confirmCascadeBatch() {
+	async function confirmCascadeBatch(resumeReviewedStep?: number) {
 		if (!cascadeManageBatch || batchRunning || !canSign) return
-		if (estimateReviewHold) return
+		if (estimateReviewHold && resumeReviewedStep == null) return
 		if (rejectIfStale()) return
 		if (journalHasUnknown(cascadeJournalRef.current)) {
 			setSignError(
@@ -1365,13 +1365,20 @@ export function PreviewDrawer({
 				if (batchAbortRef.current) break
 				if (digestsRef.current[i]) continue
 				const stepBody = openBodies[i]
-				// Parallel dry-runs are estimates only. After prior steps mutate gas/object
-				// versions, rebuild this step from current chain state before signing.
+				// Parallel dry-runs go stale once a prior LP lands (object versions, gas).
+				// Rebuild before the next signature. Stop only when the coins the owner
+				// receives actually move — a new payload hash alone would pause every LP
+				// and, with Continue clearing the hold before it can sign, loop forever.
 				const priorCompleted = Object.entries(digestsRef.current).some(
 					([idx, d]) => Number(idx) < i && !!d,
 				)
 				let stepPreview = builtAll[i]
-				if (priorCompleted || !stepPreview?.txBytesBase64) {
+				const reviewedThisStep =
+					resumeReviewedStep === i &&
+					!!stepPreview?.txBytesBase64 &&
+					stepPreview.dryRunOk === true &&
+					stepPreview.policyOk === true
+				if (!reviewedThisStep && (priorCompleted || !stepPreview?.txBytesBase64)) {
 					setSuccessMsg(`Refreshing estimate for LP ${i + 1} of ${total}…`)
 					const rebuilt = await rebuildCascadeStep(i)
 					if (!rebuilt) {
@@ -1385,11 +1392,12 @@ export function PreviewDrawer({
 						next[i] = rebuilt
 						return next
 					})
-					const materialChange =
-						!!prevEst?.payloadSha256 &&
-						!!rebuilt.payloadSha256 &&
-						prevEst.payloadSha256 !== rebuilt.payloadSha256
-					if (materialChange) {
+					const amountsChanged = cascadeStepReceivesChanged(
+						prevEst?.balanceChanges,
+						rebuilt.balanceChanges,
+						String(stepBody?.owner ?? owner),
+					)
+					if (amountsChanged) {
 						setIndex(i)
 						setPreview(rebuilt)
 						setPreviewBuiltAt(Date.now())
@@ -1412,7 +1420,9 @@ export function PreviewDrawer({
 				}
 				setIndex(i)
 				setPreview(stepPreview)
-				setPreviewBuiltAt(Date.now())
+				const builtAt = Date.now()
+				previewBuiltAtRef.current = builtAt
+				setPreviewBuiltAt(builtAt)
 				setBatchProgress(i + 1)
 				setWalletOutcome('ready')
 				setSignError(null)
@@ -2256,8 +2266,9 @@ export function PreviewDrawer({
 							type="button"
 							disabled={!canSign || sending || busy || batchRunning}
 							onClick={() => {
+								const step = estimateReviewHold?.stepIndex
 								setEstimateReviewHold(null)
-								void confirmCascadeBatch()
+								void confirmCascadeBatch(step)
 							}}
 						>
 							Continue signing after review

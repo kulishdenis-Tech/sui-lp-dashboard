@@ -120,3 +120,31 @@ export function humanizeAggregatedReceives(
 export function cascadeBatchReady(slices: CascadeDryRunSlice[]): boolean {
 	return slices.length > 0 && slices.every((s) => s.ok)
 }
+
+/** A later dry-run must move an owner receive by more than this before the cascade stops for another look. */
+const CASCADE_REVIEW_REL_PERCENT = 2n
+
+/**
+ * True when the coins the owner would receive actually changed.
+ * A new transaction hash alone is not enough: after the previous LP lands,
+ * object versions and gas change on every rebuild even when the amounts do not.
+ */
+export function cascadeStepReceivesChanged(
+	prev: BalanceChangeRow[] | undefined,
+	next: BalanceChangeRow[] | undefined,
+	owner: string,
+): boolean {
+	const before = aggregateOwnerReceives(prev, owner)
+	const after = aggregateOwnerReceives(next, owner)
+	if (before.length === 0 && after.length === 0) return false
+	if (before.length === 0 || after.length === 0 || before.length !== after.length) return true
+	const prior = new Map(before.map((line) => [line.coinType, line.raw]))
+	for (const line of after) {
+		const was = prior.get(line.coinType)
+		if (was == null || was === 0n) return true
+		if (was === line.raw) continue
+		const diff = line.raw > was ? line.raw - was : was - line.raw
+		if (diff * 100n > was * CASCADE_REVIEW_REL_PERCENT) return true
+	}
+	return false
+}
