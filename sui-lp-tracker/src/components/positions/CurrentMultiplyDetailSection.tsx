@@ -190,7 +190,7 @@ export function CurrentMultiplyDetailSection({ position, onRefresh }: Props) {
 			</div>
 
 			{/* Top KPIs */}
-			<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+			<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
 				<AppCard className="p-4">
 					<Metric
 						label="Net Value"
@@ -203,6 +203,21 @@ export function CurrentMultiplyDetailSection({ position, onRefresh }: Props) {
 						label="Claimable Rewards"
 						tip="Pending LM rewards at spot — not lifetime claimed earnings."
 						value={rewards != null ? formatUSD(rewards) : '—'}
+					/>
+				</AppCard>
+				<AppCard className="p-4">
+					<Metric
+						label="Claimed Rewards"
+						tip="Sum of liquidity-mining rewards already claimed from this obligation. Each claim is priced at that moment and does not move with today's spot. Not added to Net Value."
+						value={
+							m?.claimedStatus === 'empty'
+								? formatUSD(0)
+								: m?.claimedRewardsUsd != null
+									? m.claimedStatus === 'partial'
+										? `${formatUSD(m.claimedRewardsUsd)}*`
+										: formatUSD(m.claimedRewardsUsd)
+									: '—'
+						}
 					/>
 				</AppCard>
 				<AppCard className="p-4">
@@ -439,7 +454,7 @@ export function CurrentMultiplyDetailSection({ position, onRefresh }: Props) {
 							<p className="mt-2 text-[11px] text-amber-500/90">Older claims may be missing.</p>
 						) : null}
 						<p className="mt-2 text-[11px] text-slate-500">
-							Claimed coins are already in the wallet. They are not added to Net Value.
+							Dollars are the price at each claim, not today's spot. The coins are already in the wallet and are not added to Net Value.
 						</p>
 					</div>
 				</AppCard>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { claimsForObligation } from './currentMultiplyClaims'
+import { claimsForObligation, historicalClaimUsd } from './currentMultiplyClaims'
 
 const OBL = '0x8f74bc06d4c97edb4a6c9c59bdb89e78114abe9760ffa53345e4dd4c11f0f1be'
 const OTHER = '0x1960000000000000000000000000000000000000000000000000000000005755'
@@ -35,5 +35,11 @@ describe('claimsForObligation', () => {
 		)
 		expect(got.events).toHaveLength(2)
 		expect(got.totals).toEqual([{ coinType: SUI, amountRaw: '21189392308' }])
+	})
+
+	it('prices a claim only from a historical quote', () => {
+		expect(historicalClaimUsd(14.556236265, { usdPerToken: 0.92, approximate: false })).toBeCloseTo(13.3917373638, 6)
+		expect(historicalClaimUsd(14.556236265, { usdPerToken: 0.96, approximate: true })).toBeNull()
+		expect(historicalClaimUsd(14.556236265, null)).toBeNull()
 	})
 })

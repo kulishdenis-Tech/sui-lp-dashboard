@@ -49,6 +49,21 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 	return v != null && typeof v === 'object' ? (v as Record<string, unknown>) : null
 }
 
+/**
+ * Dollar value of one claim. Only a non-approximate historical quote counts.
+ * A current-spot fallback is not the price at the claim.
+ */
+export function historicalClaimUsd(
+	amount: number | null,
+	quote: { usdPerToken: number | null; approximate: boolean } | null,
+): number | null {
+	if (amount == null || !Number.isFinite(amount)) return null
+	if (quote == null || quote.approximate) return null
+	const px = quote.usdPerToken
+	if (px == null || !Number.isFinite(px) || !(px > 0)) return null
+	return amount * px
+}
+
 /** Keep RewardClaimed events for one obligation. Other obligations in the same tx stay out. */
 export function claimsForObligation(events: EventLike[], obligationId: string): ObligationClaims {
 	const want = normId(obligationId)

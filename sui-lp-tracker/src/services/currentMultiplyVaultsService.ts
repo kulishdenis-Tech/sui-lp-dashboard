@@ -38,8 +38,8 @@ import {
 	parseRawIntegerAmount,
 } from '@/utils/currentMultiplyVault'
 import { advisorWalletCacheKey } from '@/services/server/advisorWalletCacheKey'
-import { readWalletRewardClaims, type ObligationClaims } from '@/services/currentMultiplyClaims'
-import { resolveSpots } from '@/services/spotPrice/resolveSpots'
+import { historicalClaimUsd, readWalletRewardClaims, type ObligationClaims } from '@/services/currentMultiplyClaims'
+import { getUsdPerTokenAtTimestamp } from '@/services/priceService'
 import type { CurrentMarketRow } from '@/services/currentService'
 import { normalizeSuiAddress } from '@mysten/sui/utils'
 import { Transaction } from '@mysten/sui/transactions'
@@ -290,66 +290,55 @@ function finiteOrNull(n: number | null | undefined): number | null {
 function claimCoinMeta(
 	rows: CurrentMarketRow[],
 	coinType: string,
-): { symbol: string; decimals: number | null; price: number | null } {
+): { symbol: string; decimals: number | null } {
 	const key = typeKey(coinType)
 	const row = rows.find((item) => typeKey(item.token ?? '') === key)
 	const symbol = row?.tokenInfo?.symbol ?? coinType.split('::').pop() ?? '?'
 	const decimals = readDecimals(row?.tokenInfo) ?? (key === '2::sui::sui' ? 9 : null)
-	return { symbol, decimals, price: readPrice(row?.tokenInfo) }
+	return { symbol, decimals }
 }
 
-async function pricesForClaimCoins(
-	rows: CurrentMarketRow[],
-	byObligation: Map<string, ObligationClaims>,
-): Promise<Map<string, number>> {
-	const missing: string[] = []
-	for (const bag of byObligation.values()) {
-		for (const total of bag.totals) {
-			if (claimCoinMeta(rows, total.coinType).price != null) continue
-			if (missing.some((coin) => typeKey(coin) === typeKey(total.coinType))) continue
-			missing.push(total.coinType)
-		}
-	}
-	if (missing.length === 0) return new Map()
-	const spots = await resolveSpots(missing, (coin) => coin.split('::').pop() ?? '').catch(() => new Map())
-	const out = new Map<string, number>()
-	for (const coin of missing) {
-		const px = spots.get(coin)?.price
-		if (px != null && px > 0) out.set(typeKey(coin), px)
-	}
-	return out
-}
-
-function buildClaimedRewards(
+async function buildClaimedRewards(
 	bag: ObligationClaims | undefined,
 	scan: 'complete' | 'partial' | 'unavailable',
 	rows: CurrentMarketRow[],
-	prices: Map<string, number>,
-): {
+): Promise<{
 	events: CurrentMultiplyClaimEvent[]
 	usd: number | null
 	status: CurrentMultiplyPosition['claimedStatus']
-} {
+}> {
 	if (scan === 'unavailable') return { events: [], usd: null, status: 'unavailable' }
-	const events: CurrentMultiplyClaimEvent[] = (bag?.events ?? []).map((event) => {
+	const rawEvents = bag?.events ?? []
+	if (rawEvents.length === 0) {
+		return scan === 'partial'
+			? { events: [], usd: null, status: 'partial' }
+			: { events: [], usd: 0, status: 'empty' }
+	}
+	const quoteByKey = new Map<string, { usdPerToken: number | null; approximate: boolean } | null>()
+	for (const event of rawEvents) {
+		if (event.timestampMs == null) continue
 		const meta = claimCoinMeta(rows, event.coinType)
-		const price = meta.price ?? prices.get(typeKey(event.coinType)) ?? null
+		const sec = Math.floor(event.timestampMs / 1000)
+		const key = `${typeKey(event.coinType)}:${sec}`
+		if (quoteByKey.has(key)) continue
+		const quote = await getUsdPerTokenAtTimestamp(meta.symbol, event.coinType, sec).catch(() => null)
+		quoteByKey.set(key, quote)
+	}
+	const events: CurrentMultiplyClaimEvent[] = rawEvents.map((event) => {
+		const meta = claimCoinMeta(rows, event.coinType)
 		const amount = meta.decimals != null ? humanFromRawBigint(BigInt(event.amountRaw), meta.decimals) : null
+		const sec = event.timestampMs != null ? Math.floor(event.timestampMs / 1000) : null
+		const quote = sec != null ? quoteByKey.get(`${typeKey(event.coinType)}:${sec}`) ?? null : null
 		return {
 			symbol: meta.symbol,
 			coinType: event.coinType,
 			amountRaw: event.amountRaw,
 			decimals: meta.decimals,
 			amount,
-			amountUsd: amount != null && price != null ? amount * price : null,
+			amountUsd: historicalClaimUsd(amount, quote),
 			timestampMs: event.timestampMs,
 		}
 	})
-	if (events.length === 0) {
-		return scan === 'partial'
-			? { events, usd: null, status: 'partial' }
-			: { events, usd: 0, status: 'empty' }
-	}
 	const priced = events.every((event) => event.amountUsd != null)
 	const usd = priced ? events.reduce((sum, event) => sum + (event.amountUsd ?? 0), 0) : null
 	return { events, usd, status: scan === 'partial' || !priced ? 'partial' : 'complete' }
@@ -415,7 +404,6 @@ async function loadCurrentMultiplyVaultPositionsOnce(
 	const marketRows = await fetchAllMarketRows().catch(() => [])
 	const marketMeta = currentMarketListMeta()
 	const claims = await claimScan
-	const claimPrices = await pricesForClaimCoins(marketRows, claims.byObligation)
 	const out: OpenPosition[] = []
 
 	for (const row of active) {
@@ -556,11 +544,10 @@ async function loadCurrentMultiplyVaultPositionsOnce(
 		} catch {
 			/* keep the id the API returned */
 		}
-		const claimed = buildClaimedRewards(
+		const claimed = await buildClaimedRewards(
 			claims.byObligation.get(claimKey),
 			claims.status,
 			marketRows,
-			claimPrices,
 		)
 
 		const apr = multiplyNetAprBreakdown({
