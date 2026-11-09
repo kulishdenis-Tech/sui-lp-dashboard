@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+	currentRewardCoinMeta,
 	resolveCurrentSupplyBaseApr,
 	resolveCurrentVenueLabel,
 	type CurrentMarketRow,
@@ -67,6 +68,46 @@ describe('resolveCurrentVenueLabel', () => {
 				'fe1d8929d13b00aaecd7642dec1c6d41cab82882a1b139efa46bf61dfd6380bf::market_type::MainMarket',
 			),
 		).toBe('Main')
+	})
+})
+
+describe('currentRewardCoinMeta', () => {
+	const sui = '0x2::sui::SUI'
+	const market01Only: CurrentMarketRow[] = [
+		{
+			marketType: MARKET01_TYPE,
+			token: '0a672389::susn::SUSN',
+			tokenInfo: { symbol: 'sUSN', decimals: 6, price: '1.23' },
+		},
+		{
+			marketType: MARKET01_TYPE,
+			token: 'dba34672::usdc::USDC',
+			tokenInfo: { symbol: 'USDC', decimals: 6, price: '1' },
+		},
+	]
+
+	it('does not price SUI from Market01 alone', () => {
+		expect(currentRewardCoinMeta(market01Only, sui)).toEqual({
+			symbol: 'SUI',
+			decimals: null,
+			price: null,
+		})
+	})
+
+	it('prices SUI from another Current market in the full book', () => {
+		const book: CurrentMarketRow[] = [
+			...market01Only,
+			{
+				marketType: 'fe1d8929::market_type::MainMarket',
+				token: sui,
+				tokenInfo: { symbol: 'SUI', decimals: 9, price: '0.82' },
+			},
+		]
+		expect(currentRewardCoinMeta(book, sui)).toEqual({
+			symbol: 'SUI',
+			decimals: 9,
+			price: 0.82,
+		})
 	})
 })
 

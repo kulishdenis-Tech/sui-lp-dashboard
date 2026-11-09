@@ -626,6 +626,23 @@ function readPrice(meta: MarketRow | undefined): number | null {
 	return Number.isFinite(p) && p > 0 ? p : null
 }
 
+/**
+ * Reward-coin metadata from the full Current market book.
+ * A venue can pay a coin it does not list: Market01 pays SUI, and its own
+ * list is only sUSN and USDC. Pricing from that list drops the SUI reward.
+ */
+export function currentRewardCoinMeta(
+	allMarkets: CurrentMarketRow[],
+	coin: string,
+): { symbol: string; decimals: number | null; price: number | null } {
+	const meta = marketByToken(allMarkets, coin)
+	return {
+		symbol: meta?.tokenInfo?.symbol ?? coin.split('::').pop() ?? '?',
+		decimals: readDecimals(meta),
+		price: readPrice(meta),
+	}
+}
+
 /** Liquidity-mining APR. Confirmed empty (no pool) is apr 0. RPC/metadata failures stay unavailable. */
 export async function readMiningRewardApr(
 	marketId: string,
@@ -976,18 +993,16 @@ export async function readClaimableMining(
 	let missingMeta = false
 	for (const [coin, raw] of rawByCoin) {
 		if (raw <= 0n) continue
-		const meta = marketByToken(listed, coin)
-		const decimals = readDecimals(meta)
-		const price = readPrice(meta)
-		const amount = decimals != null ? humanFromRaw(raw, decimals) : null
-		if (decimals == null || price == null || amount == null) missingMeta = true
+		const meta = currentRewardCoinMeta(listed, coin)
+		const amount = meta.decimals != null ? humanFromRaw(raw, meta.decimals) : null
+		if (meta.decimals == null || meta.price == null || amount == null) missingMeta = true
 		rows.push({
 			coinType: with0x(coin),
-			symbol: meta?.tokenInfo?.symbol ?? coin.split('::').pop() ?? '?',
+			symbol: meta.symbol,
 			amountRaw: raw.toString(),
-			decimals,
+			decimals: meta.decimals,
 			amount,
-			valueUSD: amount != null && price != null ? amount * price : null,
+			valueUSD: amount != null && meta.price != null ? amount * meta.price : null,
 		})
 	}
 	if (sawError && rows.length === 0 && !sawPool) {
@@ -1347,7 +1362,8 @@ export async function getCurrentPositions(
 				ob.obligationObject!,
 				overview.deposits.map((d) => d.asset),
 				overview.borrows.map((b) => b.asset),
-				priceRows,
+				// Full book: Market01 pays SUI but does not list SUI.
+				allListed,
 			).catch((err) => ({
 				status: 'unavailable' as const,
 				rows: [] as ClaimableMiningRow[],
