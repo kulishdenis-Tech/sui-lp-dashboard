@@ -28,6 +28,28 @@ function fmtQty(symbol: string, amount: number | null | undefined): string {
 	return formatDashboardTokenQty(symbol, amount)
 }
 
+/** Sum reward rows that share a coin. One null amount or dollar keeps that total unknown. */
+function sumRewardsByCoin(
+	rows: Array<{ symbol: string; coinType: string; amount: number | null; amountUsd: number | null }>,
+): Array<{ symbol: string; coinType: string; amount: number | null; amountUsd: number | null }> {
+	const order: string[] = []
+	const map = new Map<string, { symbol: string; coinType: string; amount: number | null; amountUsd: number | null }>()
+	for (const row of rows) {
+		const key = row.coinType.toLowerCase()
+		let total = map.get(key)
+		if (!total) {
+			total = { symbol: row.symbol, coinType: row.coinType, amount: 0, amountUsd: 0 }
+			map.set(key, total)
+			order.push(key)
+		}
+		if (row.amount == null || total.amount == null) total.amount = null
+		else total.amount += row.amount
+		if (row.amountUsd == null || total.amountUsd == null) total.amountUsd = null
+		else total.amountUsd += row.amountUsd
+	}
+	return order.map((key) => map.get(key)!)
+}
+
 function Metric({
 	label,
 	tip,
@@ -423,19 +445,10 @@ export function CurrentMultiplyDetailSection({ position, onRefresh }: Props) {
 							<p className="text-sm text-app-fg-muted">Claim history is incomplete.</p>
 						) : (
 							<ul className="space-y-2 text-sm">
-								{m!.claimedRewards.map((r, index) => (
-									<li key={`${r.coinType}-${r.timestampMs ?? 't'}-${index}`} className="flex justify-between gap-3">
+								{sumRewardsByCoin(m!.claimedRewards).map((r) => (
+									<li key={r.coinType} className="flex justify-between gap-3">
 										<span className="text-slate-300">
 											{r.amount != null ? `${fmtQty(r.symbol, r.amount)} ${r.symbol}` : r.symbol}
-											{r.timestampMs != null ? (
-												<span className="ml-2 text-[11px] text-slate-500">
-													{new Date(r.timestampMs).toLocaleString('uk-UA', {
-														timeZone: 'Europe/Kyiv',
-														dateStyle: 'medium',
-														timeStyle: 'short',
-													})}
-												</span>
-											) : null}
 										</span>
 										<span className="font-mono text-slate-100">
 											{r.amountUsd != null ? formatUSD(r.amountUsd) : '—'}
@@ -444,12 +457,6 @@ export function CurrentMultiplyDetailSection({ position, onRefresh }: Props) {
 								))}
 							</ul>
 						)}
-						{m?.claimedRewardsUsd != null && m.claimedStatus !== 'empty' ? (
-							<div className="mt-2 flex justify-between gap-3 text-sm">
-								<span className="text-slate-300">Claimed total</span>
-								<span className="font-mono text-slate-100">{formatUSD(m.claimedRewardsUsd)}</span>
-							</div>
-						) : null}
 						{m?.claimedStatus === 'partial' ? (
 							<p className="mt-2 text-[11px] text-amber-500/90">Older claims may be missing.</p>
 						) : null}
@@ -495,30 +502,8 @@ export function CurrentMultiplyDetailSection({ position, onRefresh }: Props) {
 				)}
 			</AppCard>
 
-			<AppCard className="p-4">
-				{(m?.claimedRewards.length ?? 0) > 0 ? (
-					<div className="space-y-2 text-sm">
-						<p className="text-slate-200">Reward claims</p>
-						<ul className="space-y-1 text-slate-300">
-							{m!.claimedRewards.map((r, index) => (
-								<li key={`hist-${r.coinType}-${index}`}>
-									{r.amount != null ? `${fmtQty(r.symbol, r.amount)} ${r.symbol}` : r.symbol}
-									{r.amountUsd != null ? ` · ${formatUSD(r.amountUsd)}` : ''}
-									{r.timestampMs != null
-										? ` · ${new Date(r.timestampMs).toLocaleString('uk-UA', {
-												timeZone: 'Europe/Kyiv',
-												dateStyle: 'medium',
-												timeStyle: 'short',
-											})}`
-										: ''}
-								</li>
-							))}
-						</ul>
-						<p className="text-[11px] text-slate-500">
-							Deposits, borrows and price history are still not on this page.
-						</p>
-					</div>
-				) : (
+			{(m?.claimedRewards.length ?? 0) === 0 ? (
+				<AppCard className="p-4">
 					<p className="text-sm text-app-fg-muted">
 						History unavailable
 						<TooltipIconButton
@@ -528,8 +513,8 @@ export function CurrentMultiplyDetailSection({ position, onRefresh }: Props) {
 							leadingClassName="ml-0"
 						/>
 					</p>
-				)}
-			</AppCard>
+				</AppCard>
+			) : null}
 		</div>
 	)
 }
