@@ -337,14 +337,6 @@ export function CurrentMultiplyDetailSection({ position, onRefresh }: Props) {
 									: '—'}
 							</span>
 						</div>
-						<p className="text-[11px] leading-snug text-slate-500">
-							{m?.risk.source === 'estimated_from_liq_ltv'
-								? `Estimated at fixed quantities and liquidation LTV (${fmtPct((m.risk.liquidationLtv ?? 0) * 100, 0)}). Ignores future interest and oracle changes.`
-								: 'Liquidation estimate is not available.'}
-							{m?.freshness?.requestFinishedAtMs
-								? ` As of ${new Date(m.freshness.requestFinishedAtMs).toLocaleString('en-US')}.`
-								: null}
-						</p>
 					</div>
 				</AppCard>
 
@@ -415,26 +407,29 @@ export function CurrentMultiplyDetailSection({ position, onRefresh }: Props) {
 				{/* Rewards */}
 				<AppCard className="flex flex-col gap-4 p-4">
 					<h3 className="text-sm font-medium text-slate-200">Rewards</h3>
-					{m?.rewardsStatus === 'unavailable' ? (
-						<p className="text-sm text-app-fg-muted">Claimable rewards unavailable.</p>
-					) : m?.rewardsStatus === 'empty' ? (
-						<p className="text-sm text-app-fg-muted">No claimable rewards right now.</p>
-					) : (m?.claimableRewards?.length ?? 0) === 0 ? (
-						<p className="text-sm text-app-fg-muted">Claimable rewards are incomplete.</p>
-					) : (
-						<ul className="space-y-2 text-sm">
-							{(m?.claimableRewards ?? []).map((r) => (
-								<li key={r.coinType} className="flex justify-between gap-3">
-									<span className="text-slate-300">
-										{r.amount != null ? `${fmtQty(r.symbol, r.amount)} ${r.symbol}` : r.symbol}
-									</span>
-									<span className="font-mono text-slate-100">
-										{r.amountUsd != null ? formatUSD(r.amountUsd) : '—'}
-									</span>
-								</li>
-							))}
-						</ul>
-					)}
+					<div>
+						<div className="mb-2 text-xs text-slate-400">Unclaimed</div>
+						{m?.rewardsStatus === 'unavailable' ? (
+							<p className="text-sm text-app-fg-muted">Claimable rewards unavailable.</p>
+						) : m?.rewardsStatus === 'empty' ? (
+							<p className="text-sm text-app-fg-muted">No claimable rewards right now.</p>
+						) : (m?.claimableRewards?.length ?? 0) === 0 ? (
+							<p className="text-sm text-app-fg-muted">Claimable rewards are incomplete.</p>
+						) : (
+							<ul className="space-y-2 text-sm">
+								{(m?.claimableRewards ?? []).map((r) => (
+									<li key={r.coinType} className="flex justify-between gap-3">
+										<span className="text-slate-300">
+											{r.amount != null ? `${fmtQty(r.symbol, r.amount)} ${r.symbol}` : r.symbol}
+										</span>
+										<span className="font-mono text-slate-100">
+											{r.amountUsd != null ? formatUSD(r.amountUsd) : '—'}
+										</span>
+									</li>
+								))}
+							</ul>
+						)}
+					</div>
 					<div className="border-t border-slate-800 pt-3">
 						<div className="mb-2 text-xs text-slate-400">Claimed</div>
 						{m?.claimedStatus === 'unavailable' ? (
@@ -457,12 +452,6 @@ export function CurrentMultiplyDetailSection({ position, onRefresh }: Props) {
 								))}
 							</ul>
 						)}
-						{m?.claimedStatus === 'partial' ? (
-							<p className="mt-2 text-[11px] text-amber-500/90">Older claims may be missing.</p>
-						) : null}
-						<p className="mt-2 text-[11px] text-slate-500">
-							Dollars are the price at each claim, not today's spot. The coins are already in the wallet and are not added to Net Value.
-						</p>
 					</div>
 				</AppCard>
 			</div>
