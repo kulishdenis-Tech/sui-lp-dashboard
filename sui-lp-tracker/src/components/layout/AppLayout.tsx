@@ -1,5 +1,7 @@
 import { Outlet } from 'react-router-dom'
 import { Header } from '@/components/layout/Header'
+import { MobileBottomNav } from '@/components/layout/MobileBottomNav'
+import { useWalletAuth } from '@/hooks/useWalletAuth'
 import { PortfolioDataLoader } from '@/components/PortfolioDataLoader'
 import { ToastHost } from '@/components/ui/ToastHost'
 import { PriceSpikeWatcher } from '@/components/PriceSpikeWatcher'
@@ -12,8 +14,13 @@ function PortfolioSnapshotWriterHost() {
 }
 
 export function AppLayout() {
+	const { isConnected } = useWalletAuth()
 	return (
-		<div className="min-h-screen bg-app-bg">
+		<div
+			className={`min-h-screen bg-app-bg ${
+				isConnected ? 'pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0' : ''
+			}`}
+		>
 			<Header />
 			<PortfolioDataLoader />
 			<PortfolioSnapshotWriterHost />
@@ -21,6 +28,7 @@ export function AppLayout() {
 			<AppVisitLogger />
 			<ToastHost />
 			<Outlet />
+			{isConnected ? <MobileBottomNav /> : null}
 		</div>
 	)
 }

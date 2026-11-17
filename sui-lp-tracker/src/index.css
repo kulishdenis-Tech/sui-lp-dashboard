@@ -3,6 +3,10 @@
 /* Уникає горизонтального «страхування» через появу/зникання полоси прокрутки при ховері тултіпів тощо */
 html {
 	scrollbar-gutter: stable;
+	/* Mobile: не масштабувати текст при повороті екрана, без сірого спалаху при тапі */
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
+	-webkit-tap-highlight-color: transparent;
 }
 
 /* Wallet connect modal (dapp-kit web component). Variables inherit into its shadow root. */
@@ -149,10 +153,59 @@ html {
 body {
 	@apply m-0 min-h-screen font-sans antialiased text-app-fg;
 	background: var(--color-app-bg);
+	/* clip (не hidden), щоб не ламати sticky-шапку; страхує від випадкового горизонтального скролу на мобільному */
+	overflow-x: clip;
 }
 
 #root {
 	@apply min-h-screen;
+}
+
+/* ─── Mobile base ───────────────────────────────────────────────────────── */
+@supports (min-height: 100dvh) {
+	body,
+	#root {
+		min-height: 100dvh;
+	}
+}
+
+button,
+[role="button"],
+[role="tab"],
+a,
+select,
+summary {
+	/* Без затримки подвійного тапу */
+	touch-action: manipulation;
+}
+
+/* Safe-area: вирізи/жестова панель (потрібен viewport-fit=cover) */
+.safe-top {
+	padding-top: env(safe-area-inset-top);
+}
+.safe-bottom {
+	padding-bottom: env(safe-area-inset-bottom);
+}
+.safe-x {
+	padding-left: env(safe-area-inset-left);
+	padding-right: env(safe-area-inset-right);
+}
+
+/* iOS Safari зумить сторінку при фокусі поля з шрифтом менше 16px */
+@media (max-width: 767px) {
+	input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+	select,
+	textarea {
+		font-size: 16px;
+	}
+}
+
+/* Сенсорні екрани: мінімальна зона натискання ~44px для компактних контролів хедера */
+@media (pointer: coarse) {
+	.h-control-compact,
+	.h-control {
+		min-height: 2.75rem;
+	}
 }
 
 @layer utilities {

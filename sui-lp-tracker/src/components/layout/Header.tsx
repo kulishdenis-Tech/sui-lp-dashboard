@@ -88,7 +88,7 @@ export function Header() {
 	const [serviceConfirm, setServiceConfirm] = useState<null | 'history' | 'cache'>(null)
 
 	return (
-		<header className={appHeaderSurface}>
+		<header className={`${appHeaderSurface} safe-top safe-x`}>
 			<div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-2 px-4 py-3">
 				{/* Row 1: brand + quote + wallet */}
 				<div className="flex min-w-0 items-start justify-between gap-3">
@@ -99,7 +99,7 @@ export function Header() {
 							</h1>
 							<Link
 								to="/design-system"
-								className="whitespace-nowrap text-xs font-medium text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+								className="hidden whitespace-nowrap text-xs font-medium text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline sm:inline"
 							>
 								Style Guide
 							</Link>
@@ -126,11 +126,11 @@ export function Header() {
 				{/* Row 2: nav + portfolio actions */}
 				{isConnected ? (
 					<div className="flex min-w-0 flex-wrap items-center gap-2">
-						<div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+						<div className="hidden min-w-0 flex-1 overflow-x-auto overscroll-x-contain md:block [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 							<TabNav />
 						</div>
 						<div
-							className={`${appHeaderControlShell} shrink-0`}
+							className={`${appHeaderControlShell} ml-auto shrink-0`}
 							role="group"
 						aria-label="Portfolio refresh actions"
 					>
