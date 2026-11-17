@@ -33,7 +33,7 @@
 
 /** Scrollable table wrapper: background + border + overflow clip */
 export const appTableShell =
-	'overflow-x-auto rounded-lg border border-slate-800 bg-app-bg'
+	'overflow-x-auto overscroll-x-contain rounded-lg border border-slate-800 bg-app-bg'
 
 /** Card surface: border + card background */
 export const appCardSurface =
@@ -41,7 +41,7 @@ export const appCardSurface =
 
 /** Floating header: semi-transparent backdrop above content */
 export const appHeaderSurface =
-	'sticky top-0 z-30 border-b border-app-border bg-app-bg'
+	'z-30 border-b border-app-border bg-app-bg md:sticky md:top-0'
 
 // ─── Button primitives ────────────────────────────────────────────────────────
 // Use the Button component in src/components/ui/Button.tsx for new surfaces.
@@ -158,10 +158,10 @@ export const appTextKpi =
  * Left "Pool" column (sticky): heading and cell share the same background.
  */
 export const appTablePoolStickyTh =
-	'sticky left-0 z-10 min-w-[12.5rem] max-w-[13.5rem] w-[13.5rem] align-middle bg-app-bg py-2 pr-2 text-left'
+	'sticky left-0 z-10 min-w-[8.5rem] max-w-[9.5rem] w-[9.5rem] sm:min-w-[12.5rem] sm:max-w-[13.5rem] sm:w-[13.5rem] align-middle bg-app-bg py-2 pr-2 text-left'
 
 export const appTablePoolStickyTd =
-	'sticky left-0 z-10 min-w-[12.5rem] max-w-[13.5rem] w-[13.5rem] align-middle bg-app-bg py-2 pr-2 transition-colors group-hover:bg-app-row-hover'
+	'sticky left-0 z-10 min-w-[8.5rem] max-w-[9.5rem] w-[9.5rem] sm:min-w-[12.5rem] sm:max-w-[13.5rem] sm:w-[13.5rem] align-middle bg-app-bg py-2 pr-2 transition-colors group-hover:bg-app-row-hover'
 
 /** Standard body cell: scene background + row highlight on group-hover (non-sticky) */
 export const appTableTd =

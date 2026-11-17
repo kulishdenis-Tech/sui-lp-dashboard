@@ -21,7 +21,7 @@ export function SummaryMetricCard({
 }: Props) {
 	return (
 		<AppCard className="flex h-full min-h-0 flex-col">
-			<div className="flex min-h-[2.5rem] items-start gap-0.5 text-xs font-medium uppercase tracking-wider text-slate-400">
+			<div className="flex min-h-[2rem] items-start sm:min-h-[2.5rem] gap-0.5 text-xs font-medium uppercase tracking-wider text-slate-400">
 				<span className="leading-snug">{label}</span>
 				{tip ? (
 					<TooltipIconButton
@@ -32,7 +32,7 @@ export function SummaryMetricCard({
 				) : null}
 			</div>
 			{typeof value === 'string' ? (
-				<p className={`mt-auto pt-1 font-mono tabular-money text-xl leading-none ${valueClassName}`}>
+				<p className={`mt-auto pt-1 font-mono tabular-money text-lg leading-none sm:text-xl ${valueClassName}`}>
 					{value}
 				</p>
 			) : (

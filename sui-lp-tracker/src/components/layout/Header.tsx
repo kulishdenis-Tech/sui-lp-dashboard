@@ -89,7 +89,7 @@ export function Header() {
 
 	return (
 		<header className={`${appHeaderSurface} safe-top safe-x`}>
-			<div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-2 px-4 py-3">
+			<div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-2 px-3 py-2 sm:px-4 md:py-3">
 				{/* Row 1: brand + quote + wallet */}
 				<div className="flex min-w-0 items-start justify-between gap-3">
 					<div className="min-w-0 shrink">
@@ -130,7 +130,7 @@ export function Header() {
 							<TabNav />
 						</div>
 						<div
-							className={`${appHeaderControlShell} ml-auto shrink-0`}
+							className={`${appHeaderControlShell} w-full shrink-0 justify-between md:ml-auto md:w-auto md:justify-start`}
 							role="group"
 						aria-label="Portfolio refresh actions"
 					>

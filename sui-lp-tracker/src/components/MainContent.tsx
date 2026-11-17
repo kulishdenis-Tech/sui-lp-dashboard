@@ -58,7 +58,7 @@ function ConnectedMain({ tab, lastLoadError }: ConnectedMainProps) {
 	)
 
 	return (
-		<PageShell as="main" className="py-8">
+		<PageShell as="main" className="py-4 md:py-8">
 			{lastLoadError ? (
 				<div
 					role="alert"

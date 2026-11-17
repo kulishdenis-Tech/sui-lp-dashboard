@@ -21,7 +21,7 @@ export function SummaryCards() {
 		return (
 			<div
 				className={
-					'mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4' +
+					'mb-4 grid grid-cols-2 gap-2 sm:mb-6 sm:gap-3 lg:grid-cols-4' +
 					(isRefreshing ? ' opacity-80 transition-opacity' : '')
 				}
 			>
@@ -39,7 +39,7 @@ export function SummaryCards() {
 	return (
 		<div
 			className={
-				'mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4' +
+				'mb-4 grid grid-cols-2 gap-2 sm:mb-6 sm:gap-3 lg:grid-cols-4' +
 				(isRefreshing ? ' opacity-90 transition-opacity' : '')
 			}
 		>
