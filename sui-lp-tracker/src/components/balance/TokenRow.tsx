@@ -194,7 +194,7 @@ export function TokenRow({
 		</td>
 	)
 	const nameCell = (
-		<td className={`${cell} min-w-0 max-w-[16rem]`}>
+		<td data-cell="name" className={`${cell} min-w-0 max-w-[16rem]`}>
 			{canChart ? (
 				<button
 					type="button"
@@ -233,12 +233,12 @@ export function TokenRow({
 			<tr className="group text-sm">
 				{tokenAndAddressCell}
 				{nameCell}
-				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-500`}>—</td>
-				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-500`}>—</td>
-				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-500`}>—</td>
-				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-500`}>—</td>
-				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-300`}>{fmtBalance(t)}</td>
-				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-500`}>—</td>
+				<td data-label="Price" className={`${cell} whitespace-nowrap text-right font-mono text-slate-500`}>—</td>
+				<td data-label="5m" className={`${cell} whitespace-nowrap text-right font-mono text-slate-500`}>—</td>
+				<td data-label="1h" className={`${cell} whitespace-nowrap text-right font-mono text-slate-500`}>—</td>
+				<td data-label="24h" className={`${cell} whitespace-nowrap text-right font-mono text-slate-500`}>—</td>
+				<td data-label="Balance" className={`${cell} whitespace-nowrap text-right font-mono text-slate-300`}>{fmtBalance(t)}</td>
+				<td data-label="USD" className={`${cell} whitespace-nowrap text-right font-mono text-slate-500`}>—</td>
 			</tr>
 		)
 	}
@@ -248,20 +248,20 @@ export function TokenRow({
 			<tr className="group text-sm">
 				{tokenAndAddressCell}
 				{nameCell}
-				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-200`}>
+				<td data-label="Price" className={`${cell} whitespace-nowrap text-right font-mono text-slate-200`}>
 					{fmtUnitPrice(t.priceUSD)}
 				</td>
-				<td className={`${cell} whitespace-nowrap text-right font-mono text-xs`}>
+				<td data-label="5m" className={`${cell} whitespace-nowrap text-right font-mono text-xs`}>
 					{changePctCell(t.change5m)}
 				</td>
-				<td className={`${cell} whitespace-nowrap text-right font-mono text-xs`}>
+				<td data-label="1h" className={`${cell} whitespace-nowrap text-right font-mono text-xs`}>
 					{changePctCell(t.change1h)}
 				</td>
-				<td className={`${cell} whitespace-nowrap text-right font-mono text-xs`}>
+				<td data-label="24h" className={`${cell} whitespace-nowrap text-right font-mono text-xs`}>
 					{changePctCell(t.change24h)}
 				</td>
-				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-300`}>{fmtBalance(t)}</td>
-				<td className={`${cell} whitespace-nowrap text-right font-mono text-slate-200`}>
+				<td data-label="Balance" className={`${cell} whitespace-nowrap text-right font-mono text-slate-300`}>{fmtBalance(t)}</td>
+				<td data-label="USD" className={`${cell} whitespace-nowrap text-right font-mono text-slate-200`}>
 					{formatHoldingUsd(t)}
 				</td>
 			</tr>

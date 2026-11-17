@@ -213,3 +213,72 @@ summary {
 		font-variant-numeric: tabular-nums lining-nums;
 	}
 }
+
+/* ─── Таблиця → картки на вузьких екранах ───────────────────────────────────
+ * `table.rt-cards` + `data-label` на кожній клітинці. Правила поза @layer, тож перекривають
+ * Tailwind-утиліти (sticky, w-[..], min-w-[..]) без !important. Десктоп (≥768px) не змінюється. */
+@media (max-width: 767px) {
+	table.rt-cards,
+	table.rt-cards tbody {
+		display: block;
+		width: 100%;
+		min-width: 0;
+	}
+	table.rt-cards colgroup {
+		display: none;
+	}
+	table.rt-cards td[data-cell='name'] {
+		display: none;
+	}
+	table.rt-cards thead {
+		display: none;
+	}
+	table.rt-cards tr {
+		position: relative;
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 0.375rem 0.75rem;
+		padding: 0.75rem;
+		border-bottom: 1px solid rgb(30 41 59 / 0.8);
+	}
+	table.rt-cards td {
+		position: static;
+		display: flex;
+		min-width: 0;
+		width: auto;
+		max-width: none;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.125rem;
+		padding: 0;
+		background: transparent;
+		border: 0;
+		text-align: left;
+		white-space: normal;
+	}
+	table.rt-cards td[data-label]::before {
+		content: attr(data-label);
+		font-size: 0.6875rem;
+		line-height: 1rem;
+		color: rgb(100 116 139);
+		font-weight: 400;
+	}
+	/* Перша клітинка (Pool) і Price range — на всю ширину картки */
+	table.rt-cards td:first-child,
+	table.rt-cards td[data-cell='range'] {
+		grid-column: 1 / -1;
+	}
+	table.rt-cards td:first-child {
+		padding-right: 2.5rem; /* місце під Manage */
+	}
+	table.rt-cards td[data-cell='manage'] {
+		position: absolute;
+		top: 0.5rem;
+		right: 0.5rem;
+		width: auto;
+	}
+	table.rt-cards td[data-cell='range'] {
+		min-width: 0;
+		padding-top: 0.25rem;
+	}
+}

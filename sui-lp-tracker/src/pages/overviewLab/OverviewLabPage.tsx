@@ -196,7 +196,7 @@ function OverviewPositions({
 			{rows.length === 0 ? (
 				<p className="px-4 py-6 text-sm text-slate-500">No positions in this filter.</p>
 			) : (
-				<table className="overview-lab__lp-table">
+				<table className="rt-cards overview-lab__lp-table">
 					<thead>
 						<tr>
 							<th>Pair</th>
@@ -238,23 +238,23 @@ function OverviewPositions({
 												</button>
 											</span>
 										</td>
-										<td className="text-xs text-slate-400">
+										<td data-label="Protocol" className="text-xs text-slate-400">
 											<span className="inline-flex items-center gap-1.5">
 												<ProtocolIcon protocol={row.protocol} size={13} />
 												{protocolLabel(row.protocol)}
 											</span>
 										</td>
-										<td>
+										<td data-label="Status">
 											<StatusPill band={row.band} />
 										</td>
-										<td className="num overview-lab__money tabular-nums text-sm text-slate-200">
+										<td data-label="Value" className="num overview-lab__money tabular-nums text-sm text-slate-200">
 											{row.valuePartial ? (
 												<MetricValueWithPartial value={money(row.value, hideAmounts)} partial />
 											) : (
 												money(row.value, hideAmounts)
 											)}
 										</td>
-										<td className="num overview-lab__money tabular-nums text-xs text-slate-400">
+										<td data-label="Unclaimed" className="num overview-lab__money tabular-nums text-xs text-slate-400">
 											{row.unclaimedPartial ? (
 												<MetricValueWithPartial value={money(row.unclaimed, hideAmounts)} partial />
 											) : (
@@ -274,14 +274,14 @@ function OverviewPositions({
 															{member.tokenA}/{member.tokenB}
 														</button>
 													</td>
-													<td className="text-xs text-slate-500">{protocolLabel(member.protocol)}</td>
-													<td>
+													<td data-label="Protocol" className="text-xs text-slate-500">{protocolLabel(member.protocol)}</td>
+													<td data-label="Status">
 														<StatusPill band={lpBand(member)} />
 													</td>
-													<td className="num overview-lab__money tabular-nums text-sm text-slate-300">
+													<td data-label="Value" className="num overview-lab__money tabular-nums text-sm text-slate-300">
 														{money(positionValueUsdOrNull(member), hideAmounts)}
 													</td>
-													<td className="num overview-lab__money tabular-nums text-xs text-slate-500">
+													<td data-label="Unclaimed" className="num overview-lab__money tabular-nums text-xs text-slate-500">
 														{money(unclaimedIncomeUsdOrNull(member), hideAmounts)}
 													</td>
 												</tr>

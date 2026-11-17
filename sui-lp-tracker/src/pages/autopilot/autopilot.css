@@ -1313,3 +1313,16 @@ html[data-theme="light"] .autopilot-root .step-btn:hover:not(:disabled) { backgr
   .autopilot-root .step-suffix { grid-column: 1 / -1; }
   .autopilot-root .ctor-top { gap: 0.75rem; }
 }
+
+/* Mobile: нижня навігація (3.5rem) не повинна перекривати липку панель дій і тост */
+@media (max-width: 767px) {
+  .autopilot-root .ctor-actions {
+    bottom: calc(3.5rem + env(safe-area-inset-bottom));
+  }
+  .autopilot-root .toast {
+    bottom: calc(4.75rem + env(safe-area-inset-bottom));
+  }
+  .autopilot-root .drawer {
+    height: 100dvh;
+  }
+}

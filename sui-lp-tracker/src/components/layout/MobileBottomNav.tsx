@@ -125,7 +125,7 @@ export function MobileBottomNav() {
 		<>
 			{moreOpen ? (
 				<div
-					className="fixed inset-0 z-[70] md:hidden"
+					className="fixed inset-0 z-[34] md:hidden"
 					role="dialog"
 					aria-modal="true"
 					aria-label="More"
@@ -160,7 +160,7 @@ export function MobileBottomNav() {
 			) : null}
 			<nav
 				aria-label="Main navigation"
-				className="safe-bottom safe-x fixed inset-x-0 bottom-0 z-[75] border-t border-app-border bg-app-bg/95 backdrop-blur md:hidden"
+				className="safe-bottom safe-x fixed inset-x-0 bottom-0 z-[35] border-t border-app-border bg-app-bg/95 backdrop-blur md:hidden"
 			>
 				<div className="mx-auto flex max-w-xl items-stretch">
 					<button

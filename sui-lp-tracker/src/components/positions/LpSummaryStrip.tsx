@@ -69,7 +69,7 @@ export function LpSummaryStrip({ positions, protocolFilter }: Props) {
 		`mt-auto pt-1 font-mono tabular-money text-xl leading-none ${extra}`
 
 	return (
-		<div className="mb-4 grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
+		<div className="mb-4 grid grid-cols-2 items-stretch gap-2 sm:gap-3 lg:grid-cols-3 xl:grid-cols-7">
 			<SummaryMetricCard
 				label="LP Value"
 				tip={TOTAL_VALUE_TOOLTIP}

@@ -754,8 +754,8 @@ function ProtocolSection({
 			{(snapshot.netAPR != null ||
 				snapshot.dailyEarningsUSD != null ||
 				liquidationUSD > 0) && (
-				<div className="flex flex-nowrap items-start gap-3">
-					<div className="flex shrink-0 items-center gap-3">
+				<div className="flex flex-col items-stretch gap-3 sm:flex-row sm:flex-nowrap sm:items-start">
+					<div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:flex-nowrap sm:gap-3">
 						{snapshot.netAPR != null && (
 							<div className="flex items-center gap-1.5 rounded-lg bg-slate-800/70 px-3 py-1.5 text-xs">
 								<span className="text-slate-500">Net APR</span>
@@ -820,7 +820,7 @@ function ProtocolSection({
 			{supplies.length > 0 && (
 				<CollapsibleRows label="Supplied">
 					<div className={appTableShell}>
-						<table className="w-full table-fixed border-collapse text-sm">
+						<table className="w-full min-w-[36rem] table-fixed border-collapse text-sm md:min-w-0">
 							<LendingPositionColgroup showLiqColumn={hasBorrows} showNet={showNet} />
 							<thead>
 								<tr className={appTableHeadRow}>
@@ -852,7 +852,7 @@ function ProtocolSection({
 			{borrows.length > 0 && (
 				<CollapsibleRows label="Borrowed">
 					<div className={appTableShell}>
-						<table className="w-full table-fixed border-collapse text-sm">
+						<table className="w-full min-w-[36rem] table-fixed border-collapse text-sm md:min-w-0">
 							<LendingPositionColgroup showLiqColumn showNet={showNet} />
 							<thead>
 								<tr className={appTableHeadRow}>

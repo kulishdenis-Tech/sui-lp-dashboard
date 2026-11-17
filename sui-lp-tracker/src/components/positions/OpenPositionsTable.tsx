@@ -384,7 +384,7 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 
 	return (
 		<div className={`${appTableShell} w-full min-w-0`}>
-			<table className="w-full min-w-0 table-auto border-collapse text-left text-sm">
+			<table className="rt-cards w-full min-w-0 table-auto border-collapse text-left text-sm">
 				<thead>
 					<tr className={appTableHeadRow}>
 						<DataTableHeadCell
@@ -489,8 +489,8 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 							const emptyPos = isEmptyLpPosition(p)
 							const earningsAprPct =
 								emptyPos ? null : showMetrics ? earningsAnnualizedAprPct(p) : null
-							const metricCell = (content: ReactNode, extraCls = '', forceShow = false) => (
-								<td className={`${appTableTd} text-right ${extraCls}`}>
+							const metricCell = (label: string, content: ReactNode, extraCls = '', forceShow = false) => (
+								<td data-label={label} className={`${appTableTd} text-right ${extraCls}`}>
 									{enrichmentPending && !forceShow ? (
 										<LoadingDash />
 									) : showMetrics || forceShow ? (
@@ -524,11 +524,12 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 											lpLabel={opts?.cascadeLabel}
 										/>
 									</td>
-									<td className={appTableTdRightMono}>
+									<td data-label="Value" className={appTableTdRightMono}>
 										{formatUSD(positionValueUsdOrNull(p))}
 									</td>
-									{metricCell(<PnlCell p={p} show={true} />, 'font-mono')}
+									{metricCell('PnL', <PnlCell p={p} show={true} />, 'font-mono')}
 									{metricCell(
+									'ROI',
 										<span
 											className={
 												'font-mono ' +
@@ -543,6 +544,7 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 										</span>,
 									)}
 									{metricCell(
+									'APR',
 										<span
 											className={`font-mono ${p.status === 'out_of_range' ? 'text-slate-500' : 'text-slate-200'}`}
 										>
@@ -550,13 +552,14 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 										</span>,
 									)}
 									{metricCell(
+									'Earnings',
 										<span className="font-mono text-slate-200">
 											{earningsUsd != null ? formatUSD(earningsUsd) : '—'}
 										</span>,
 										'',
 										showEarnings,
 									)}
-									<td className={appTableTdWideUnclaimed}>
+									<td data-label="Unclaimed" className={appTableTdWideUnclaimed}>
 										{unclaimedUsd != null ? (
 											formatUSD(unclaimedUsd)
 										) : (
@@ -566,6 +569,7 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 										)}
 									</td>
 									{metricCell(
+									'vs HODL',
 										<span
 											className={
 												'font-mono ' +
@@ -579,12 +583,13 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 											{formatUSD(p.vsHodlDeltaUSD)}
 										</span>,
 									)}
-									<td className={appTableTdRangeCell}>
+									<td data-cell="range" className={appTableTdRangeCell}>
 										{p.protocol !== 'aftermath' && p.protocol !== 'flowx' && (
 											<PositionRangeBar p={p} />
 										)}
 									</td>
 									<td
+										data-cell="manage"
 										className={`${appTableTd} text-right`}
 										onClick={(e) => e.stopPropagation()}
 									>
@@ -685,10 +690,11 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 										Cascade · {n} Positions
 									</span>
 								</td>
-								<td className={appTableTdRightMono}>
+								<td data-label="Value" className={appTableTdRightMono}>
 									{fmtAggUsd(valueSum, agg.valueCoverage)}
 								</td>
 								<td
+									data-label="PnL"
 									className={`${appTableTd} text-right ${
 										(pnlSum ?? 0) > 0
 											? 'text-app-profit'
@@ -710,6 +716,7 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 									)}
 								</td>
 								<td
+									data-label="ROI"
 									className={`${appTableTd} text-right ${
 										roiAvg != null && roiAvg > 0
 											? 'text-app-profit'
@@ -731,7 +738,7 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 										}`}
 									/>
 								</td>
-								<td className={`${appTableTd} text-right text-slate-200`}>
+								<td data-label="APR" className={`${appTableTd} text-right text-slate-200`}>
 									<MetricValueWithPartial
 										value={aprAvg != null ? `${aprAvg.toFixed(1)}%` : null}
 										partial={coverageIsPartial(agg.aprCoverage)}
@@ -739,13 +746,14 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 										className="justify-end font-mono text-slate-200"
 									/>
 								</td>
-								<td className={`${appTableTd} text-right text-slate-200`}>
+								<td data-label="Earnings" className={`${appTableTd} text-right text-slate-200`}>
 									{fmtAggUsd(earningsSum, agg.earningsCoverage)}
 								</td>
-								<td className={appTableTdWideUnclaimed}>
+								<td data-label="Unclaimed" className={appTableTdWideUnclaimed}>
 									{fmtAggUsd(unclaimedSum, agg.unclaimedCoverage)}
 								</td>
 								<td
+									data-label="vs HODL"
 									className={`${appTableTd} text-right ${
 										(vsHodlSum ?? 0) > 0
 											? 'text-app-profit'
@@ -767,6 +775,7 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 									)}
 								</td>
 								<td
+									data-cell="range"
 									className={appTableTdRangeCell}
 									title={`Cascade band: ticks ${cascadeTickLower}…${cascadeTickUpper} · click row to expand`}
 								>
@@ -782,6 +791,7 @@ export function OpenPositionsTable({ allOpen, protocolFilter, openDigestByPosId 
 									</span>
 								</td>
 								<td
+									data-cell="manage"
 									className={`${appTableTd} text-right`}
 									onClick={(e) => e.stopPropagation()}
 								>

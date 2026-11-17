@@ -228,7 +228,7 @@ export function BalanceDashboard() {
 								Tokens ({pricedShown.length})
 							</p>
 							<div className={appTableShell}>
-								<table className="w-full min-w-[1040px] table-fixed border-collapse text-left">
+								<table className="rt-cards w-full min-w-[1040px] table-fixed border-collapse text-left">
 									{BALANCE_TABLE_COLS}
 									<SortableTableHead sort={sort} onSort={onSort} />
 									<tbody>
