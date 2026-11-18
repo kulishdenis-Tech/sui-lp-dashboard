@@ -17,6 +17,11 @@ export type LpHistoryRow = {
 	opened_at: number | null
 	closed_at: number | null
 	updated_at?: string
+	/** Unix seconds. Null on rows written before the delta columns existed. */
+	last_event_ts?: number | string | null
+	/** Stored only. Delta sync does not resume from this value. */
+	last_cursor?: string | null
+	synced_at?: string | null
 }
 
 export type ClientLpHistoryPosition = {
@@ -31,6 +36,8 @@ export type ClientLpHistoryPosition = {
 	openedAt: number | null
 	closedAt: number | null
 	updatedAt: string | null
+	lastEventTs: number | null
+	syncedAt: string | null
 }
 
 export type ClosedPositionLike = {
@@ -60,6 +67,12 @@ export function makeLpHistoryId(wallet: string, positionId: string): string {
 	return `${wallet.toLowerCase()}|${positionId.toLowerCase()}`
 }
 
+function unixSeconds(value: number | string | null | undefined): number | null {
+	if (value == null || value === '') return null
+	const n = typeof value === 'number' ? value : Number(value)
+	return Number.isFinite(n) && n > 0 ? Math.floor(n) : null
+}
+
 function rowToClient(row: LpHistoryRow): ClientLpHistoryPosition {
 	return {
 		id: row.id,
@@ -73,6 +86,8 @@ function rowToClient(row: LpHistoryRow): ClientLpHistoryPosition {
 		openedAt: row.opened_at,
 		closedAt: row.closed_at,
 		updatedAt: row.updated_at ?? null,
+		lastEventTs: unixSeconds(row.last_event_ts),
+		syncedAt: row.synced_at ?? null,
 	}
 }
 
@@ -148,6 +163,10 @@ export function closedPositionToRow(wallet: string, cp: ClosedPositionLike): LpH
 		scan_partial: Boolean(cp.partialHistory),
 		opened_at: Number.isFinite(openedAt) ? Math.floor(openedAt) : null,
 		closed_at: Number.isFinite(closedAt) ? Math.floor(closedAt) : null,
+		last_event_ts: null,
+		last_cursor: null,
+		synced_at: new Date().toISOString(),
+		updated_at: new Date().toISOString(),
 	}
 }
 
@@ -161,22 +180,31 @@ export function openEventsToRow(
 		openedAt?: number | null
 		scanPartial?: boolean
 		extra?: Record<string, unknown>
+		status?: LpHistoryStatus
+		closedAt?: number | null
+		lastEventTs?: number | null
 	},
 ): LpHistoryRow {
 	const walletAddr = wallet.toLowerCase()
 	const openedAt = opts.openedAt == null ? null : Number(opts.openedAt)
+	const closedAt = opts.closedAt == null ? null : Number(opts.closedAt)
+	const lastEventTs = opts.lastEventTs == null ? null : Number(opts.lastEventTs)
 	return {
 		id: makeLpHistoryId(walletAddr, opts.positionId),
 		wallet_addr: walletAddr,
 		position_id: opts.positionId,
 		protocol: opts.protocol,
-		status: 'open',
+		status: opts.status ?? 'open',
 		pair: opts.pair ?? '',
 		events: opts.events,
 		position: opts.extra ?? {},
 		scan_partial: Boolean(opts.scanPartial),
 		opened_at: openedAt != null && Number.isFinite(openedAt) ? Math.floor(openedAt) : null,
-		closed_at: null,
+		closed_at: closedAt != null && Number.isFinite(closedAt) ? Math.floor(closedAt) : null,
+		last_event_ts: lastEventTs != null && Number.isFinite(lastEventTs) ? Math.floor(lastEventTs) : null,
+		last_cursor: null,
+		synced_at: new Date().toISOString(),
+		updated_at: new Date().toISOString(),
 	}
 }
 

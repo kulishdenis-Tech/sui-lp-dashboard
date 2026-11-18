@@ -516,7 +516,8 @@ async function _scanCetusWalletEventsInner(
 	let scanPages: number
 	let cutoffTs: number
 
-	if (cached && cached.rows.length > 0) {
+	// lastEventTs alone is a server cursor (raw rows may live only as PositionEvents).
+	if (cached && (cached.rows.length > 0 || cached.lastEventTs > 0)) {
 		baseEvByPos = rowsToEventMap(cached.rows)
 		scanPages = MAX_CETUS_DELTA_PAGES
 		cutoffTs = cached.lastEventTs - CETUS_DELTA_OVERLAP_SEC

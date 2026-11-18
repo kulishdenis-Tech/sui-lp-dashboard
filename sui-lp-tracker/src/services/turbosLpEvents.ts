@@ -181,12 +181,15 @@ const MAX_TX_PAGES = 50   // 50 × 50 = 2500 transactions scanned
  * @param tokenADecimals
  * @param tokenBDecimals
  */
+const TURBOS_DELTA_OVERLAP_SEC = 3 * 3600
+
 export async function scanTurbosPositionEvents(
 	walletAddress: string,
 	nftId: string,
 	positionId: string,
 	tokenADecimals: number,
 	tokenBDecimals: number,
+	sinceTs?: number,
 ): Promise<PositionEvent[]> {
 	let walletNorm: string
 	let nftNorm: string
@@ -199,6 +202,8 @@ export async function scanTurbosPositionEvents(
 	let cursor: string | undefined = undefined
 	let page = 0
 	let foundOpeningEvent = false
+	let stopForDelta = false
+	const deltaSince = sinceTs != null && sinceTs > 0 ? sinceTs : 0
 
 	do {
 		const res: Awaited<ReturnType<typeof suiClient.queryTransactionBlocks>> | null =
@@ -212,8 +217,12 @@ export async function scanTurbosPositionEvents(
 		if (!res) break
 
 		for (const tx of res.data) {
-			if (!tx.events || tx.events.length === 0) continue
 			const ts = tx.timestampMs ? Math.floor(Number(tx.timestampMs) / 1000) : 0
+			if (deltaSince > 0 && ts > 0 && ts < deltaSince - TURBOS_DELTA_OVERLAP_SEC) {
+				stopForDelta = true
+				break
+			}
+			if (!tx.events || tx.events.length === 0) continue
 			const txDigest = tx.digest
 
 			for (const ev of tx.events) {
@@ -363,7 +372,8 @@ export async function scanTurbosPositionEvents(
 
 		// Early termination: once we've scanned past the opening add_liquidity event,
 		// all subsequent (older) txs can't have events for this position.
-		if (foundOpeningEvent) break
+		// Delta: stop once txs are older than last_event_ts minus the overlap.
+		if (foundOpeningEvent || stopForDelta) break
 
 	} while (cursor && page < MAX_TX_PAGES)
 

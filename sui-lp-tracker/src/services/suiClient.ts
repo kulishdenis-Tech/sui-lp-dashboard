@@ -2,6 +2,18 @@ import type { SuiJsonRpcClient } from '@mysten/sui/jsonRpc'
 import { MYSTEN_PUBLIC_GRPC_URL } from '@/services/suiData/config'
 import { getPortfolioReadSuiClient } from '@/services/portfolioSuiReadClient'
 
+const LP_HISTORY_RPC_METHODS = new Set(['queryEvents', 'queryTransactionBlocks'])
+let lpHistoryRpcCalls = 0
+
+/** Reset before an LP history scan. Counts queryEvents and queryTransactionBlocks. */
+export function resetLpHistoryRpcCount(): void {
+	lpHistoryRpcCalls = 0
+}
+
+export function readLpHistoryRpcCount(): number {
+	return lpHistoryRpcCalls
+}
+
 /**
  * Read-only Sui client for portfolio / LP / Current reads.
  * Mysten public gRPC (`fullnode.mainnet.sui.io`). Events and history use GraphQL.
@@ -11,7 +23,12 @@ export const suiClient: SuiJsonRpcClient = new Proxy({} as SuiJsonRpcClient, {
 		const client = getPortfolioReadSuiClient()
 		const val = Reflect.get(client as object, prop, receiver)
 		if (typeof val === 'function') {
-			return (val as (...args: unknown[]) => unknown).bind(client)
+			const fn = (val as (...args: unknown[]) => unknown).bind(client)
+			if (!LP_HISTORY_RPC_METHODS.has(String(prop))) return fn
+			return (...args: unknown[]) => {
+				lpHistoryRpcCalls += 1
+				return fn(...args)
+			}
 		}
 		return val
 	},

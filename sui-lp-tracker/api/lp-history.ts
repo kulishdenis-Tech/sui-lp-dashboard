@@ -11,7 +11,7 @@ function header(req: VercelReq, name: string): string {
 	return typeof h === 'string' ? h : ''
 }
 
-/** GET /api/lp-history?wallet=0x…&status=closed|open|all */
+/** GET /api/lp-history?wallet=0x…&status=closed|open|all&since=<unix seconds> */
 export default async function handler(req: VercelReq, res: VercelRes) {
 	if ((req.method ?? 'GET').toUpperCase() !== 'GET') {
 		res.status(405).json({ error: 'method not allowed' })
@@ -39,13 +39,19 @@ export default async function handler(req: VercelReq, res: VercelRes) {
 			return
 		}
 
-		const positions = await getLpHistoryForWallet(wallet, status)
+		const since = Number(q(req.query.since))
+		let positions = await getLpHistoryForWallet(wallet, status)
+		if (Number.isFinite(since) && since > 0) {
+			// Rows written before the column existed stay visible (null cursor).
+			positions = positions.filter((p) => p.lastEventTs == null || p.lastEventTs >= since)
+		}
 		const updatedAt = positions.reduce<string | null>((max, p) => {
 			if (!p.updatedAt) return max
 			if (!max || p.updatedAt > max) return p.updatedAt
 			return max
 		}, null)
-		const etag = `"lp-${status}-${positions.length}-${updatedAt ?? 'empty'}"`
+		const cursorMax = positions.reduce((max, p) => Math.max(max, p.lastEventTs ?? 0), 0)
+		const etag = `"lp-${status}-${positions.length}-${updatedAt ?? 'empty'}-${cursorMax}"`
 		const inm = header(req, 'if-none-match').trim()
 		if (inm && inm === etag) {
 			res.setHeader('ETag', etag)

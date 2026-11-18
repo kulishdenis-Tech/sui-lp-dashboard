@@ -1,10 +1,11 @@
 import type { OpenPosition, PositionEvent } from '@/types'
 import {
+	loadCetusWalletRawEvents,
 	scanCetusPositionEvents,
 	scanCetusPositionEventsByWalletTxs,
-	scanCetusWalletEvents,
 } from '@/services/cetusLpEvents'
 import { enrichBluefinOpenPositionWithEvents } from '@/services/enrichment'
+import { mergeLpHistoryEvents } from '@/services/lpHistoryDelta'
 
 export type CetusEnrichRow = {
 	id: string
@@ -24,13 +25,9 @@ export async function enrichAllCetusOpenPositions(
 	if (cetus.length === 0) return []
 
 	const seedMap = options?.seedEventsByPositionId
-	const allSeeded = cetus.every((p) => {
-		const seeded = seedMap?.[p.id]
-		return seeded?.some((e) => e.type === 'add_liquidity')
-	})
-	if (!allSeeded) {
-		await scanCetusWalletEvents(walletAddress)
-	}
+	// Always run the wallet scan. A seeded deposit must not freeze history at the
+	// last cron write. IDB / server last_event_ts makes this a short delta.
+	await loadCetusWalletRawEvents(walletAddress)
 
 	const conc = 4
 	const out: CetusEnrichRow[] = []
@@ -44,54 +41,25 @@ export async function enrichAllCetusOpenPositions(
 			const origDecA = p.cetusOriginalDecimalsA ?? p.tokenADecimals
 			const origDecB = p.cetusOriginalDecimalsB ?? p.tokenBDecimals
 
-			let evs: PositionEvent[] = []
-			const seeded = seedMap?.[p.id]
-			if (seeded?.length) {
-				evs = [...seeded].sort((a, b) => a.timestamp - b.timestamp)
+			const seeded = seedMap?.[p.id] ?? []
+			let scanned: PositionEvent[] = []
+			try {
+				scanned = await Promise.race([
+					scanCetusPositionEvents(walletAddress, p.id, origDecA, origDecB),
+					new Promise<PositionEvent[]>((_, rej) =>
+						setTimeout(() => rej(new Error('sender-scan-timeout')), 60_000),
+					),
+				])
+			} catch (err) {
+				console.warn(
+					'[Cetus] sender-scan failed for',
+					p.id,
+					err instanceof Error ? err.message : err,
+				)
 			}
-
-			if (!evs.some((e) => e.type === 'add_liquidity')) {
-				try {
-					evs = await Promise.race([
-						scanCetusPositionEvents(walletAddress, p.id, origDecA, origDecB),
-						new Promise<PositionEvent[]>((_, rej) =>
-							setTimeout(() => rej(new Error('sender-scan-timeout')), 60_000),
-						),
-					])
-				} catch (err) {
-					console.warn(
-						'[Cetus] sender-scan failed for',
-						p.id,
-						err instanceof Error ? err.message : err,
-					)
-				}
-			}
-
-			if (!evs.some((e) => e.type === 'add_liquidity')) {
-				try {
-					const txEvs = await scanCetusPositionEventsByWalletTxs(
-						walletAddress,
-						p.id,
-						origDecA,
-						origDecB,
-					)
-					if (txEvs.length > 0) {
-						const seen = new Set(evs.map((e) => e.id))
-						evs = [...txEvs, ...evs.filter((e) => !seen.has(e.id))].sort(
-							(a, b) => a.timestamp - b.timestamp,
-						)
-					}
-				} catch (err2) {
-					console.warn(
-						'[Cetus] TX-scan failed for',
-						p.id,
-						err2 instanceof Error ? err2.message : err2,
-					)
-				}
-			}
-
-			if (p.cetusSwapped) {
-				evs = evs.map((e) => ({
+			const orient = (list: PositionEvent[]): PositionEvent[] => {
+				if (!p.cetusSwapped) return list
+				return list.map((e) => ({
 					...e,
 					tokenAAmount: e.tokenBAmount,
 					tokenBAmount: e.tokenAAmount,
@@ -104,6 +72,28 @@ export async function enrichAllCetusOpenPositions(
 					quoteAsOfUnixSecA: e.quoteAsOfUnixSecB,
 					quoteAsOfUnixSecB: e.quoteAsOfUnixSecA,
 				}))
+			}
+			// Seed is already in display orientation. Swap only the fresh scan.
+			let evs = mergeLpHistoryEvents(seeded, orient(scanned))
+
+			if (!evs.some((e) => e.type === 'add_liquidity')) {
+				try {
+					const txEvs = await scanCetusPositionEventsByWalletTxs(
+						walletAddress,
+						p.id,
+						origDecA,
+						origDecB,
+					)
+					if (txEvs.length > 0) {
+						evs = mergeLpHistoryEvents(evs, orient(txEvs))
+					}
+				} catch (err2) {
+					console.warn(
+						'[Cetus] TX-scan failed for',
+						p.id,
+						err2 instanceof Error ? err2.message : err2,
+					)
+				}
 			}
 
 			const enriched = await enrichBluefinOpenPositionWithEvents(p, evs, false)

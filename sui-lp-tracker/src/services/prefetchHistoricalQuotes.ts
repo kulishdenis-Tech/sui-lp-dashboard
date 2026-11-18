@@ -78,6 +78,7 @@ export function collectHistoricalQuoteRequestsFromEvents(
 			if (e.timestamp <= 0) continue
 			const t = Math.floor(e.timestamp)
 			if (e.type === 'collect_reward') {
+				if (typeof e.valueUsdReward === 'number' && e.valueUsdReward > 0) continue
 				const ct = resolveLpRewardCoinType(e, p)
 				if (ct) {
 					out.push({
@@ -95,6 +96,9 @@ export function collectHistoricalQuoteRequestsFromEvents(
 				e.type === 'open_position' ||
 				e.type === 'close_position'
 			) {
+				const legA = typeof e.valueUsdA === 'number' && e.valueUsdA > 0
+				const legB = typeof e.valueUsdB === 'number' && e.valueUsdB > 0
+				if (legA && legB) continue
 				out.push({ symbol: p.tokenA, coinType: p.tokenAAddress, timestampSec: t })
 				out.push({ symbol: p.tokenB, coinType: p.tokenBAddress, timestampSec: t })
 			}

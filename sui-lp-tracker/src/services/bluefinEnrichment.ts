@@ -13,6 +13,7 @@ import {
 import { parseMomentumEventFromSui } from '@/services/momentumLpEvents'
 import type { LpWalletScanSession } from '@/services/lpScanSession'
 import { getLpWalletScanSession } from '@/services/lpScanSession'
+import { mergeLpHistoryEvents } from '@/services/lpHistoryDelta'
 import {
 	collectHistoricalQuoteRequestsForClosedBatch,
 	collectHistoricalQuoteRequestsFromEvents,
@@ -912,16 +913,12 @@ export async function enrichAllBluefinOpenPositions(
 
 /**
  * Merges two PositionEvent arrays by unique id (digest::seq).
- * TX-scan events take priority (more complete); bulk-scanner events fill gaps (e.g. close events
- * that the TX scan may miss if they are beyond the 40-page TX window).
+ * The already stored copy wins when it is priced, so a delta scan cannot
+ * replace historical dollars with a fresh unpriced parse.
  */
-function mergePositionEvents(txEvents: PositionEvent[], bulkEvents: PositionEvent[]): PositionEvent[] {
-	const seen = new Set<string>()
-	const out: PositionEvent[] = []
-	for (const e of txEvents) { seen.add(e.id); out.push(e) }
-	for (const e of bulkEvents) { if (!seen.has(e.id)) { seen.add(e.id); out.push(e) } }
-	out.sort((a, b) => a.timestamp - b.timestamp)
-	return out
+function mergePositionEvents(incoming: PositionEvent[], existing: PositionEvent[]): PositionEvent[] {
+	// Stored events are primary so a delta parse cannot replace a priced row.
+	return mergeLpHistoryEvents(existing, incoming)
 }
 
 /**

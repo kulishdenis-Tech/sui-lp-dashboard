@@ -23,6 +23,7 @@ async function main() {
 		results.push(r)
 		console.log(
 			`[lp-history] ${wallet.slice(0, 10)}… ok=${r.ok} closed=${r.closed} new=${r.closedNew} open=${r.open}` +
+				` openMode=${r.openMode} rpcCalls=${r.rpcCalls}` +
 				(r.incremental ? ' incremental' : ' full') +
 				(r.error ? ` error=${r.error}` : ''),
 		)
