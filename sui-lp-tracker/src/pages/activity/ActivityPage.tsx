@@ -124,6 +124,7 @@ export function ActivityPage() {
 	const [protocol, setProtocol] = useState('all')
 	const [status, setStatus] = useState<'all' | 'success' | 'failure' | 'unknown'>('all')
 	const [hideSuspicious, setHideSuspicious] = useState(true)
+	const [filtersOpen, setFiltersOpen] = useState(false)
 	const [showHidden, setShowHidden] = useState(false)
 	const [prices, setPrices] = useState<Record<string, HistoricalPriceNote>>({})
 	const [cacheWarning, setCacheWarning] = useState<string | null>(null)
@@ -442,11 +443,11 @@ export function ActivityPage() {
 	const coverage = coverageFromRows(rows, meta, cursor.hasOlder)
 
 	return (
-		<PageShell as="main" className="py-8">
+		<PageShell as="main" className="py-4 md:py-8">
 			<div className="mb-4 flex flex-wrap items-end justify-between gap-3">
 				<div>
 					<h2 className="text-section font-semibold text-slate-100">Activity</h2>
-					<p className="mt-1 max-w-3xl text-sm text-slate-400">
+					<p className="mt-1 hidden max-w-3xl text-sm text-slate-400 md:block">
 						{isManualView ? 'Visiting address' : 'Connected wallet'} · read-only public history. Filters apply to loaded
 						transactions only.
 					</p>
@@ -457,6 +458,16 @@ export function ActivityPage() {
 			</div>
 
 			<AppCard className="mb-4 space-y-3">
+				<button
+					type="button"
+					onClick={() => setFiltersOpen((v) => !v)}
+					aria-expanded={filtersOpen}
+					className="flex w-full items-center justify-between text-sm font-medium text-slate-200 md:hidden"
+				>
+					<span>Filters &amp; actions</span>
+					<span className={`text-slate-500 transition-transform ${filtersOpen ? 'rotate-180' : ''}`}>▾</span>
+				</button>
+				<div className={filtersOpen ? 'space-y-3' : 'hidden space-y-3 md:block'}>
 				<div className="flex flex-wrap gap-2">
 					<input
 						value={query}
@@ -550,6 +561,7 @@ export function ActivityPage() {
 					>
 						Clear saved activity
 					</Button>
+				</div>
 				</div>
 				<p className="text-xs text-slate-500">
 					{!address

@@ -74,7 +74,7 @@ export function SettingsPage() {
 	return (
 		<PageShell as="main" className="py-8">
 			<h2 className="text-section font-semibold text-slate-100">Settings</h2>
-			<p className="mt-1 max-w-2xl text-sm text-slate-400">
+			<p className="mt-1 hidden max-w-2xl md:block text-sm text-slate-400">
 				Nicknames for the two monitored accounts. A change here updates the risk card and every other
 				label, from this browser and from any other device that opens this dashboard.
 			</p>
