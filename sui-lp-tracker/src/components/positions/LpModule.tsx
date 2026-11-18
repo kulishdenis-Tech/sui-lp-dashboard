@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { usePositions } from '@/hooks/usePositions'
 import { useAppStore } from '@/store/appStore'
@@ -15,114 +15,26 @@ import { CurrentMultiplySummaryStrip } from '@/components/positions/CurrentMulti
 import { SkeletonCard } from '@/components/ui/SkeletonCard'
 import { Spinner } from '@/components/ui/Spinner'
 import { isCetusVaultPosition } from '@/utils/cetusVault'
-import {
-	enrichCetusLiveFeesFromBot,
-	fetchAutopilotOpenDigests,
-} from '@/pages/autopilot/enrichCetusLiveFees'
-import { expandOpenDigestsWithCascadeCreates } from '@/pages/autopilot/cascadeOpenBindings'
+import { useClosedPositionsLoader, useLpLiveEnrichment } from '@/components/positions/useLpModuleData'
 
 type LpView = 'open' | 'closed' | 'vaults'
 
 export function LpModule() {
 	const { open, closed, isLoading, isRefreshing, isLoadingClosed, error } = usePositions()
 	const { address } = useWalletAuth()
-	const loadClosedPositions = useAppStore((s) => s.loadClosedPositions)
 	const filter = useAppStore((s) => s.protocolFilter)
 	const location = useLocation()
 	const [view, setView] = useState<LpView>(
 		(location.state as { lpView?: LpView } | null)?.lpView ?? 'open',
 	)
-	const closedReconcileKey = useRef('')
-	const liveFeeKey = useRef('')
-	const [openDigestByPosId, setOpenDigestByPosId] = useState<Map<string, string>>(() => new Map())
 
 	useEffect(() => {
 		const next = (location.state as { lpView?: LpView } | null)?.lpView
 		if (next === 'open' || next === 'closed' || next === 'vaults') setView(next)
 	}, [location.state])
 
-	/** Live Cetus fees + open digests via Autopilot bot (fetchPosFeeAmount path). */
-	useEffect(() => {
-		if (!address || open.length === 0 || isLoading) return
-		const cetusIds = open
-			.filter((p) => p.protocol === 'cetus' && !p.cetusVault)
-			.map((p) => p.id)
-			.sort()
-			.join(',')
-		if (!cetusIds) return
-		const key = `${address}:${cetusIds}`
-		// Only skip after a successful apply for this set (avoid abort-race that never retries).
-		if (liveFeeKey.current === key) return
-		let cancelled = false
-		void (async () => {
-			try {
-				const snapshot = useAppStore.getState().openPositions
-				const [enriched, botDigests] = await Promise.all([
-					enrichCetusLiveFeesFromBot(address, snapshot),
-					fetchAutopilotOpenDigests(address),
-				])
-				if (cancelled) return
-				// Remap Empty NFTs to their *open* cascade digest (previousTransaction after
-				// Withdraw All is the remove tx, so bot digests omit zero-liquidity positions).
-				const digests = await expandOpenDigestsWithCascadeCreates(snapshot, botDigests)
-				if (cancelled) return
-				setOpenDigestByPosId(digests)
-				const feeById = new Map(
-					enriched.map((p) => [
-						p.id,
-						{
-							unclaimedFeeUSD: p.unclaimedFeeUSD,
-							unclaimedFeeA: p.unclaimedFeeA,
-							unclaimedFeeB: p.unclaimedFeeB,
-						},
-					]),
-				)
-				const prev = useAppStore.getState().openPositions
-				let changed = false
-				const next = prev.map((p) => {
-					const fee = feeById.get(p.id)
-					if (!fee) return p
-					if (
-						fee.unclaimedFeeUSD === p.unclaimedFeeUSD &&
-						fee.unclaimedFeeA === p.unclaimedFeeA &&
-						fee.unclaimedFeeB === p.unclaimedFeeB
-					) {
-						return p
-					}
-					changed = true
-					return {
-						...p,
-						unclaimedFeeUSD: fee.unclaimedFeeUSD,
-						unclaimedFeeA: fee.unclaimedFeeA,
-						unclaimedFeeB: fee.unclaimedFeeB,
-					}
-				})
-				if (changed) useAppStore.setState({ openPositions: next })
-				liveFeeKey.current = key
-			} catch {
-				/* leave key unset so refresh / next effect can retry */
-			}
-		})()
-		return () => {
-			cancelled = true
-		}
-	}, [address, open, isLoading])
-
-	useEffect(() => {
-		if (view !== 'closed' || !address) {
-			closedReconcileKey.current = ''
-			return
-		}
-		if (closed.length === 0) {
-			if (isLoadingClosed) return
-			void loadClosedPositions(address)
-			return
-		}
-		// Once per visit. Refresh also appends closes that landed after the list was built.
-		if (closedReconcileKey.current === address) return
-		closedReconcileKey.current = address
-		void loadClosedPositions(address, { reconcileOnly: true, refreshScan: true })
-	}, [view, address, isLoadingClosed, closed.length, loadClosedPositions])
+	const openDigestByPosId = useLpLiveEnrichment(address, open, isLoading)
+	useClosedPositionsLoader(view === 'closed', address, closed, isLoadingClosed)
 
 	const aftermathOpen = useMemo(
 		() => open.filter((p) => p.protocol === 'aftermath'),

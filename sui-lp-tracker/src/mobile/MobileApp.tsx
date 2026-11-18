@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { MobileLayout } from '@/mobile/MobileLayout'
 import { HomePage } from '@/mobile/pages/HomePage'
-import { MainContent } from '@/components/MainContent'
+import { DashboardTabs } from '@/mobile/pages/DashboardTabs'
 import { PositionDetailPage } from '@/pages/PositionDetailPage'
 import { BuildPage } from '@/pages/autopilot/BuildPage'
 import { MarketsRoutePage } from '@/pages/autopilot/MarketsRoutePage'
@@ -17,7 +17,7 @@ export function MobileApp() {
 		<Routes>
 			<Route path="/" element={<MobileLayout />}>
 				<Route index element={<HomePage />} />
-				<Route path="home" element={<MainContent />} />
+				<Route path="home" element={<DashboardTabs />} />
 				<Route path="overview-lab" element={<Navigate to="/" replace />} />
 				<Route path="analytics" element={<Navigate to="/" replace />} />
 				<Route path="home/analytics" element={<Navigate to="/" replace />} />
