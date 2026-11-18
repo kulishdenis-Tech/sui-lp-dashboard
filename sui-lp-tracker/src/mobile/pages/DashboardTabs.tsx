@@ -1,5 +1,5 @@
 import { useAppStore } from '@/store/appStore'
-import { BalanceDashboard } from '@/components/balance/BalanceDashboard'
+import { BalancePage } from '@/mobile/pages/BalancePage'
 import { LendingPage } from '@/mobile/pages/LendingPage'
 import { LpPage } from '@/mobile/pages/LpPage'
 
@@ -8,9 +8,5 @@ export function DashboardTabs() {
 	const tab = useAppStore((s) => s.activeTab)
 	if (tab === 'lp') return <LpPage />
 	if (tab === 'lending') return <LendingPage />
-	return (
-		<main className="px-4 pb-6 pt-4">
-			<BalanceDashboard />
-		</main>
-	)
+	return <BalancePage />
 }
