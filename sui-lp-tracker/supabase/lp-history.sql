@@ -13,7 +13,12 @@ create table if not exists public.lp_position_history (
 	scan_partial boolean not null default false,
 	opened_at bigint,
 	closed_at bigint,
-	updated_at timestamptz not null default now()
+	updated_at timestamptz not null default now(),
+	-- Max event timestamp (unix seconds). Null on old rows → one full scan, then delta.
+	last_event_ts bigint,
+	-- Stored for later. Sync does not resume from this cursor.
+	last_cursor text,
+	synced_at timestamptz
 );
 
 create index if not exists idx_lp_position_history_wallet_status
@@ -23,3 +28,8 @@ create unique index if not exists idx_lp_position_history_wallet_pos
 	on public.lp_position_history (wallet_addr, position_id);
 
 alter table public.lp_position_history enable row level security;
+
+alter table public.lp_position_history
+	add column if not exists last_event_ts bigint,
+	add column if not exists last_cursor text,
+	add column if not exists synced_at timestamptz;
