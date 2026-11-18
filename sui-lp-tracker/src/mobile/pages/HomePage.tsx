@@ -4,7 +4,6 @@ import { useAppStore } from '@/store/appStore'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
 import { WalletConnect } from '@/components/auth/WalletConnect'
 import { formatUSDAdaptive } from '@/utils/formatting'
-import { formatHealthFactor } from '@/config/lendingHealthFactorThresholds'
 import { riskRowFigures, type OverviewRiskRow } from '@/pages/overviewLab/overviewRisk'
 import type { AttentionItem } from '@/pages/overviewLab/overviewAttention'
 import type { ValueChangeAnalysis } from '@/pages/overviewLab/overviewMetrics'
@@ -28,10 +27,12 @@ const label = 'text-[11px] font-medium uppercase tracking-wider text-slate-500'
 function Section({ title, right, children }: { title: string; right?: ReactNode; children: ReactNode }) {
 	return (
 		<section className="space-y-2">
-			<div className="flex items-center justify-between px-1">
-				<h2 className={label}>{title}</h2>
-				{right}
-			</div>
+			{title || right ? (
+				<div className="flex items-center justify-between px-1">
+					<h2 className="text-xs font-medium uppercase tracking-wider text-slate-400">{title}</h2>
+					{right}
+				</div>
+			) : null}
 			{children}
 		</section>
 	)
@@ -73,7 +74,7 @@ const sevDot: Record<AttentionItem['severity'], string> = {
 function AttentionList({ items, onOpen }: { items: AttentionItem[]; onOpen: (i: AttentionItem) => void }) {
 	if (items.length === 0) {
 		return (
-			<div className={`${card} flex items-center gap-2 px-4 py-3 text-sm text-emerald-300`}>
+			<div className={`${card} flex items-center gap-2 px-3 py-2.5 text-sm text-emerald-300`}>
 				<span className="h-2 w-2 rounded-full bg-emerald-400" /> Усе в нормі — дій не потрібно
 			</div>
 		)
@@ -85,63 +86,61 @@ function AttentionList({ items, onOpen }: { items: AttentionItem[]; onOpen: (i: 
 					key={it.id}
 					type="button"
 					onClick={() => onOpen(it)}
-					className={`flex w-full items-start gap-3 rounded-2xl border px-4 py-3 text-left active:opacity-80 ${sevStyle[it.severity]}`}
+					className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left active:opacity-80 ${sevStyle[it.severity]}`}
 				>
-					<span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${sevDot[it.severity]}`} />
-					<span className="min-w-0">
-						<span className="block text-sm font-medium text-slate-100">{it.title}</span>
-						<span className="block text-xs text-slate-400">{it.detail}</span>
-					</span>
+					<span className={`h-2 w-2 shrink-0 rounded-full ${sevDot[it.severity]}`} />
+					<span className="min-w-0 text-sm font-medium text-slate-100">{it.title}</span>
 				</button>
 			))}
 		</div>
 	)
 }
 
-const toneBorder: Record<string, string> = {
-	ok: 'border-slate-800',
-	warning: 'border-yellow-500/50',
-	p0: 'border-red-500/60',
-	muted: 'border-slate-800',
+const toneBg: Record<string, string> = {
+	ok: '',
+	warning: 'bg-yellow-500/10',
+	p0: 'bg-red-500/15',
+	muted: '',
 }
 
-function RiskCard({ row, suiPrice }: { row: OverviewRiskRow; suiPrice: number | null }) {
-	const f = riskRowFigures(row, suiPrice)
+/** Один рядок на позицію: назва · HF · ціна ліквідації · падіння до ліквідації. */
+function RiskRows({ rows, suiPrice }: { rows: OverviewRiskRow[]; suiPrice: number | null }) {
 	return (
-		<div className={`rounded-2xl border bg-slate-900/60 p-4 ${toneBorder[f.tone] ?? toneBorder.muted}`}>
-			<div className="flex items-start justify-between gap-3">
-				<div className="min-w-0">
-					<p className="truncate text-sm font-medium text-slate-100">{row.positionLabel}</p>
-					<p className="truncate text-xs text-slate-500">
-						{row.walletLabel} · {row.protocolLabel}
-					</p>
-				</div>
-				<div className="text-right">
-					<p className={`text-2xl font-semibold tabular-nums leading-none ${f.primaryClass}`}>
-						{f.primaryText}
-					</p>
-					<p className={`mt-1 text-xs ${f.statusClass}`}>{f.status}</p>
-				</div>
+		<div className={`${card} divide-y divide-slate-800 overflow-hidden`}>
+			<div className="grid grid-cols-[1fr_3.2rem_4.2rem_3.4rem] gap-x-2 px-3 py-1.5 text-xs text-slate-400">
+				<span />
+				<span className="text-right">HF</span>
+				<span className="text-right">Liq</span>
+				<span className="text-right">Drop</span>
 			</div>
-			<div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-				<div className="rounded-xl bg-slate-950/50 px-3 py-2">
-					<p className="text-slate-500">{row.stableLoop ? 'Liq rate' : 'SUI liq'}</p>
-					<p className={`mt-0.5 font-mono tabular-nums ${f.statusClass}`}>{f.suiLiqText}</p>
-				</div>
-				<div className="rounded-xl bg-slate-950/50 px-3 py-2">
-					<p className="text-slate-500">{row.stableLoop ? 'To liq' : 'SUI drop to liq'}</p>
-					<p className={`mt-0.5 font-mono tabular-nums ${f.statusClass}`}>{f.toLiqText}</p>
-				</div>
-			</div>
+			{rows.map((row) => {
+				const f = riskRowFigures(row, suiPrice)
+				const name = `${row.walletLabel === '—' ? '' : row.walletLabel + ' '}${
+					row.stableLoop ? row.positionLabel : row.positionLabel
+				}`.trim()
+				return (
+					<div
+						key={row.id}
+						className={`grid grid-cols-[1fr_3.2rem_4.2rem_3.4rem] items-center gap-x-2 px-3 py-2.5 text-sm ${toneBg[f.tone] ?? ''}`}
+					>
+						<span className="truncate text-slate-100">{name}</span>
+						<span className={`text-right text-base font-semibold tabular-nums ${f.primaryClass}`}>
+							{f.primaryText.replace(' rate', '')}
+						</span>
+						<span className={`text-right font-mono tabular-nums ${f.statusClass}`}>{f.suiLiqText}</span>
+						<span className={`text-right font-mono tabular-nums ${f.statusClass}`}>{f.toLiqText}</span>
+					</div>
+				)
+			})}
 		</div>
 	)
 }
 
 function Tile({ name, value }: { name: string; value: string }) {
 	return (
-		<div className={`${card} px-4 py-3`}>
-			<p className={label}>{name}</p>
-			<p className="mt-1 text-lg font-semibold tabular-nums text-slate-100">{value}</p>
+		<div className={`${card} px-3 py-2`}>
+			<p className="text-xs text-slate-400">{name}</p>
+			<p className="text-lg font-semibold tabular-nums text-slate-100">{value}</p>
 		</div>
 	)
 }
@@ -208,40 +207,8 @@ export function HomePage() {
 				<DeltaChip analysis={m.delta24h} hide={hide} />
 			</div>
 
-			{/* Attention */}
-			<Section title={`Attention${m.attention.length ? ` · ${m.attention.length}` : ''}`}>
-				<AttentionList items={m.attention} onOpen={openAttention} />
-			</Section>
-
-			{/* Lending risk */}
-			{m.riskRows.length > 0 ? (
-				<Section
-					title="Lending risk"
-					right={
-						m.lowestHf ? (
-							<span className="text-xs text-slate-400">
-								lowest HF{' '}
-								<span className="font-medium tabular-nums text-slate-200">
-									{formatHealthFactor(m.lowestHf.hf)}
-								</span>
-							</span>
-						) : null
-					}
-				>
-					<div className="space-y-2">
-						{m.riskRows.map((r) => (
-							<RiskCard key={r.id} row={r} suiPrice={m.suiPriceUsd} />
-						))}
-					</div>
-					<p className="px-1 text-[11px] text-slate-500">
-						Supplied {money(m.supplied, hide)} · Borrowed {money(m.borrowed, hide)} · Vault{' '}
-						{money(m.vaultUSD, hide)}
-					</p>
-				</Section>
-			) : null}
-
 			{/* Breakdown */}
-			<Section title="Breakdown">
+			<Section title="">
 				<div className="grid grid-cols-2 gap-2">
 					<Tile name="Wallet" value={money(nw?.walletAssetsUSD, hide)} />
 					<Tile name="LP value" value={money(nw?.openLpUSD, hide)} />
@@ -249,6 +216,18 @@ export function HomePage() {
 					<Tile name="Unclaimed" value={money(m.kpis.unclaimedUSD, hide)} />
 				</div>
 			</Section>
+
+			{/* Attention */}
+			<Section title={`Attention${m.attention.length ? ` · ${m.attention.length}` : ''}`}>
+				<AttentionList items={m.attention} onOpen={openAttention} />
+			</Section>
+
+			{/* Lending risk */}
+			{m.riskRows.length > 0 ? (
+				<Section title="Lending">
+					<RiskRows rows={m.riskRows} suiPrice={m.suiPriceUsd} />
+				</Section>
+			) : null}
 
 			{/* LP status */}
 			<Section
