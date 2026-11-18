@@ -8,8 +8,12 @@ import { MarketsRoutePage } from '@/pages/autopilot/MarketsRoutePage'
 import { OverviewLabPage } from '@/pages/overviewLab/OverviewLabPage'
 import { ActivityPage } from '@/pages/activity/ActivityPage'
 import { SettingsPage } from '@/pages/settings/SettingsPage'
+import { MobileApp } from '@/mobile/MobileApp'
+import { useIsMobile } from '@/mobile/useIsMobile'
 
 function App() {
+	const isMobile = useIsMobile()
+	if (isMobile) return <MobileApp />
 	return (
 		<Routes>
 			<Route path="/" element={<AppLayout />}>
