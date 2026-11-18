@@ -34,6 +34,7 @@ import {
 	serverHistoryToClosedPositions,
 	serverHistoryToEventsMap,
 } from '@/services/serverLpHistoryApi'
+import { mergeLpHistoryEvents, positionDeltaSince, seedServerLpDeltaCursors } from '@/services/lpHistoryDelta'
 import {
 	clearClosedPositionsSnapshot,
 	loadClosedPositionsSnapshot,
@@ -362,6 +363,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 			const serverOpenPromise = skipServerLp
 				? Promise.resolve(null)
 				: fetchServerLpHistory(address, 'open').catch(() => null)
+			// Server last_event_ts becomes the IDB cutoff before the wallet scan.
+			// Force rescan leaves this unset so the button still does a cold pass.
+			const seedCursorPromise = serverOpenPromise.then(async (server) => {
+				if (!server?.positions?.length) return
+				await seedServerLpDeltaCursors(address, server.positions)
+			})
 
 			/** Спільна session для enrichment bf/mmt — стартує лише коли потрібна, не на початку loadAll. */
 			let enrichSessionPromise: Promise<Awaited<ReturnType<typeof ensureLpWalletScanSession>>> | null =
@@ -370,9 +377,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 				if (!enrichSessionPromise) {
 					// Refresh (forceRefreshPrices) also re-runs warm delta so fresh
 					// collect_fee / collect_reward show up without requiring Force rescan.
-					enrichSessionPromise = ensureLpWalletScanSession(address, {
-						forceRefresh: skipServerLp || priceOpts.forceRefreshPrices,
-					})
+					enrichSessionPromise = seedCursorPromise.then(() =>
+						ensureLpWalletScanSession(address, {
+							forceRefresh: skipServerLp || priceOpts.forceRefreshPrices,
+						}),
+					)
 				}
 				return enrichSessionPromise
 			}
@@ -823,6 +832,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 					void (async () => {
 						try {
 							const server = await serverOpenPromise
+							await seedCursorPromise
 							const seed = server ? serverHistoryToEventsMap(server.positions) : undefined
 							const rows = await enrichAllCetusOpenPositions(address, clmm, {
 								seedEventsByPositionId: seed,
@@ -883,6 +893,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 				if (positions.length > 0) {
 					markEnriching(positions)
 					void mapPool(positions, TURBOS_ENRICH_CONCURRENCY, async (p) => {
+						const server = await serverOpenPromise
+						const seeded = server ? (serverHistoryToEventsMap(server.positions)[p.id] ?? []) : []
+						const since = server ? positionDeltaSince(server.positions, p.id) : undefined
 						const origDecA = p.turbosOriginalDecimalsA ?? p.tokenADecimals
 						const origDecB = p.turbosOriginalDecimalsB ?? p.tokenBDecimals
 						let evs = await scanTurbosPositionEvents(
@@ -891,6 +904,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 							p.turbosPositionObjectId ?? '',
 							origDecA,
 							origDecB,
+							since,
 						)
 						if (p.turbosSwapped) {
 							evs = evs.map((e) => ({
@@ -907,6 +921,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 								quoteAsOfUnixSecB: e.quoteAsOfUnixSecA,
 							}))
 						}
+						evs = mergeLpHistoryEvents(seeded, evs)
 						const enriched = await enrichBluefinOpenPositionWithEvents(p, evs, false)
 						return { id: p.id, evs: enriched.events, merged: enriched.merged }
 					})

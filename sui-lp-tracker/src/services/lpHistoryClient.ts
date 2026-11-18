@@ -16,6 +16,8 @@ export type ClientLpHistoryPosition = {
 	openedAt: number | null
 	closedAt: number | null
 	updatedAt: string | null
+	lastEventTs?: number | null
+	syncedAt?: string | null
 }
 
 export type ClosedPositionLike = {

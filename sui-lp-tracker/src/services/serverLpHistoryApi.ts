@@ -16,17 +16,21 @@ export type ServerLpHistoryResponse = {
 const _etagByKey = new Map<string, string>()
 const _bodyByKey = new Map<string, ServerLpHistoryResponse>()
 
-function cacheKey(wallet: string, status: string): string {
-	return `${wallet.toLowerCase()}|${status}`
+function cacheKey(wallet: string, status: string, since?: number): string {
+	return `${wallet.toLowerCase()}|${status}|${since ?? ''}`
 }
 
 export async function fetchServerLpHistory(
 	wallet: string,
 	status: 'open' | 'closed' | 'all' = 'all',
+	since?: number,
 ): Promise<ServerLpHistoryResponse | null> {
-	const key = cacheKey(wallet, status)
+	const key = cacheKey(wallet, status, since)
 	try {
 		const params = new URLSearchParams({ wallet, status })
+		if (since != null && Number.isFinite(since) && since > 0) {
+			params.set('since', String(Math.floor(since)))
+		}
 		const headers: Record<string, string> = { Accept: 'application/json' }
 		const prevEtag = _etagByKey.get(key)
 		if (prevEtag) headers['If-None-Match'] = prevEtag
