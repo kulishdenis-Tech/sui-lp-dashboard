@@ -6,9 +6,7 @@ import { useWalletAuth } from '@/hooks/useWalletAuth'
 import type { OpenPosition } from '@/types'
 import { ProtocolIcon } from '@/components/ui/ProtocolIcon'
 import { Spinner } from '@/components/ui/Spinner'
-import { CetusVaultsSection } from '@/components/positions/CetusVaultsSection'
-import { AftermathFarmsSection } from '@/components/positions/AftermathFarmsSection'
-import { ClosedPositionsTable } from '@/components/positions/ClosedPositionsTable'
+import { ClosedList } from '@/mobile/ui/ClosedList'
 import { useClosedPositionsLoader, useLpLiveEnrichment } from '@/components/positions/useLpModuleData'
 import { isCetusVaultPosition } from '@/utils/cetusVault'
 import { formatUSDAdaptive } from '@/utils/formatting'
@@ -209,14 +207,23 @@ export function LpPage() {
 						</div>
 					)}
 					{aftermath.length > 0 && (filter === 'all' || filter === 'aftermath') ? (
-						<AftermathFarmsSection positions={aftermath} />
+						<div className={`${card} divide-y divide-slate-800/70 overflow-hidden`}>
+							{aftermath.map((p) => (
+								<PositionRow key={p.id} p={p} onOpen={() => navigate(`/lp/position/${p.id}`)} />
+							))}
+						</div>
 					) : null}
 				</>
 			) : view === 'vaults' ? (
-				<CetusVaultsSection
-					positions={vaults}
-					emptyHint="Немає підтримуваних vault-позицій для цієї адреси."
-				/>
+				vaults.length === 0 ? (
+					<p className="px-1 text-sm text-slate-500">Немає vault-позицій для цієї адреси.</p>
+				) : (
+					<div className={`${card} divide-y divide-slate-800/70 overflow-hidden`}>
+						{vaults.map((p) => (
+							<PositionRow key={p.id} p={p} onOpen={() => navigate(`/lp/position/${p.id}`)} />
+						))}
+					</div>
+				)
 			) : isLoadingClosed ? (
 				<div className="flex items-center gap-2 text-sm text-slate-400">
 					<Spinner className="h-4 w-4" /> Loading closed positions…
@@ -224,7 +231,7 @@ export function LpPage() {
 			) : closed.length === 0 ? (
 				<p className="px-1 text-sm text-slate-500">Закритих позицій не знайдено.</p>
 			) : (
-				<ClosedPositionsTable allClosed={closed} protocolFilter={filter} />
+				<ClosedList allClosed={closed} protocolFilter={filter} />
 			)}
 		</main>
 	)
