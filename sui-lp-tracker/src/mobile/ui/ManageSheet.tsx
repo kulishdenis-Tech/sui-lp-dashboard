@@ -13,6 +13,7 @@ import {
 	manageProtocolLabel,
 	shortPosId,
 } from '@/pages/autopilot/manageBodies'
+import { AutoWithdrawManageSection } from '@/pages/autopilot/AutoWithdrawManageSection'
 import '@/pages/autopilot/autopilot.css'
 import { Sheet } from './Sheet'
 
@@ -92,6 +93,25 @@ export function ManageActions({ position, unclaimedUsd }: { position: OpenPositi
 							</button>
 						)
 					})}
+				</div>
+				<div className="autopilot-root pb-2">
+					<AutoWithdrawManageSection
+						position={position}
+						owner={owner}
+						canConfigure={viewingOwn}
+						onReviewWithdrawAll={(previewBody) => {
+							setSheet(false)
+							setBodies([
+								{
+									...buildManagePreviewBody(position, owner, 'remove'),
+									removePercent: 1,
+									fromAutoWithdraw: true,
+									positionStaysOpenAndEmpty: true,
+									...previewBody,
+								},
+							])
+						}}
+					/>
 				</div>
 			</Sheet>
 
