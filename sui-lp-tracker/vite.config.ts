@@ -308,6 +308,12 @@ export default defineConfig({
 				agent: extHttpsAgent,
 				rewrite: (p) => p.replace(/^\/ext\/gt/, ''),
 			},
+			'/ext/llama': {
+				target: 'https://coins.llama.fi',
+				changeOrigin: true,
+				agent: extHttpsAgent,
+				rewrite: (p) => p.replace(/^\/ext\/llama/, ''),
+			},
 			'/ext/dp': {
 				target: 'https://api.dexpaprika.com',
 				changeOrigin: true,

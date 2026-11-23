@@ -38,6 +38,7 @@ const SOURCE_LABEL: Record<HistoricalEventPriceSource, string> = {
 	okx_wallet_hist: 'OKX Wallet (price history)',
 	okx_dex_candles: 'OKX DEX OHLC',
 	pyth: 'Pyth benchmark at tx second',
+	defillama: 'DefiLlama (historical price)',
 	geckoterminal: 'GeckoTerminal (pool OHLCV)',
 	okx_dex_spot_current: 'current OKX spot (~ not tx date)',
 	cache: 'local cache',

@@ -1,29 +1,12 @@
-// server/esbuild-env-setup.ts
-import process2 from "node:process";
-import { createRequire } from "node:module";
-var envProxy = new Proxy(process2.env, {
-  get(target, prop) {
-    if (prop === "DEV") return false;
-    if (prop === "PROD") return true;
-    if (prop === "MODE") return "production";
-    if (prop === "SSR") return true;
-    if (typeof prop === "string" && prop in target) return target[prop];
-    return void 0;
-  }
-});
-Object.defineProperty(import.meta, "env", {
-  value: envProxy,
-  writable: false,
-  enumerable: true,
-  configurable: true
-});
-var require2 = createRequire(import.meta.url);
-if (!globalThis.Buffer) {
-  globalThis.Buffer = require2("buffer").Buffer;
-}
-
-// src/services/server/loadPortfolioSnapshot.ts
-import { normalizeSuiAddress as normalizeSuiAddress17 } from "@mysten/sui/utils";
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
 
 // src/services/suiData/config.ts
 function envStr(name) {
@@ -39,10 +22,6 @@ function envStr(name) {
   }
   return void 0;
 }
-var MYSTEN_PUBLIC_GRPC_URL = "https://fullnode.mainnet.sui.io";
-var PUBLICNODE_PUBLIC_GRPC_URL = "https://sui-grpc.publicnode.com:443";
-var MYSTEN_PUBLIC_GRAPHQL_URL = "https://graphql.mainnet.sui.io/graphql";
-var BLOCKVISION_GRPC_WEB_URL = "https://sui-mainnet-grpc-web.blockvision.org";
 function resolvePublicGrpcEndpoints() {
   const key = resolveBlockvisionApiKey();
   const fromEnv = envStr("VITE_SUI_GRPC_URL") ?? envStr("SUI_GRPC_URL");
@@ -55,11 +34,6 @@ function resolvePublicGrpcEndpoints() {
   if (key) return [BLOCKVISION_GRPC_WEB_URL];
   return [MYSTEN_PUBLIC_GRPC_URL];
 }
-var GRPC_ENDPOINT_ALIASES = {
-  publicnode: PUBLICNODE_PUBLIC_GRPC_URL,
-  mysten: MYSTEN_PUBLIC_GRPC_URL,
-  blockvision: BLOCKVISION_GRPC_WEB_URL
-};
 function resolveGrpcEndpointAlias(token) {
   if (!token) return null;
   const alias = GRPC_ENDPOINT_ALIASES[token.toLowerCase()];
@@ -80,9 +54,20 @@ function resolveSuiGrpcUrl() {
 function resolveSuiGraphqlUrl() {
   return (envStr("VITE_SUI_GRAPHQL_URL") ?? envStr("SUI_GRAPHQL_URL") ?? MYSTEN_PUBLIC_GRAPHQL_URL).replace(/\/$/, "");
 }
-
-// src/services/suiData/createGrpcClient.ts
-import { SuiGrpcClient } from "@mysten/sui/grpc";
+var MYSTEN_PUBLIC_GRPC_URL, PUBLICNODE_PUBLIC_GRPC_URL, MYSTEN_PUBLIC_GRAPHQL_URL, BLOCKVISION_GRPC_WEB_URL, GRPC_ENDPOINT_ALIASES;
+var init_config = __esm({
+  "src/services/suiData/config.ts"() {
+    MYSTEN_PUBLIC_GRPC_URL = "https://fullnode.mainnet.sui.io";
+    PUBLICNODE_PUBLIC_GRPC_URL = "https://sui-grpc.publicnode.com:443";
+    MYSTEN_PUBLIC_GRAPHQL_URL = "https://graphql.mainnet.sui.io/graphql";
+    BLOCKVISION_GRPC_WEB_URL = "https://sui-mainnet-grpc-web.blockvision.org";
+    GRPC_ENDPOINT_ALIASES = {
+      publicnode: PUBLICNODE_PUBLIC_GRPC_URL,
+      mysten: MYSTEN_PUBLIC_GRPC_URL,
+      blockvision: BLOCKVISION_GRPC_WEB_URL
+    };
+  }
+});
 
 // src/utils/deploymentOrigin.ts
 function deploymentOrigin() {
@@ -99,39 +84,12 @@ function apiUrl(path) {
   if (origin) return `${origin}${p}`;
   return p;
 }
+var init_deploymentOrigin = __esm({
+  "src/utils/deploymentOrigin.ts"() {
+  }
+});
 
 // src/utils/externalFetchUrl.ts
-var HOST_PREFIX = {
-  "hermes.pyth.network": "/ext/hermes",
-  "benchmarks.pyth.network": "/ext/bench",
-  "api.dexscreener.com": "/ext/ds",
-  "api.geckoterminal.com": "/ext/gt",
-  "api.dexpaprika.com": "/ext/dp",
-  "api.coingecko.com": "/ext/cg",
-  "web3.okx.com": "/ext/okx",
-  "dapi.api.sui-prod.bluefin.io": "/ext/bf-dapi",
-  "swap.api.sui-prod.bluefin.io": "/ext/bf-swap",
-  "open-api.naviprotocol.io": "/ext/navi",
-  "api.current.finance": "/ext/current",
-  // SUI JSON-RPC — distinct same-origin proxies so the dashboard pool can
-  // fail over across public nodes without CORS (Mysten fullnode JSON-RPC deprecated).
-  // Paths must NOT share a prefix (Vite proxy matches by path prefix).
-  "sui-rpc.publicnode.com": "/ext/sui-rpc",
-  "sui.publicnode.com": "/ext/sui-rpc",
-  "rpc-mainnet.suiscan.xyz": "/ext/sui-suiscan",
-  "sui.api.onfinality.io": "/ext/sui-onfinality",
-  // Mysten public gRPC-Web + GraphQL (default dashboard transport; no API key).
-  "fullnode.mainnet.sui.io": "/ext/sui-grpc-web",
-  "graphql.mainnet.sui.io": "/ext/sui-graphql",
-  // Optional BlockVision gRPC-Web (Lite+ key via VITE_BLOCKVISION_API_KEY).
-  "sui-mainnet-grpc-web.blockvision.org": "/ext/sui-grpc-bv",
-  "sui-mainnet-graphql.blockvision.org": "/ext/sui-graphql-bv",
-  "api-sui.cetus.zone": "/ext/cetus-api",
-  "haedal.xyz": "/ext/haedal",
-  "www.haedal.xyz": "/ext/haedal",
-  // AlphaLend SDK fetches stSUI staking APR directly; the host has no CORS for the dashboard origin.
-  "ws.stsui.com": "/ext/stsui"
-};
 function extFetchUrl(absoluteUrl) {
   try {
     const u = new URL(absoluteUrl);
@@ -147,8 +105,47 @@ function extFetchUrl(absoluteUrl) {
     return absoluteUrl;
   }
 }
+var HOST_PREFIX;
+var init_externalFetchUrl = __esm({
+  "src/utils/externalFetchUrl.ts"() {
+    init_deploymentOrigin();
+    HOST_PREFIX = {
+      "hermes.pyth.network": "/ext/hermes",
+      "benchmarks.pyth.network": "/ext/bench",
+      "api.dexscreener.com": "/ext/ds",
+      "api.geckoterminal.com": "/ext/gt",
+      "api.dexpaprika.com": "/ext/dp",
+      "coins.llama.fi": "/ext/llama",
+      "api.coingecko.com": "/ext/cg",
+      "web3.okx.com": "/ext/okx",
+      "dapi.api.sui-prod.bluefin.io": "/ext/bf-dapi",
+      "swap.api.sui-prod.bluefin.io": "/ext/bf-swap",
+      "open-api.naviprotocol.io": "/ext/navi",
+      "api.current.finance": "/ext/current",
+      // SUI JSON-RPC — distinct same-origin proxies so the dashboard pool can
+      // fail over across public nodes without CORS (Mysten fullnode JSON-RPC deprecated).
+      // Paths must NOT share a prefix (Vite proxy matches by path prefix).
+      "sui-rpc.publicnode.com": "/ext/sui-rpc",
+      "sui.publicnode.com": "/ext/sui-rpc",
+      "rpc-mainnet.suiscan.xyz": "/ext/sui-suiscan",
+      "sui.api.onfinality.io": "/ext/sui-onfinality",
+      // Mysten public gRPC-Web + GraphQL (default dashboard transport; no API key).
+      "fullnode.mainnet.sui.io": "/ext/sui-grpc-web",
+      "graphql.mainnet.sui.io": "/ext/sui-graphql",
+      // Optional BlockVision gRPC-Web (Lite+ key via VITE_BLOCKVISION_API_KEY).
+      "sui-mainnet-grpc-web.blockvision.org": "/ext/sui-grpc-bv",
+      "sui-mainnet-graphql.blockvision.org": "/ext/sui-graphql-bv",
+      "api-sui.cetus.zone": "/ext/cetus-api",
+      "haedal.xyz": "/ext/haedal",
+      "www.haedal.xyz": "/ext/haedal",
+      // AlphaLend SDK fetches stSUI staking APR directly; the host has no CORS for the dashboard origin.
+      "ws.stsui.com": "/ext/stsui"
+    };
+  }
+});
 
 // src/services/suiData/createGrpcClient.ts
+import { SuiGrpcClient } from "@mysten/sui/grpc";
 function browserGrpcBaseUrl(absolute) {
   const cleaned = absolute.replace(/\/$/, "");
   try {
@@ -161,7 +158,6 @@ function browserGrpcBaseUrl(absolute) {
   }
   return cleaned;
 }
-var shared = null;
 function createDashboardGrpcClient(opts = {}) {
   const network = opts.network ?? "mainnet";
   const apiKey = opts.apiKey === void 0 ? resolveBlockvisionApiKey() : opts.apiKey ?? void 0;
@@ -178,13 +174,16 @@ function getDashboardGrpcClient() {
   if (!shared) shared = createDashboardGrpcClient();
   return shared;
 }
+var shared;
+var init_createGrpcClient = __esm({
+  "src/services/suiData/createGrpcClient.ts"() {
+    init_externalFetchUrl();
+    init_config();
+    shared = null;
+  }
+});
 
 // src/services/suiData/throttle.ts
-var MAX_IN_FLIGHT = 3;
-var MIN_GAP_MS = 80;
-var inFlight = 0;
-var lastStart = 0;
-var waiters = [];
 function kick() {
   while (inFlight < MAX_IN_FLIGHT && waiters.length > 0) {
     const now2 = Date.now();
@@ -212,17 +211,18 @@ async function withSuiDataThrottle(fn) {
     kick();
   }
 }
+var MAX_IN_FLIGHT, MIN_GAP_MS, inFlight, lastStart, waiters;
+var init_throttle = __esm({
+  "src/services/suiData/throttle.ts"() {
+    MAX_IN_FLIGHT = 3;
+    MIN_GAP_MS = 80;
+    inFlight = 0;
+    lastStart = 0;
+    waiters = [];
+  }
+});
 
 // src/services/suiReadProfiler.ts
-var counts = {
-  getObject: 0,
-  multiGetObjects: 0,
-  getOwnedObjects: 0,
-  queryEvents: 0,
-  devInspect: 0,
-  graphql: 0,
-  other: 0
-};
 function isSuiReadProfilingEnabled() {
   const v = typeof process !== "undefined" && process.env?.SUI_LP_ADVISOR_PROFILE || typeof import.meta !== "undefined" && import.meta.env?.SUI_LP_ADVISOR_PROFILE;
   return v === "1" || v === "true";
@@ -253,6 +253,20 @@ function recordSuiRead(method, batchSize = 1) {
       counts.other += n2;
   }
 }
+var counts;
+var init_suiReadProfiler = __esm({
+  "src/services/suiReadProfiler.ts"() {
+    counts = {
+      getObject: 0,
+      multiGetObjects: 0,
+      getOwnedObjects: 0,
+      queryEvents: 0,
+      devInspect: 0,
+      graphql: 0,
+      other: 0
+    };
+  }
+});
 
 // src/services/suiData/graphqlClient.ts
 function graphqlEndpoint() {
@@ -288,6 +302,14 @@ async function suiGraphqlRequest(query, variables) {
     return body.data;
   });
 }
+var init_graphqlClient = __esm({
+  "src/services/suiData/graphqlClient.ts"() {
+    init_externalFetchUrl();
+    init_config();
+    init_throttle();
+    init_suiReadProfiler();
+  }
+});
 
 // src/services/suiData/encodeDfName.ts
 import { bcs } from "@mysten/sui/bcs";
@@ -337,6 +359,10 @@ function encodeLegacyDfName(name) {
     bcs: encodeValue(name.type, name.value)
   };
 }
+var init_encodeDfName = __esm({
+  "src/services/suiData/encodeDfName.ts"() {
+  }
+});
 
 // src/services/suiData/mapObject.ts
 function mapGrpcObjectToLegacy(obj) {
@@ -375,8 +401,35 @@ function optionsToInclude(options) {
     type: true
   };
 }
+var init_mapObject = __esm({
+  "src/services/suiData/mapObject.ts"() {
+  }
+});
 
 // src/services/suiData/jsonRpcCompat.ts
+function loadCoinMetaStore() {
+  if (coinMetaStore) return coinMetaStore;
+  try {
+    coinMetaStore = JSON.parse(localStorage.getItem(COIN_META_KEY) ?? "{}");
+  } catch {
+    coinMetaStore = {};
+  }
+  return coinMetaStore;
+}
+function readStoredCoinMeta(coinType) {
+  const m = loadCoinMetaStore()[coinType];
+  return m && Number.isFinite(m.decimals) ? m : null;
+}
+function writeStoredCoinMeta(coinType, meta) {
+  try {
+    const store = loadCoinMetaStore();
+    store[coinType] = meta;
+    const keys = Object.keys(store);
+    if (keys.length > 600) for (const k of keys.slice(0, keys.length - 600)) delete store[k];
+    localStorage.setItem(COIN_META_KEY, JSON.stringify(store));
+  } catch {
+  }
+}
 function asOwner(input) {
   return typeof input === "string" ? input : input.owner;
 }
@@ -403,6 +456,12 @@ async function paginateBalances(client, owner) {
 }
 function mapEventFilter(query) {
   if (!query || typeof query !== "object") return {};
+  if ("SenderAndMoveEventType" in query && query.SenderAndMoveEventType != null && typeof query.SenderAndMoveEventType === "object") {
+    const q = query.SenderAndMoveEventType;
+    if (typeof q.sender === "string" && typeof q.type === "string") {
+      return { gql: { sender: q.sender, type: q.type } };
+    }
+  }
   if ("Sender" in query && typeof query.Sender === "string") {
     return { grpc: { sender: query.Sender }, gql: { sender: query.Sender } };
   }
@@ -598,17 +657,30 @@ function createJsonRpcCompatClient(grpc = getDashboardGrpcClient()) {
       };
     },
     async getCoinMetadata(input) {
-      const res = await withSuiDataThrottle(() => grpc.getCoinMetadata({ coinType: input.coinType }));
-      const m = res.coinMetadata;
-      if (!m) return null;
-      return {
-        id: m.id,
-        decimals: m.decimals,
-        name: m.name,
-        symbol: m.symbol,
-        description: m.description,
-        iconUrl: m.iconUrl || null
-      };
+      const key = input.coinType;
+      const inflight3 = coinMetaInflight.get(key);
+      if (inflight3) return inflight3;
+      const stored = readStoredCoinMeta(key);
+      if (stored) return stored;
+      const p = (async () => {
+        const res = await withSuiDataThrottle(() => grpc.getCoinMetadata({ coinType: key }));
+        const m = res.coinMetadata;
+        if (!m) return null;
+        const out = {
+          id: m.id,
+          decimals: m.decimals,
+          name: m.name,
+          symbol: m.symbol,
+          description: m.description,
+          iconUrl: m.iconUrl || null
+        };
+        writeStoredCoinMeta(key, out);
+        return out;
+      })();
+      coinMetaInflight.set(key, p);
+      void p.finally(() => coinMetaInflight.delete(key)).catch(() => {
+      });
+      return p;
     },
     async getObject(input) {
       recordSuiRead("getObject");
@@ -672,14 +744,21 @@ function createJsonRpcCompatClient(grpc = getDashboardGrpcClient()) {
       };
     },
     async getDynamicFieldObject(input) {
-      const name = encodeLegacyDfName(input.name);
-      const include = { json: true, type: true };
-      try {
-        const { object } = await withSuiDataThrottle(
-          () => grpc.getDynamicObjectField({ parentId: input.parentId, name, include })
-        );
-        return legacyObjectResponse(object);
-      } catch {
+      const cacheKey2 = `${input.parentId}|${input.name.type}|${JSON.stringify(input.name.value)}`;
+      const hit = dfObjectCache.get(cacheKey2);
+      if (hit && hit.until > Date.now()) return hit.promise;
+      const promise = (async () => {
+        const name = encodeLegacyDfName(input.name);
+        const include = { json: true, type: true };
+        if (!plainDfParents.has(input.parentId)) {
+          try {
+            const { object } = await withSuiDataThrottle(
+              () => grpc.getDynamicObjectField({ parentId: input.parentId, name, include })
+            );
+            return legacyObjectResponse(object);
+          } catch {
+          }
+        }
         try {
           const { dynamicField } = await withSuiDataThrottle(
             () => grpc.getDynamicField({ parentId: input.parentId, name })
@@ -688,6 +767,7 @@ function createJsonRpcCompatClient(grpc = getDashboardGrpcClient()) {
           if (!fieldId) {
             return { data: null, error: { code: "dynamicFieldNotFound", message: "missing fieldId" } };
           }
+          plainDfParents.add(input.parentId);
           const { object } = await withSuiDataThrottle(
             () => grpc.getObject({ objectId: fieldId, include })
           );
@@ -698,7 +778,10 @@ function createJsonRpcCompatClient(grpc = getDashboardGrpcClient()) {
             error: { code: "dynamicFieldNotFound", message: e instanceof Error ? e.message : String(e) }
           };
         }
-      }
+      })();
+      dfObjectCache.set(cacheKey2, { until: Date.now() + DF_CACHE_TTL_MS, promise });
+      if (dfObjectCache.size > 2e3) dfObjectCache.delete(dfObjectCache.keys().next().value);
+      return promise;
     },
     async queryEvents(input) {
       recordSuiRead("queryEvents");
@@ -848,15 +931,30 @@ function createJsonRpcCompatClient(grpc = getDashboardGrpcClient()) {
   };
   return client;
 }
-var sharedCompat = null;
 function getJsonRpcCompatClient() {
   if (!sharedCompat) sharedCompat = createJsonRpcCompatClient();
   return sharedCompat;
 }
+var COIN_META_KEY, coinMetaInflight, coinMetaStore, DF_CACHE_TTL_MS, dfObjectCache, plainDfParents, sharedCompat;
+var init_jsonRpcCompat = __esm({
+  "src/services/suiData/jsonRpcCompat.ts"() {
+    init_createGrpcClient();
+    init_graphqlClient();
+    init_encodeDfName();
+    init_mapObject();
+    init_throttle();
+    init_suiReadProfiler();
+    COIN_META_KEY = "suilp.rpcCoinMeta.v1";
+    coinMetaInflight = /* @__PURE__ */ new Map();
+    coinMetaStore = null;
+    DF_CACHE_TTL_MS = 3e4;
+    dfObjectCache = /* @__PURE__ */ new Map();
+    plainDfParents = /* @__PURE__ */ new Set();
+    sharedCompat = null;
+  }
+});
 
 // src/services/portfolioReadRpcSource.ts
-var active = null;
-var jsonRpcFallbackReason = null;
 function recordPortfolioReadRpcSource(source) {
   active = source;
   if (source !== "jsonrpc") jsonRpcFallbackReason = null;
@@ -873,6 +971,14 @@ function grpcUrlToRpcSource(url) {
   if (u === BLOCKVISION_GRPC_WEB_URL.replace(/\/$/, "").toLowerCase()) return "blockvision-grpc";
   return "custom-grpc";
 }
+var active, jsonRpcFallbackReason;
+var init_portfolioReadRpcSource = __esm({
+  "src/services/portfolioReadRpcSource.ts"() {
+    init_config();
+    active = null;
+    jsonRpcFallbackReason = null;
+  }
+});
 
 // src/services/grpcEndpointHealth.ts
 function readEnv(name) {
@@ -888,33 +994,6 @@ function readEnv(name) {
   }
   return void 0;
 }
-var PORTFOLIO_GRPC_PROBE_TIMEOUT_MS = (() => {
-  const raw = Number(readEnv("PORTFOLIO_GRPC_PROBE_TIMEOUT_MS") ?? 4e3);
-  return Number.isFinite(raw) && raw >= 500 && raw <= 1e4 ? raw : 4e3;
-})();
-var PORTFOLIO_GRPC_CALL_TIMEOUT_MS = (() => {
-  const raw = Number(
-    readEnv("PORTFOLIO_GRPC_CALL_TIMEOUT_MS") ?? readEnv("PORTFOLIO_GRPC_ATTEMPT_TIMEOUT_MS") ?? 15e3
-  );
-  return Number.isFinite(raw) && raw >= 3e3 && raw <= 6e4 ? raw : 15e3;
-})();
-var PORTFOLIO_GRPC_CALL_RETRIES = (() => {
-  const raw = Number(readEnv("PORTFOLIO_GRPC_CALL_RETRIES") ?? 1);
-  return Number.isFinite(raw) && raw >= 0 && raw <= 3 ? raw : 1;
-})();
-var PORTFOLIO_GRPC_COOLDOWN_AFTER_FAILURES = (() => {
-  const raw = Number(readEnv("PORTFOLIO_GRPC_COOLDOWN_AFTER_FAILURES") ?? 3);
-  return Number.isFinite(raw) && raw >= 1 && raw <= 10 ? raw : 3;
-})();
-var PORTFOLIO_GRPC_ENDPOINT_COOLDOWN_MS = (() => {
-  const raw = Number(readEnv("PORTFOLIO_GRPC_ENDPOINT_COOLDOWN_MS") ?? 5 * 6e4);
-  return Number.isFinite(raw) && raw >= 1e4 ? raw : 5 * 6e4;
-})();
-var cooldownUntilByUrl = /* @__PURE__ */ new Map();
-var consecutiveFailuresByUrl = /* @__PURE__ */ new Map();
-var stickyEndpointIndex = 0;
-var lastPublicNodeFailureReason = null;
-var hasLockedGrpcWinner = false;
 function hasGrpcEndpointWinner() {
   return hasLockedGrpcWinner;
 }
@@ -1012,6 +1091,40 @@ async function withGrpcProbeTimeout(fn) {
 async function withGrpcCallTimeout(fn) {
   return withTimeout(fn, PORTFOLIO_GRPC_CALL_TIMEOUT_MS, "call");
 }
+var PORTFOLIO_GRPC_PROBE_TIMEOUT_MS, PORTFOLIO_GRPC_CALL_TIMEOUT_MS, PORTFOLIO_GRPC_CALL_RETRIES, PORTFOLIO_GRPC_COOLDOWN_AFTER_FAILURES, PORTFOLIO_GRPC_ENDPOINT_COOLDOWN_MS, cooldownUntilByUrl, consecutiveFailuresByUrl, stickyEndpointIndex, lastPublicNodeFailureReason, hasLockedGrpcWinner;
+var init_grpcEndpointHealth = __esm({
+  "src/services/grpcEndpointHealth.ts"() {
+    init_config();
+    init_portfolioReadRpcSource();
+    PORTFOLIO_GRPC_PROBE_TIMEOUT_MS = (() => {
+      const raw = Number(readEnv("PORTFOLIO_GRPC_PROBE_TIMEOUT_MS") ?? 4e3);
+      return Number.isFinite(raw) && raw >= 500 && raw <= 1e4 ? raw : 4e3;
+    })();
+    PORTFOLIO_GRPC_CALL_TIMEOUT_MS = (() => {
+      const raw = Number(
+        readEnv("PORTFOLIO_GRPC_CALL_TIMEOUT_MS") ?? readEnv("PORTFOLIO_GRPC_ATTEMPT_TIMEOUT_MS") ?? 15e3
+      );
+      return Number.isFinite(raw) && raw >= 3e3 && raw <= 6e4 ? raw : 15e3;
+    })();
+    PORTFOLIO_GRPC_CALL_RETRIES = (() => {
+      const raw = Number(readEnv("PORTFOLIO_GRPC_CALL_RETRIES") ?? 1);
+      return Number.isFinite(raw) && raw >= 0 && raw <= 3 ? raw : 1;
+    })();
+    PORTFOLIO_GRPC_COOLDOWN_AFTER_FAILURES = (() => {
+      const raw = Number(readEnv("PORTFOLIO_GRPC_COOLDOWN_AFTER_FAILURES") ?? 3);
+      return Number.isFinite(raw) && raw >= 1 && raw <= 10 ? raw : 3;
+    })();
+    PORTFOLIO_GRPC_ENDPOINT_COOLDOWN_MS = (() => {
+      const raw = Number(readEnv("PORTFOLIO_GRPC_ENDPOINT_COOLDOWN_MS") ?? 5 * 6e4);
+      return Number.isFinite(raw) && raw >= 1e4 ? raw : 5 * 6e4;
+    })();
+    cooldownUntilByUrl = /* @__PURE__ */ new Map();
+    consecutiveFailuresByUrl = /* @__PURE__ */ new Map();
+    stickyEndpointIndex = 0;
+    lastPublicNodeFailureReason = null;
+    hasLockedGrpcWinner = false;
+  }
+});
 
 // src/services/portfolioSuiReadClient.ts
 function isGrpcTransportFailure(err) {
@@ -1110,43 +1223,49 @@ function createPortfolioReadSuiClient() {
   recordPortfolioReadRpcSource("mysten-grpc");
   return createGrpcCompatStack();
 }
-var shared2 = null;
 function getPortfolioReadSuiClient() {
   if (!shared2) shared2 = createPortfolioReadSuiClient();
   return shared2;
 }
-
-// src/services/suiClient.ts
-var suiClient = new Proxy({}, {
-  get(_target, prop, receiver) {
-    const client = getPortfolioReadSuiClient();
-    const val = Reflect.get(client, prop, receiver);
-    if (typeof val === "function") {
-      return val.bind(client);
-    }
-    return val;
+var shared2;
+var init_portfolioSuiReadClient = __esm({
+  "src/services/portfolioSuiReadClient.ts"() {
+    init_jsonRpcCompat();
+    init_createGrpcClient();
+    init_config();
+    init_grpcEndpointHealth();
+    init_portfolioReadRpcSource();
+    init_portfolioReadRpcSource();
+    init_grpcEndpointHealth();
+    shared2 = null;
   }
 });
 
-// src/utils/formatting.ts
-import Decimal from "decimal.js";
-var STABLECOIN_SYMBOLS_UPPER = new Set(
-  [
-    "USDC",
-    "USDT",
-    "DAI",
-    "BUSD",
-    "TUSD",
-    "USDD",
-    "FDUSD",
-    "USDP",
-    "PYUSD",
-    "USDE",
-    "AUSD",
-    "USDY",
-    "USDX"
-  ].map((s) => s.toUpperCase())
-);
+// src/services/suiClient.ts
+var LP_HISTORY_RPC_METHODS, lpHistoryRpcCalls, suiClient;
+var init_suiClient = __esm({
+  "src/services/suiClient.ts"() {
+    init_config();
+    init_portfolioSuiReadClient();
+    LP_HISTORY_RPC_METHODS = /* @__PURE__ */ new Set(["queryEvents", "queryTransactionBlocks"]);
+    lpHistoryRpcCalls = 0;
+    suiClient = new Proxy({}, {
+      get(_target, prop, receiver) {
+        const client = getPortfolioReadSuiClient();
+        const val = Reflect.get(client, prop, receiver);
+        if (typeof val === "function") {
+          const fn = val.bind(client);
+          if (!LP_HISTORY_RPC_METHODS.has(String(prop))) return fn;
+          return (...args) => {
+            lpHistoryRpcCalls += 1;
+            return fn(...args);
+          };
+        }
+        return val;
+      }
+    });
+  }
+});
 
 // src/services/spotPrice/spotChange24h.ts
 function needs24h(r) {
@@ -1154,42 +1273,40 @@ function needs24h(r) {
   if (r.change24h == null || !Number.isFinite(r.change24h)) return true;
   return false;
 }
+var init_spotChange24h = __esm({
+  "src/services/spotPrice/spotChange24h.ts"() {
+  }
+});
 
 // src/config/priceSources.ts
-var PYTH_USD_FEEDS = {
-  SUI: "0x23d7315113f5b1d3ba7a83604c44b94d79f4fd69af77f804fc7f920a6dc65744",
-  BTC: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
-  ETH: "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
-  USDC: "0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a",
-  USDT: "0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b",
-  WBTC: "0xc9d8b075a5c69303365ae23633d4e085199bf5c520a3b90fed1322a0342ffc33",
-  /* Підтверджено через GET /v2/price_feeds?query=…&asset_type=crypto */
-  NAVX: "0x88250f854c019ef4f88a5c073d52a18bb1c6ac437033f5932cd017d24917ab46",
-  DEEP: "0x29bdd5248234e33bd93d3b81100b5fa32eaa5997843847e2c2cb16d7c6d9f7ff"
-};
-var COINGECKO_IDS_BY_SYMBOL = {
-  SUI: "sui",
-  USDC: "usd-coin",
-  USDT: "tether",
-  BTC: "bitcoin",
-  ETH: "ethereum",
-  WBTC: "wrapped-bitcoin",
-  WETH: "weth",
-  CETUS: "cetus-protocol",
-  SCA: "scallop-protocol",
-  BLUE: "bluefin",
-  MMT: "momentum-finance",
-  DEEP: "deepbook",
-  BSUI: "bucket-protocol",
-  OST: "sui-ost",
-  /* Додаткові id для `simple/price` 24h (р/n символи з метаданих); інше — GeckoTerminal. */
-  STSUI: "alphafi-staked-sui",
-  WAL: "walrus-2",
-  NS: "suins-2",
-  NAVX: "navx",
-  E4C: "e4c",
-  VSUI: "volo"
-};
+var COINGECKO_IDS_BY_SYMBOL;
+var init_priceSources = __esm({
+  "src/config/priceSources.ts"() {
+    COINGECKO_IDS_BY_SYMBOL = {
+      SUI: "sui",
+      USDC: "usd-coin",
+      USDT: "tether",
+      BTC: "bitcoin",
+      ETH: "ethereum",
+      WBTC: "wrapped-bitcoin",
+      WETH: "weth",
+      CETUS: "cetus-protocol",
+      SCA: "scallop-protocol",
+      BLUE: "bluefin",
+      MMT: "momentum-finance",
+      DEEP: "deepbook",
+      BSUI: "bucket-protocol",
+      OST: "sui-ost",
+      /* Додаткові id для `simple/price` 24h (р/n символи з метаданих); інше — GeckoTerminal. */
+      STSUI: "alphafi-staked-sui",
+      WAL: "walrus-2",
+      NS: "suins-2",
+      NAVX: "navx",
+      E4C: "e4c",
+      VSUI: "volo"
+    };
+  }
+});
 
 // src/utils/apiProxy.ts
 function isProdBuild() {
@@ -1275,9 +1392,13 @@ async function coingeckoProxyFetch(pathWithQuery) {
     signal: AbortSignal.timeout(15e3)
   });
 }
+var init_apiProxy = __esm({
+  "src/utils/apiProxy.ts"() {
+    init_deploymentOrigin();
+  }
+});
 
 // src/services/spotPrice/coingecko24hBatch.ts
-var CG_FREE_BASE = "https://api.coingecko.com/api/v3";
 function buildSimplePriceUrl(base, ids) {
   const u = new URL(`${base}/simple/price`);
   u.searchParams.set("ids", ids.join(","));
@@ -1293,7 +1414,7 @@ async function fetchCgUrl(url, headers) {
   }
   return {};
 }
-async function coingeckoSimpleBatch(ids) {
+async function coingeckoSimpleBatchRaw(ids) {
   if (ids.length === 0) return {};
   const uniq = [...new Set(ids)];
   const key = (typeof import.meta.env.VITE_COINGECKO_API_KEY === "string" && import.meta.env.VITE_COINGECKO_API_KEY.length > 0 ? import.meta.env.VITE_COINGECKO_API_KEY : void 0) ?? (typeof process !== "undefined" ? process.env.COINGECKO_API_KEY ?? process.env.VITE_COINGECKO_API_KEY : void 0);
@@ -1317,19 +1438,60 @@ async function coingeckoSimpleBatch(ids) {
 function coingeckoIdForSymbol(symbol) {
   return COINGECKO_IDS_BY_SYMBOL[symbol.toUpperCase()] ?? null;
 }
+async function coingeckoSimpleBatch(ids) {
+  if (ids.length === 0) return {};
+  const uniq = [...new Set(ids)];
+  const now2 = Date.now();
+  const out = {};
+  const missing = [];
+  for (const id of uniq) {
+    const hit = cgRows.get(id);
+    if (hit && now2 - hit.at < CG_TTL_MS) out[id] = hit.row;
+    else missing.push(id);
+  }
+  if (missing.length === 0) return out;
+  const key = [...missing].sort().join(",");
+  let p = cgInflight.get(key);
+  if (!p) {
+    p = coingeckoSimpleBatchRaw(missing).then((rows) => {
+      const at = Date.now();
+      for (const [id, row] of Object.entries(rows)) if (row) cgRows.set(id, { row, at });
+      return rows;
+    }).finally(() => cgInflight.delete(key));
+    cgInflight.set(key, p);
+  }
+  const fresh = await p.catch(() => ({}));
+  Object.assign(out, fresh);
+  for (const id of missing) {
+    if (out[id]) continue;
+    const stale = cgRows.get(id);
+    if (stale && Date.now() - stale.at < CG_STALE_MAX_MS) out[id] = stale.row;
+  }
+  return out;
+}
+var CG_FREE_BASE, CG_TTL_MS, CG_STALE_MAX_MS, cgRows, cgInflight;
+var init_coingecko24hBatch = __esm({
+  "src/services/spotPrice/coingecko24hBatch.ts"() {
+    init_priceSources();
+    init_apiProxy();
+    init_externalFetchUrl();
+    CG_FREE_BASE = "https://api.coingecko.com/api/v3";
+    CG_TTL_MS = 3e4;
+    CG_STALE_MAX_MS = 10 * 6e4;
+    cgRows = /* @__PURE__ */ new Map();
+    cgInflight = /* @__PURE__ */ new Map();
+  }
+});
 
 // src/services/spotPrice/aftermathSpot.ts
-import { Aftermath } from "aftermath-ts-sdk";
-var sdk = null;
-var initFailed = false;
-var inFlight2 = null;
 async function getSdk() {
   if (initFailed) return null;
   if (sdk) return sdk;
   if (inFlight2) return inFlight2;
   inFlight2 = (async () => {
     try {
-      const a = await Aftermath.create({
+      const { Aftermath: AftermathSdk } = await import("aftermath-ts-sdk");
+      const a = await AftermathSdk.create({
         network: "MAINNET",
         fullnodeUrl: MYSTEN_PUBLIC_GRPC_URL
       });
@@ -1370,55 +1532,73 @@ async function fetchAftermathBatch(coinTypes) {
     return {};
   }
 }
+var sdk, initFailed, inFlight2;
+var init_aftermathSpot = __esm({
+  "src/services/spotPrice/aftermathSpot.ts"() {
+    init_config();
+    sdk = null;
+    initFailed = false;
+    inFlight2 = null;
+  }
+});
 
 // src/utils/constants.ts
-var GECKO_NETWORK = "sui-network";
-var PROTOCOL_PACKAGES = {
-  CETUS_CLMM: "0x1eabed72c53feb3805120a081dc15963c204dc8d091542592abaf7a35689b2fb",
-  /** Cetus DLMM `dlmm_pool.package_id` from `@cetusprotocol/dlmm-sdk` 1.3.3 `dlmmMainnet`. */
-  CETUS_DLMM: "0x5664f9d3fd82c84023870cfbda8ea84e14c8dd56ce557ad2116e0668581a682b",
-  /** Cetus DLMM `dlmm_pool.published_at` (upgrade pointer). */
-  CETUS_DLMM_PUBLISHED_AT: "0x6b989f9b05bd11a00f1c7779443d66802c5e71631f59e87be5d2a616991f151e",
-  /** Sync with [@mmt-finance/clmm-sdk](https://github.com/mmt-finance/clmm-sdk) MainnetConfig + [офіційні deployments](https://developers.mmt.finance/clmm-smart-contracts/deployments). */
-  MOMENTUM_CLMM: "0xcf60a40f45d46fc1e828871a647c1e25a0915dec860d2662eb10fdb382c3c1d1",
-  /** Для повного шляху MoveEvent (`published_at::liquidity::…`); не плутати з packageId. */
-  MOMENTUM_PUBLISHED_AT: "0x70285592c97965e811e0c6f98dccc3a9c2b4ad854b3594faab9597ada267b860",
-  /** Bluefin Spot AMM/CLMM (pools, positions NFT) */
-  BLUEFIN_CLMM: "0x3492c874c1e3b3e2984e8c41b589e642d4d0a5d6459e5a9cfc2d52fd7c89c267",
-  /** older constant name in repo — spot router package */
-  BLUEFIN_SPOT: "0xb104ecc75397f3a65735ef26c85a037da1d197e26f4f275a9990a577ba0e6c4c",
-  /** Original package-id — stable across upgrades, used for NFT StructType filter.
-   *  Source: turbos.gitbook.io/turbos/developer-docs/dev-overview */
-  TURBOS: "0x91bfbc386a41afcfd9b2533058d7e915a1d3829089cc268ff4333d54d6339ca1",
-  /** Latest published-at upgrade (v0.1.8) — prefix for current event types. */
-  TURBOS_PUBLISHED_AT: "0xa5a0c25c79e428eba04fb98b3fb2a34db45ab26d4c8faf0d7e39d66a63891e64",
-  /** Shared Positions table — parentId for dynamic field lookup by nftId. */
-  TURBOS_POSITIONS_TABLE: "0xf5762ae5ae19a2016bb233c72d9a4b2cba5a302237a82724af66292ae43ae52d",
-  FLOWX_V3: "0xba153169476e8c3114962261d1edc70de5ad9781b83cc617ecc8c1923191cae0",
-  AFTERMATH: "0xefe170ec0be4d762196bedecd7a065816576198a6527c99282a2551aaa7da38c",
-  SCALLOP_MARKET: "0xa757975255146dc9686aa823b7838b507f315d704f428cbadad2f4ea061939d9",
-  SCALLOP_VERSION: "0x07871c4b3c847a0f674510d4978d5cf6f960452795e8ff6f189fd2088a3f6ac7"
-};
-var MOMENTUM_PUBLISHED_AT = PROTOCOL_PACKAGES.MOMENTUM_PUBLISHED_AT;
-var SCALLOP_SCOIN_TYPES = [
-  "0x83556891f4a0f233ce7b05cfe7f957d4020492a34f5405b2cb9377d060bef4bf::spring_sui::SPRING_SUI"
-];
-var MOMENTUM_LST_TYPES = [
-  "0x2b6602099970374cf58a2a1b9d96f005fccceb81e92eb059873baf420eb6c717::x_sui::X_SUI"
-];
-var PROTOCOL_TOKEN_VERIFIED = /* @__PURE__ */ new Set([
-  ...SCALLOP_SCOIN_TYPES,
-  ...MOMENTUM_LST_TYPES
-]);
-var MIN_UNVERIFIED_VALUE_USD = 0.01;
-var RPC_CONCURRENCY = 10;
+var GECKO_NETWORK, PROTOCOL_PACKAGES, MOMENTUM_PUBLISHED_AT, SCALLOP_SCOIN_TYPES, MOMENTUM_LST_TYPES, PROTOCOL_TOKEN_VERIFIED, MIN_UNVERIFIED_VALUE_USD, RPC_CONCURRENCY;
+var init_constants = __esm({
+  "src/utils/constants.ts"() {
+    GECKO_NETWORK = "sui-network";
+    PROTOCOL_PACKAGES = {
+      CETUS_CLMM: "0x1eabed72c53feb3805120a081dc15963c204dc8d091542592abaf7a35689b2fb",
+      /** Cetus DLMM `dlmm_pool.package_id` from `@cetusprotocol/dlmm-sdk` 1.3.3 `dlmmMainnet`. */
+      CETUS_DLMM: "0x5664f9d3fd82c84023870cfbda8ea84e14c8dd56ce557ad2116e0668581a682b",
+      /** Cetus DLMM `dlmm_pool.published_at` (upgrade pointer). */
+      CETUS_DLMM_PUBLISHED_AT: "0x6b989f9b05bd11a00f1c7779443d66802c5e71631f59e87be5d2a616991f151e",
+      /** Sync with [@mmt-finance/clmm-sdk](https://github.com/mmt-finance/clmm-sdk) MainnetConfig + [офіційні deployments](https://developers.mmt.finance/clmm-smart-contracts/deployments). */
+      MOMENTUM_CLMM: "0xcf60a40f45d46fc1e828871a647c1e25a0915dec860d2662eb10fdb382c3c1d1",
+      /** Для повного шляху MoveEvent (`published_at::liquidity::…`); не плутати з packageId. */
+      MOMENTUM_PUBLISHED_AT: "0x70285592c97965e811e0c6f98dccc3a9c2b4ad854b3594faab9597ada267b860",
+      /** Bluefin Spot AMM/CLMM (pools, positions NFT) */
+      BLUEFIN_CLMM: "0x3492c874c1e3b3e2984e8c41b589e642d4d0a5d6459e5a9cfc2d52fd7c89c267",
+      /** older constant name in repo — spot router package */
+      BLUEFIN_SPOT: "0xb104ecc75397f3a65735ef26c85a037da1d197e26f4f275a9990a577ba0e6c4c",
+      /** Original package-id — stable across upgrades, used for NFT StructType filter.
+       *  Source: turbos.gitbook.io/turbos/developer-docs/dev-overview */
+      TURBOS: "0x91bfbc386a41afcfd9b2533058d7e915a1d3829089cc268ff4333d54d6339ca1",
+      /** Latest published-at upgrade (v0.1.8) — prefix for current event types. */
+      TURBOS_PUBLISHED_AT: "0xa5a0c25c79e428eba04fb98b3fb2a34db45ab26d4c8faf0d7e39d66a63891e64",
+      /** Shared Positions table — parentId for dynamic field lookup by nftId. */
+      TURBOS_POSITIONS_TABLE: "0xf5762ae5ae19a2016bb233c72d9a4b2cba5a302237a82724af66292ae43ae52d",
+      FLOWX_V3: "0xba153169476e8c3114962261d1edc70de5ad9781b83cc617ecc8c1923191cae0",
+      AFTERMATH: "0xefe170ec0be4d762196bedecd7a065816576198a6527c99282a2551aaa7da38c",
+      SCALLOP_MARKET: "0xa757975255146dc9686aa823b7838b507f315d704f428cbadad2f4ea061939d9",
+      SCALLOP_VERSION: "0x07871c4b3c847a0f674510d4978d5cf6f960452795e8ff6f189fd2088a3f6ac7"
+    };
+    MOMENTUM_PUBLISHED_AT = PROTOCOL_PACKAGES.MOMENTUM_PUBLISHED_AT;
+    SCALLOP_SCOIN_TYPES = [
+      "0x83556891f4a0f233ce7b05cfe7f957d4020492a34f5405b2cb9377d060bef4bf::spring_sui::SPRING_SUI"
+    ];
+    MOMENTUM_LST_TYPES = [
+      "0x2b6602099970374cf58a2a1b9d96f005fccceb81e92eb059873baf420eb6c717::x_sui::X_SUI"
+    ];
+    PROTOCOL_TOKEN_VERIFIED = /* @__PURE__ */ new Set([
+      ...SCALLOP_SCOIN_TYPES,
+      ...MOMENTUM_LST_TYPES
+    ]);
+    MIN_UNVERIFIED_VALUE_USD = 0.01;
+    RPC_CONCURRENCY = 10;
+  }
+});
 
 // src/services/spotPrice/http.ts
-var GT_HEADER = { Accept: "application/json;version=20230302" };
+var GT_HEADER;
+var init_http = __esm({
+  "src/services/spotPrice/http.ts"() {
+    init_constants();
+    GT_HEADER = { Accept: "application/json;version=20230302" };
+  }
+});
 
 // src/services/spotPrice/geckoSimpleBatch.ts
-var GT = "https://api.geckoterminal.com/api/v2";
-var CHUNK = 30;
 async function geckoTokenPricesBatch(coinTypes) {
   if (coinTypes.length === 0) return {};
   const out = {};
@@ -1445,6 +1625,16 @@ async function geckoTokenPricesBatch(coinTypes) {
   }
   return out;
 }
+var GT, CHUNK;
+var init_geckoSimpleBatch = __esm({
+  "src/services/spotPrice/geckoSimpleBatch.ts"() {
+    init_constants();
+    init_externalFetchUrl();
+    init_http();
+    GT = "https://api.geckoterminal.com/api/v2";
+    CHUNK = 30;
+  }
+});
 
 // src/services/spotPrice/geckoTokenDetail.ts
 function poolIdToAddress(relationshipId) {
@@ -1461,7 +1651,9 @@ async function change24hFromTopPool(tokenJson) {
     `https://api.geckoterminal.com/api/v2/networks/${GECKO_NETWORK}/pools/${encodeURIComponent(poolAddr)}`
   );
   try {
+    if (Date.now() < gtCooldownUntil) return null;
     const r = await fetch(u, { headers: GT_HEADER, signal: AbortSignal.timeout(8e3) });
+    if (r.status === 429) gtCooldownUntil = Date.now() + GT_COOLDOWN_MS;
     if (!r.ok) return null;
     const j = await r.json();
     const h = j.data?.attributes?.price_change_percentage?.h24;
@@ -1489,7 +1681,9 @@ async function geckoTokenDetail(coinType) {
     const u = extFetchUrl(
       `https://api.geckoterminal.com/api/v2/networks/${GECKO_NETWORK}/tokens/${encodeURIComponent(ct)}`
     );
+    if (Date.now() < gtCooldownUntil) return null;
     const r = await fetch(u, { headers: GT_HEADER, signal: AbortSignal.timeout(8e3) });
+    if (r.status === 429) gtCooldownUntil = Date.now() + GT_COOLDOWN_MS;
     if (!r.ok) return null;
     const j = await r.json();
     const base = parseTokenAttributes(j);
@@ -1511,6 +1705,16 @@ async function geckoTokenDetail(coinType) {
   }
   return { price: null, change24h: null };
 }
+var GT_COOLDOWN_MS, gtCooldownUntil;
+var init_geckoTokenDetail = __esm({
+  "src/services/spotPrice/geckoTokenDetail.ts"() {
+    init_constants();
+    init_externalFetchUrl();
+    init_http();
+    GT_COOLDOWN_MS = 6e4;
+    gtCooldownUntil = 0;
+  }
+});
 
 // src/utils/suiCoinType.ts
 import { normalizeSuiAddress } from "@mysten/sui/utils";
@@ -1524,8 +1728,6 @@ function normalizeCoinTypeForMatch(coinType) {
     return coinType;
   }
 }
-var NATIVE_SUI_COIN_TYPE = normalizeCoinTypeForMatch("0x2::sui::SUI");
-var OKX_NATIVE_SUI_TOKEN_ADDRESS = "0x2::sui::SUI";
 function isNativeSuiCoinType(coinType) {
   return normalizeCoinTypeForMatch(coinType) === NATIVE_SUI_COIN_TYPE;
 }
@@ -1533,9 +1735,15 @@ function okxPriceInfoTokenAddress(coinType) {
   if (isNativeSuiCoinType(coinType)) return OKX_NATIVE_SUI_TOKEN_ADDRESS;
   return normalizeCoinTypeForMatch(coinType);
 }
+var NATIVE_SUI_COIN_TYPE, OKX_NATIVE_SUI_TOKEN_ADDRESS;
+var init_suiCoinType = __esm({
+  "src/utils/suiCoinType.ts"() {
+    NATIVE_SUI_COIN_TYPE = normalizeCoinTypeForMatch("0x2::sui::SUI");
+    OKX_NATIVE_SUI_TOKEN_ADDRESS = "0x2::sui::SUI";
+  }
+});
 
 // src/services/spotPrice/dexScreenerSpot.ts
-var DS = "https://api.dexscreener.com";
 function pickBest(pairs, coinTypeNorm) {
   const pkgNorm = (coinTypeNorm.split("::")[0] ?? "").toLowerCase();
   const matchFull = (addr) => !!addr && normalizeCoinTypeForMatch(addr) === coinTypeNorm;
@@ -1580,7 +1788,36 @@ function packageId(coinType) {
   const p0 = coinType.split("::")[0];
   return p0?.startsWith("0x") ? p0 : null;
 }
+function loadNoPrice() {
+  if (noPrice) return noPrice;
+  try {
+    noPrice = JSON.parse(localStorage.getItem(NO_PRICE_KEY) ?? "{}");
+  } catch {
+    noPrice = {};
+  }
+  return noPrice;
+}
+function isKnownNoPrice(coinType) {
+  const t = loadNoPrice()[coinType];
+  return t != null && t > Date.now();
+}
+function rememberNoPrice(coinType) {
+  const m = loadNoPrice();
+  const now2 = Date.now();
+  m[coinType] = now2 + NO_PRICE_TTL_MS;
+  for (const k of Object.keys(m)) if (m[k] <= now2) delete m[k];
+  try {
+    localStorage.setItem(NO_PRICE_KEY, JSON.stringify(m));
+  } catch {
+  }
+}
 async function dexScreenerPrice(coinType) {
+  if (isKnownNoPrice(coinType)) return null;
+  const q = await dexScreenerPriceUncached(coinType);
+  if (!q || q.price == null) rememberNoPrice(coinType);
+  return q;
+}
+async function dexScreenerPriceUncached(coinType) {
   const norm2 = normalizeCoinTypeForMatch(coinType);
   const addr = packageId(coinType);
   if (addr) {
@@ -1615,9 +1852,47 @@ async function dexScreenerPrice(coinType) {
     return null;
   }
 }
+var DS, NO_PRICE_TTL_MS, NO_PRICE_KEY, noPrice;
+var init_dexScreenerSpot = __esm({
+  "src/services/spotPrice/dexScreenerSpot.ts"() {
+    init_externalFetchUrl();
+    init_suiCoinType();
+    DS = "https://api.dexscreener.com";
+    NO_PRICE_TTL_MS = 30 * 60 * 1e3;
+    NO_PRICE_KEY = "suilp.dexscreener.noPrice.v1";
+    noPrice = null;
+  }
+});
 
 // src/services/spotPrice/dexpPaprikaSpot.ts
-var DEXP = "https://api.dexpaprika.com";
+async function paprikaFetch(url) {
+  if (Date.now() < paprikaOffUntil) return null;
+  let release;
+  if (Date.now() - paprikaVerifiedAt > PAPRIKA_VERIFIED_MS) {
+    if (paprikaProbe) {
+      await paprikaProbe;
+      if (Date.now() < paprikaOffUntil) return null;
+    } else {
+      paprikaProbe = new Promise((resolve) => {
+        release = resolve;
+      });
+    }
+  }
+  try {
+    const r = await fetch(url);
+    if (r.status === 401 || r.status === 402 || r.status === 403 || r.status === 429) {
+      paprikaOffUntil = Date.now() + PAPRIKA_OFF_MS;
+      return null;
+    }
+    if (r.ok) paprikaVerifiedAt = Date.now();
+    return r;
+  } finally {
+    if (release) {
+      paprikaProbe = null;
+      release();
+    }
+  }
+}
 async function dexpPaprikaPrice(coinType, symbol) {
   try {
     return await dexpPaprikaPriceInner(coinType, symbol);
@@ -1629,8 +1904,8 @@ async function dexpPaprikaPriceInner(coinType, symbol) {
   const want = normalizeCoinTypeForMatch(coinType);
   const tryDetail = async (idPath) => {
     const u = extFetchUrl(`${DEXP}/networks/sui/tokens/${idPath}`);
-    const r = await fetch(u);
-    if (!r.ok) return null;
+    const r = await paprikaFetch(u);
+    if (!r?.ok) return null;
     const j = await r.json();
     const s = j.summary;
     if (!s?.price_usd) return null;
@@ -1647,8 +1922,8 @@ async function dexpPaprikaPriceInner(coinType, symbol) {
   const su = extFetchUrl(
     `${DEXP}/search?query=${encodeURIComponent(symbol)}&networks=${encodeURIComponent("sui")}`
   );
-  const sr = await fetch(su);
-  if (sr.ok) {
+  const sr = await paprikaFetch(su);
+  if (sr?.ok) {
     const j = await sr.json();
     const tok = (j.tokens ?? []).find(
       (t) => t.chain === "sui" && t.id && normalizeCoinTypeForMatch(t.id) === want
@@ -1660,10 +1935,10 @@ async function dexpPaprikaPriceInner(coinType, symbol) {
       };
     }
   }
-  const s2 = await fetch(
+  const s2 = await paprikaFetch(
     extFetchUrl(`${DEXP}/search?query=${encodeURIComponent(coinType)}&networks=sui`)
   );
-  if (s2.ok) {
+  if (s2?.ok) {
     const j2 = await s2.json();
     const tok2 = (j2.tokens ?? []).find(
       (t) => t.chain === "sui" && t.id && normalizeCoinTypeForMatch(t.id) === want
@@ -1677,15 +1952,21 @@ async function dexpPaprikaPriceInner(coinType, symbol) {
   }
   return null;
 }
+var DEXP, PAPRIKA_OFF_MS, paprikaOffUntil, paprikaProbe, paprikaVerifiedAt, PAPRIKA_VERIFIED_MS;
+var init_dexpPaprikaSpot = __esm({
+  "src/services/spotPrice/dexpPaprikaSpot.ts"() {
+    init_externalFetchUrl();
+    init_suiCoinType();
+    DEXP = "https://api.dexpaprika.com";
+    PAPRIKA_OFF_MS = 30 * 6e4;
+    paprikaOffUntil = 0;
+    paprikaProbe = null;
+    paprikaVerifiedAt = 0;
+    PAPRIKA_VERIFIED_MS = 5 * 6e4;
+  }
+});
 
 // src/services/spotPrice/okxDexApi.ts
-var CHAIN_SUI = "784";
-var PRICE_INFO_PATH = "/api/v6/dex/market/price-info";
-var BATCH = 100;
-var DEFAULT_FETCH_RETRIES = 2;
-var DEFAULT_RETRY_BACKOFF_MS = 1500;
-var OKX_CIRCUIT_OPEN_MS = 4 * 60 * 1e3;
-var _okxCircuitTrippedAt = 0;
 function okxCircuitOpen() {
   return Date.now() - _okxCircuitTrippedAt < OKX_CIRCUIT_OPEN_MS;
 }
@@ -1752,6 +2033,16 @@ function parseChangePct(s) {
   const n2 = parseFloat(String(s).trim());
   return Number.isFinite(n2) ? n2 : null;
 }
+function isNoQuote(norm2) {
+  const until = noQuoteUntil.get(norm2);
+  if (until == null) return false;
+  if (until > Date.now()) return true;
+  noQuoteUntil.delete(norm2);
+  return false;
+}
+function isDefinitiveRejection(res) {
+  return !!res && res.status >= 400 && res.status < 500 && res.status !== 429;
+}
 async function postPriceInfoChunk(bodyStr) {
   const extra = okxFetchExtraRetries();
   const maxAttempt = 1 + extra;
@@ -1765,6 +2056,7 @@ async function postPriceInfoChunk(bodyStr) {
       return res.json;
     }
     lastErr = res ? `HTTP ${res.status} code=${res.json?.code}` : "no response";
+    if (isDefinitiveRejection(res)) return "no-data";
     if (okxCircuitOpen()) break;
     if (attempt < maxAttempt - 1) {
       await sleep(DEFAULT_RETRY_BACKOFF_MS * (attempt + 1));
@@ -1785,7 +2077,7 @@ async function okxPriceInfoByCoinType(coinTypes) {
     if (!arr.includes(ct)) arr.push(ct);
     originalsByNorm.set(norm2, arr);
   }
-  const uniqueNorms = [...originalsByNorm.keys()];
+  const uniqueNorms = [...originalsByNorm.keys()].filter((n2) => !isNoQuote(n2));
   for (let i = 0; i < uniqueNorms.length; i += BATCH) {
     const chunk = uniqueNorms.slice(i, i + BATCH);
     const bodyStr = JSON.stringify(
@@ -1795,6 +2087,10 @@ async function okxPriceInfoByCoinType(coinTypes) {
       }))
     );
     const j = await postPriceInfoChunk(bodyStr);
+    if (j === "no-data") {
+      if (chunk.length === 1) noQuoteUntil.set(chunk[0], Date.now() + NO_QUOTE_TTL_MS);
+      continue;
+    }
     if (j == null) continue;
     const bestByNorm = /* @__PURE__ */ new Map();
     if (import.meta.env.DEV) {
@@ -1847,14 +2143,6 @@ async function okxPriceInfoByCoinType(coinTypes) {
   }
   return out;
 }
-var CHAIN_ETH = "1";
-var ETHEREUM_WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
-var SUI_BRIDGE_ETH = normalizeCoinTypeForMatch(
-  "0xd0e89b2af5e4910726fbcd8b8dd37bb79b29e5f83f7491bca830e94f7f226d29::eth::ETH"
-);
-var SUI_WORMHOLE_WETH = normalizeCoinTypeForMatch(
-  "0xaf8cd5edc19c4512f4259f0bee101a40d41ebed738ade5874359610ef8eeced5::coin::COIN"
-);
 function isBridgedEthLike(coinType) {
   const n2 = normalizeCoinTypeForMatch(coinType);
   return n2 === SUI_BRIDGE_ETH || n2 === SUI_WORMHOLE_WETH;
@@ -1867,7 +2155,7 @@ async function okxEthereumShortWindowForBridgedEth(coinTypes) {
     { chainIndex: CHAIN_ETH, tokenContractAddress: ETHEREUM_WETH }
   ]);
   const j = await postPriceInfoChunk(bodyStr);
-  if (j == null) return out;
+  if (j == null || j === "no-data") return out;
   const row = j.data[0];
   if (!row) return out;
   const change5m = parseChangePct(row.priceChange5M);
@@ -1886,14 +2174,32 @@ function isOkxDexConfigured() {
 function isOkxCircuitOpen() {
   return okxCircuitOpen();
 }
+var CHAIN_SUI, PRICE_INFO_PATH, BATCH, DEFAULT_FETCH_RETRIES, DEFAULT_RETRY_BACKOFF_MS, OKX_CIRCUIT_OPEN_MS, _okxCircuitTrippedAt, NO_QUOTE_TTL_MS, noQuoteUntil, CHAIN_ETH, ETHEREUM_WETH, SUI_BRIDGE_ETH, SUI_WORMHOLE_WETH;
+var init_okxDexApi = __esm({
+  "src/services/spotPrice/okxDexApi.ts"() {
+    init_apiProxy();
+    init_suiCoinType();
+    CHAIN_SUI = "784";
+    PRICE_INFO_PATH = "/api/v6/dex/market/price-info";
+    BATCH = 100;
+    DEFAULT_FETCH_RETRIES = 2;
+    DEFAULT_RETRY_BACKOFF_MS = 1500;
+    OKX_CIRCUIT_OPEN_MS = 4 * 60 * 1e3;
+    _okxCircuitTrippedAt = 0;
+    NO_QUOTE_TTL_MS = 15 * 6e4;
+    noQuoteUntil = /* @__PURE__ */ new Map();
+    CHAIN_ETH = "1";
+    ETHEREUM_WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+    SUI_BRIDGE_ETH = normalizeCoinTypeForMatch(
+      "0xd0e89b2af5e4910726fbcd8b8dd37bb79b29e5f83f7491bca830e94f7f226d29::eth::ETH"
+    );
+    SUI_WORMHOLE_WETH = normalizeCoinTypeForMatch(
+      "0xaf8cd5edc19c4512f4259f0bee101a40d41ebed738ade5874359610ef8eeced5::coin::COIN"
+    );
+  }
+});
 
 // src/services/spotPrice/currentSpotCache.ts
-var MEM_TTL_MS = 5 * 60 * 1e3;
-var PERSIST_TTL_MS = 2 * 60 * 60 * 1e3;
-var LS_KEY = "sui_lp_current_spot_v4";
-var MAX_PERSIST_KEYS = 450;
-var mem = /* @__PURE__ */ new Map();
-var nowFn = () => Date.now();
 function now() {
   return nowFn();
 }
@@ -2024,6 +2330,17 @@ function isCompleteSpotEntry(e) {
   }
   return true;
 }
+var MEM_TTL_MS, PERSIST_TTL_MS, LS_KEY, MAX_PERSIST_KEYS, mem, nowFn;
+var init_currentSpotCache = __esm({
+  "src/services/spotPrice/currentSpotCache.ts"() {
+    MEM_TTL_MS = 5 * 60 * 1e3;
+    PERSIST_TTL_MS = 2 * 60 * 60 * 1e3;
+    LS_KEY = "sui_lp_current_spot_v4";
+    MAX_PERSIST_KEYS = 450;
+    mem = /* @__PURE__ */ new Map();
+    nowFn = () => Date.now();
+  }
+});
 
 // src/utils/concurrency.ts
 async function mapPool(items, limit, fn) {
@@ -2041,6 +2358,10 @@ async function mapPool(items, limit, fn) {
   await Promise.all(Array.from({ length: n2 }, () => worker()));
   return out;
 }
+var init_concurrency = __esm({
+  "src/utils/concurrency.ts"() {
+  }
+});
 
 // src/services/spotPrice/resolveSpots.ts
 function syncSpotCacheFromOut(out) {
@@ -2064,8 +2385,6 @@ function syncSpotCacheFromOut(out) {
     });
   }
 }
-var STABLE_SYMBOLS = /^(USDC|USDT|DAI|BUSD|FDUSD|USDZ|PYUSD|TUSD|FRAX|USDD)$/;
-var DEXSCREENER_CONCURRENCY = 6;
 function isStableSymbol(symbol) {
   return STABLE_SYMBOLS.test(symbol.toUpperCase());
 }
@@ -2383,10 +2702,26 @@ async function fill24hGaps(out, symbolByType) {
     });
   }
 }
+var STABLE_SYMBOLS, DEXSCREENER_CONCURRENCY;
+var init_resolveSpots = __esm({
+  "src/services/spotPrice/resolveSpots.ts"() {
+    init_spotChange24h();
+    init_coingecko24hBatch();
+    init_aftermathSpot();
+    init_geckoSimpleBatch();
+    init_geckoTokenDetail();
+    init_dexScreenerSpot();
+    init_dexpPaprikaSpot();
+    init_okxDexApi();
+    init_currentSpotCache();
+    init_concurrency();
+    STABLE_SYMBOLS = /^(USDC|USDT|DAI|BUSD|FDUSD|USDZ|PYUSD|TUSD|FRAX|USDD)$/;
+    DEXSCREENER_CONCURRENCY = 6;
+  }
+});
 
 // src/services/coinBalanceAmount.ts
 import Decimal2 from "decimal.js";
-var MAX_COIN_DECIMALS = 18;
 function amountsFromCoinMetadata(totalBalance, decimals) {
   if (typeof decimals !== "number" || !Number.isInteger(decimals) || decimals < 0 || decimals > MAX_COIN_DECIMALS) {
     return { decimals: 0, humanBalance: 0, decimalsKnown: false };
@@ -2402,244 +2737,255 @@ function amountsFromCoinMetadata(totalBalance, decimals) {
   }
   return { decimals, humanBalance, decimalsKnown: true };
 }
+var MAX_COIN_DECIMALS;
+var init_coinBalanceAmount = __esm({
+  "src/services/coinBalanceAmount.ts"() {
+    MAX_COIN_DECIMALS = 18;
+  }
+});
 
 // src/config/hardcodedVerifiedCoins.ts
-var HARDCODED_VERIFIED = [
-  {
-    type: "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI",
-    symbol: "SUI",
-    name: "Sui",
-    decimals: 9,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/26375/large/sui-ocean-square.png",
-    tags: ["native"]
-  },
-  {
-    type: "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
-    symbol: "USDC",
-    name: "USD Coin (Native)",
-    decimals: 6,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/6319/large/usdc.png",
-    tags: ["native", "stablecoin"]
-  },
-  {
-    type: "0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN",
-    symbol: "USDC",
-    name: "USD Coin (Wormhole)",
-    decimals: 6,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/6319/large/usdc.png",
-    tags: ["bridge", "stablecoin"]
-  },
-  {
-    type: "0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN",
-    symbol: "USDT",
-    name: "Tether USD",
-    decimals: 6,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/325/large/Tether.png",
-    tags: ["bridge", "stablecoin"]
-  },
-  {
-    type: "0x375f70cf2ae4c6a1be136734bae85e1db1f125af768cc55e9fd2b84418fe692c::usdt::USDT",
-    symbol: "USDT",
-    name: "Tether (legacy)",
-    decimals: 6,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/325/large/Tether.png",
-    tags: ["bridge", "stablecoin"]
-  },
-  {
-    type: "0x960b531667636f39e85867775f52f6b1f220a058c4de786905bdf761e06a56bb::usdy::USDY",
-    symbol: "USDY",
-    name: "Ondo US Dollar Yield",
-    decimals: 6,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/31050/large/usdy.png",
-    tags: ["stablecoin"]
-  },
-  {
-    type: "0x2053d08c1e2bd02791056171aab0fd12bd7cd7efad2ab8f6b9c8902f14df2ff2::ausd::AUSD",
-    symbol: "AUSD",
-    name: "Agora USD",
-    decimals: 6,
-    iconUrl: "",
-    tags: ["stablecoin"]
-  },
-  {
-    type: "0xf325ce1300e8dac124071d3152c5c5ee6174914f8bc2161e88329cf579246efc::afsui::AFSUI",
-    symbol: "afSUI",
-    name: "Aftermath Staked SUI",
-    decimals: 9,
-    iconUrl: "https://aftermath.finance/afsui-icon.png",
-    tags: ["lst"]
-  },
-  {
-    type: "0x83556891f4a0f233ce7b05cfe7f957d4020492a34f5405b2cb9377d060bef4bf::spring_sui::SPRING_SUI",
-    symbol: "stSUI",
-    name: "Spring Staked SUI",
-    decimals: 9,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/51233/large/Token_%281%29.png?1730446421",
-    tags: ["lst"]
-  },
-  {
-    type: "0xd1b72982e40348d069bb1ff701e634c117bb5f741f44dff91e472d3b01461e55::stsui::STSUI",
-    symbol: "stSUI",
-    name: "AlphaFi Staked SUI",
-    decimals: 9,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/54211/large/b_r2Ps67_400x400.png",
-    tags: ["lst"]
-  },
-  {
-    type: "0x2b6602099970374cf58a2a1b9d96f005fccceb81e92eb059873baf420eb6c717::x_sui::X_SUI",
-    symbol: "xSUI",
-    name: "Momentum Staked SUI",
-    decimals: 9,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/54113/large/xsui.png",
-    tags: ["lst"]
-  },
-  {
-    type: "0x549e8b69270defbfafd4f94e17ec44cdbdd99820b33bda2278dea3b9a32d3f55::cert::CERT",
-    symbol: "vSUI",
-    name: "Volo Staked SUI",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["lst"]
-  },
-  {
-    type: "0x790f258062909e3a0ffc78b3c53ac2f62d7084c3bab95644bdeb05add7250001::super_sui::SUPER_SUI",
-    symbol: "superSUI",
-    name: "Mstable Super SUI",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["lst"]
-  },
-  {
-    type: "0x26b3bc67befc214058ca78ea9a2690298d731a2d4309485ec3d40198063c4abc::wbtc::WBTC",
-    symbol: "WBTC",
-    name: "Wrapped Bitcoin",
-    decimals: 8,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/7598/large/wrapped_bitcoin_wbtc.png",
-    tags: ["bridge"]
-  },
-  {
-    type: "0xaf8cd5edc19c4512f4259f0bee101a40d41ebed738ade5874359610ef8eeced5::coin::COIN",
-    symbol: "WETH",
-    name: "Wrapped Ether",
-    decimals: 8,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/2518/large/weth.png",
-    tags: ["bridge"]
-  },
-  {
-    type: "0xd0e89b2af5e4910726fbcd8b8dd37bb79b29e5f83f7491bca830e94f7f226d29::eth::ETH",
-    symbol: "ETH",
-    name: "ETH by Sui Bridge",
-    decimals: 8,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/279/large/ethereum.png",
-    tags: ["bridge"]
-  },
-  {
-    type: "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
-    symbol: "LBTC",
-    name: "Lombard Staked BTC",
-    decimals: 8,
-    iconUrl: "",
-    tags: ["bridge"]
-  },
-  {
-    type: "0x6864a6f921804860930db6ddbe2e16acdf8504495ea7481637a1c8b9a8fe54b::cetus::CETUS",
-    symbol: "CETUS",
-    name: "Cetus Protocol",
-    decimals: 9,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/29445/large/cetus.png",
-    tags: ["defi"]
-  },
-  {
-    type: "0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP",
-    symbol: "DEEP",
-    name: "DeepBook",
-    decimals: 6,
-    iconUrl: "",
-    tags: ["defi"]
-  },
-  {
-    type: "0x3a5143bb1196e3bcdfab6203d1683ae29edd26294fc8bfeafe4aaa9d2704df37::coin::COIN",
-    symbol: "TURBOS",
-    name: "Turbos Finance",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["defi"]
-  },
-  {
-    type: "0xaafb102dd0902f5055cadecd687fb5b71c0ad4ac9f2e8823cc491cb2e1db89d9::buck::BUCK",
-    symbol: "BUCK",
-    name: "Bucket Protocol",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["stablecoin"]
-  },
-  {
-    type: "0x5ca17430c1d046fae9edeaa8fd76c7b4193a00d764a0ecfa9418d733ad27bb20::sca::SCA",
-    symbol: "SCA",
-    name: "Scallop",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["defi"]
-  },
-  /** Актуальний mainnet BLUE (CoinGecko / Bluefin liquidity). */
-  {
-    type: "0xe1b45a0e641b9955a20aa0ad1c1f4ad86aad8afb07296d4085e349a50e90bdca::blue::BLUE",
-    symbol: "BLUE",
-    name: "Bluefin",
-    decimals: 9,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/30883/large/BLUE_200x200.png?1733350278",
-    tags: ["defi"]
-  },
-  /** Ранній/альтернативний BLUE — та сама іконка для OKX/metadata по старій адресі. */
-  {
-    type: "0xb848cce11ef3a8f62eccea6eb5b35a12c4c2b1ee1af7755d02d7bd6218e8226f::blue::BLUE",
-    symbol: "BLUE",
-    name: "Bluefin (legacy package)",
-    decimals: 9,
-    iconUrl: "https://coin-images.coingecko.com/coins/images/30883/large/BLUE_200x200.png?1733350278",
-    tags: ["defi"]
-  },
-  {
-    type: "0x5145494a5f5100e645e4b0aa950fa6b68f614e8c59e17bc5ded3495123a79178::ns::NS",
-    symbol: "NS",
-    name: "SuiNS",
-    decimals: 6,
-    iconUrl: "",
-    tags: ["defi"]
-  },
-  {
-    type: "0x88250f854c019ef4f88a5c073d52a18bb1c6ac437033f5932cd017d24917ab46::navi::NAVX",
-    symbol: "NAVX",
-    name: "Navi Protocol",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["defi"]
-  },
-  {
-    type: "0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL",
-    symbol: "WAL",
-    name: "Walrus",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["defi"]
-  },
-  {
-    type: "0x7262fb2f7a3a14c888c438a3cd9b912469a58cf60f367352c46584262e8299aa::ika::IKA",
-    symbol: "IKA",
-    name: "IKA",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["defi"]
-  },
-  {
-    type: "0x87dfe1248a1dc4ce473bd9cb2937d66cdc6c30fee63f3fe0dbb55c7a09d35dec::up::UP",
-    symbol: "UP",
-    name: "Uni Protocol",
-    decimals: 9,
-    iconUrl: "",
-    tags: ["defi"]
+var HARDCODED_VERIFIED;
+var init_hardcodedVerifiedCoins = __esm({
+  "src/config/hardcodedVerifiedCoins.ts"() {
+    HARDCODED_VERIFIED = [
+      {
+        type: "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI",
+        symbol: "SUI",
+        name: "Sui",
+        decimals: 9,
+        iconUrl: "https://coin-images.coingecko.com/coins/images/26375/large/sui-ocean-square.png",
+        tags: ["native"]
+      },
+      {
+        type: "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
+        symbol: "USDC",
+        name: "USD Coin (Native)",
+        decimals: 6,
+        iconUrl: "https://coin-images.coingecko.com/coins/images/6319/large/usdc.png",
+        tags: ["native", "stablecoin"]
+      },
+      {
+        type: "0x5d4b302506645c37ff133b98c4b50a5ae14841659738d6d733d59d0d217a93bf::coin::COIN",
+        symbol: "USDC",
+        name: "USD Coin (Wormhole)",
+        decimals: 6,
+        iconUrl: "https://coin-images.coingecko.com/coins/images/6319/large/usdc.png",
+        tags: ["bridge", "stablecoin"]
+      },
+      {
+        type: "0xc060006111016b8a020ad5b33834984a437aaa7d3c74c18e09a95d48aceab08c::coin::COIN",
+        symbol: "USDT",
+        name: "Tether USD",
+        decimals: 6,
+        iconUrl: "https://coin-images.coingecko.com/coins/images/325/large/Tether.png",
+        tags: ["bridge", "stablecoin"]
+      },
+      {
+        type: "0x375f70cf2ae4c6a1be136734bae85e1db1f125af768cc55e9fd2b84418fe692c::usdt::USDT",
+        symbol: "USDT",
+        name: "Tether (legacy)",
+        decimals: 6,
+        iconUrl: "https://coin-images.coingecko.com/coins/images/325/large/Tether.png",
+        tags: ["bridge", "stablecoin"]
+      },
+      {
+        type: "0x960b531667636f39e85867775f52f6b1f220a058c4de786905bdf761e06a56bb::usdy::USDY",
+        symbol: "USDY",
+        name: "Ondo US Dollar Yield",
+        decimals: 6,
+        iconUrl: "https://coin-images.coingecko.com/coins/images/31050/large/usdy.png",
+        tags: ["stablecoin"]
+      },
+      {
+        type: "0x2053d08c1e2bd02791056171aab0fd12bd7cd7efad2ab8f6b9c8902f14df2ff2::ausd::AUSD",
+        symbol: "AUSD",
+        name: "Agora USD",
+        decimals: 6,
+        iconUrl: "",
+        tags: ["stablecoin"]
+      },
+      {
+        type: "0xf325ce1300e8dac124071d3152c5c5ee6174914f8bc2161e88329cf579246efc::afsui::AFSUI",
+        symbol: "afSUI",
+        name: "Aftermath Staked SUI",
+        decimals: 9,
+        iconUrl: "https://aftermath.finance/afsui-icon.png",
+        tags: ["lst"]
+      },
+      {
+        type: "0x83556891f4a0f233ce7b05cfe7f957d4020492a34f5405b2cb9377d060bef4bf::spring_sui::SPRING_SUI",
+        symbol: "stSUI",
+        name: "Spring Staked SUI",
+        decimals: 9,
+        iconUrl: "https://coin-images.coingecko.com/coins/images/51233/large/Token_%281%29.png?1730446421",
+        tags: ["lst"]
+      },
+      {
+        type: "0xd1b72982e40348d069bb1ff701e634c117bb5f741f44dff91e472d3b01461e55::stsui::STSUI",
+        symbol: "stSUI",
+        name: "AlphaFi Staked SUI",
+        decimals: 9,
+        iconUrl: "https://coin-images.coingecko.com/coins/images/54211/large/b_r2Ps67_400x400.png",
+        tags: ["lst"]
+      },
+      {
+        type: "0x2b6602099970374cf58a2a1b9d96f005fccceb81e92eb059873baf420eb6c717::x_sui::X_SUI",
+        symbol: "xSUI",
+        name: "Momentum Staked SUI",
+        decimals: 9,
+        iconUrl: "https://coin-images.coingecko.com/coins/images/54113/large/xsui.png",
+        tags: ["lst"]
+      },
+      {
+        type: "0x549e8b69270defbfafd4f94e17ec44cdbdd99820b33bda2278dea3b9a32d3f55::cert::CERT",
+        symbol: "vSUI",
+        name: "Volo Staked SUI",
+        decimals: 9,
+        iconUrl: "",
+        tags: ["lst"]
+      },
+      {
+        type: "0x790f258062909e3a0ffc78b3c53ac2f62d7084c3bab95644bdeb05add7250001::super_sui::SUPER_SUI",
+        symbol: "superSUI",
+        name: "Mstable Super SUI",
+        decimals: 9,
+        iconUrl: "",
+        tags: ["lst"]
+      },
+      {
+        type: "0x26b3bc67befc214058ca78ea9a2690298d731a2d4309485ec3d40198063c4abc::wbtc::WBTC",
+        symbol: "WBTC",
+        name: "Wrapped Bitcoin",
+        decimals: 8,
+        iconUrl: "https://coin-images.coingecko.com/coins/images/7598/large/wrapped_bitcoin_wbtc.png",
+        tags: ["bridge"]
+      },
+      {
+        type: "0xaf8cd5edc19c4512f4259f0bee101a40d41ebed738ade5874359610ef8eeced5::coin::COIN",
+        symbol: "WETH",
+        name: "Wrapped Ether",
+        decimals: 8,
+        iconUrl: "https://coin-images.coingecko.com/coins/images/2518/large/weth.png",
+        tags: ["bridge"]
+      },
+      {
+        type: "0xd0e89b2af5e4910726fbcd8b8dd37bb79b29e5f83f7491bca830e94f7f226d29::eth::ETH",
+        symbol: "ETH",
+        name: "ETH by Sui Bridge",
+        decimals: 8,
+        iconUrl: "https://coin-images.coingecko.com/coins/images/279/large/ethereum.png",
+        tags: ["bridge"]
+      },
+      {
+        type: "0x0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
+        symbol: "LBTC",
+        name: "Lombard Staked BTC",
+        decimals: 8,
+        iconUrl: "",
+        tags: ["bridge"]
+      },
+      {
+        type: "0x6864a6f921804860930db6ddbe2e16acdf8504495ea7481637a1c8b9a8fe54b::cetus::CETUS",
+        symbol: "CETUS",
+        name: "Cetus Protocol",
+        decimals: 9,
+        iconUrl: "https://coin-images.coingecko.com/coins/images/29445/large/cetus.png",
+        tags: ["defi"]
+      },
+      {
+        type: "0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP",
+        symbol: "DEEP",
+        name: "DeepBook",
+        decimals: 6,
+        iconUrl: "",
+        tags: ["defi"]
+      },
+      {
+        type: "0x3a5143bb1196e3bcdfab6203d1683ae29edd26294fc8bfeafe4aaa9d2704df37::coin::COIN",
+        symbol: "TURBOS",
+        name: "Turbos Finance",
+        decimals: 9,
+        iconUrl: "",
+        tags: ["defi"]
+      },
+      {
+        type: "0xaafb102dd0902f5055cadecd687fb5b71c0ad4ac9f2e8823cc491cb2e1db89d9::buck::BUCK",
+        symbol: "BUCK",
+        name: "Bucket Protocol",
+        decimals: 9,
+        iconUrl: "",
+        tags: ["stablecoin"]
+      },
+      {
+        type: "0x5ca17430c1d046fae9edeaa8fd76c7b4193a00d764a0ecfa9418d733ad27bb20::sca::SCA",
+        symbol: "SCA",
+        name: "Scallop",
+        decimals: 9,
+        iconUrl: "",
+        tags: ["defi"]
+      },
+      /** Актуальний mainnet BLUE (CoinGecko / Bluefin liquidity). */
+      {
+        type: "0xe1b45a0e641b9955a20aa0ad1c1f4ad86aad8afb07296d4085e349a50e90bdca::blue::BLUE",
+        symbol: "BLUE",
+        name: "Bluefin",
+        decimals: 9,
+        iconUrl: "https://coin-images.coingecko.com/coins/images/30883/large/BLUE_200x200.png?1733350278",
+        tags: ["defi"]
+      },
+      /** Ранній/альтернативний BLUE — та сама іконка для OKX/metadata по старій адресі. */
+      {
+        type: "0xb848cce11ef3a8f62eccea6eb5b35a12c4c2b1ee1af7755d02d7bd6218e8226f::blue::BLUE",
+        symbol: "BLUE",
+        name: "Bluefin (legacy package)",
+        decimals: 9,
+        iconUrl: "https://coin-images.coingecko.com/coins/images/30883/large/BLUE_200x200.png?1733350278",
+        tags: ["defi"]
+      },
+      {
+        type: "0x5145494a5f5100e645e4b0aa950fa6b68f614e8c59e17bc5ded3495123a79178::ns::NS",
+        symbol: "NS",
+        name: "SuiNS",
+        decimals: 6,
+        iconUrl: "",
+        tags: ["defi"]
+      },
+      {
+        type: "0x88250f854c019ef4f88a5c073d52a18bb1c6ac437033f5932cd017d24917ab46::navi::NAVX",
+        symbol: "NAVX",
+        name: "Navi Protocol",
+        decimals: 9,
+        iconUrl: "",
+        tags: ["defi"]
+      },
+      {
+        type: "0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL",
+        symbol: "WAL",
+        name: "Walrus",
+        decimals: 9,
+        iconUrl: "",
+        tags: ["defi"]
+      },
+      {
+        type: "0x7262fb2f7a3a14c888c438a3cd9b912469a58cf60f367352c46584262e8299aa::ika::IKA",
+        symbol: "IKA",
+        name: "IKA",
+        decimals: 9,
+        iconUrl: "",
+        tags: ["defi"]
+      },
+      {
+        type: "0x87dfe1248a1dc4ce473bd9cb2937d66cdc6c30fee63f3fe0dbb55c7a09d35dec::up::UP",
+        symbol: "UP",
+        name: "Uni Protocol",
+        decimals: 9,
+        iconUrl: "",
+        tags: ["defi"]
+      }
+    ];
   }
-];
+});
 
 // src/utils/rpcBackoff.ts
 async function withRpcBackoff(fn, opts = {}) {
@@ -2670,18 +3016,41 @@ async function withRpcBackoff(fn, opts = {}) {
   }
   throw last instanceof Error ? last : new Error(String(last));
 }
+var init_rpcBackoff = __esm({
+  "src/utils/rpcBackoff.ts"() {
+  }
+});
 
 // src/utils/suiRpcUrl.ts
-var DASHBOARD_RPC_FALLBACK_URLS = [];
+var DASHBOARD_RPC_FALLBACK_URLS;
+var init_suiRpcUrl = __esm({
+  "src/utils/suiRpcUrl.ts"() {
+    init_externalFetchUrl();
+    DASHBOARD_RPC_FALLBACK_URLS = [];
+  }
+});
 
 // src/services/coinMetadata.ts
-var METADATA_FALLBACK_RPCS = DASHBOARD_RPC_FALLBACK_URLS.filter(
-  (url) => !url.includes("blastapi.io")
-);
-var resolvedMetaCache = /* @__PURE__ */ new Map();
-var hardcodedByType = new Map(
-  HARDCODED_VERIFIED.map((coin) => [normalizeCoinTypeForMatch(coin.type), coin])
-);
+function loadMetaStore() {
+  if (metaStore) return metaStore;
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(META_STORE_KEY) : null;
+    metaStore = raw ? JSON.parse(raw) : {};
+  } catch {
+    metaStore = {};
+  }
+  return metaStore;
+}
+function persistMeta(coinType, meta) {
+  try {
+    const store = loadMetaStore();
+    store[coinType] = meta;
+    const keys = Object.keys(store);
+    if (keys.length > META_STORE_MAX) for (const k of keys.slice(0, keys.length - META_STORE_MAX)) delete store[k];
+    localStorage.setItem(META_STORE_KEY, JSON.stringify(store));
+  } catch {
+  }
+}
 function hardcodedCoinMeta(coinType) {
   const coin = hardcodedByType.get(normalizeCoinTypeForMatch(coinType));
   if (!coin) return null;
@@ -2738,6 +3107,11 @@ async function fetchCoinMetadataFallback(coinType) {
 async function resolveCoinMetadata(client, coinType, options) {
   const cached2 = resolvedMetaCache.get(coinType);
   if (cached2 !== void 0) return cached2;
+  const persisted = loadMetaStore()[coinType];
+  if (persisted && Number.isFinite(persisted.decimals)) {
+    resolvedMetaCache.set(coinType, persisted);
+    return persisted;
+  }
   const fromClient = usableMeta(
     await withRpcBackoff(
       () => client.getCoinMetadata({ coinType }),
@@ -2746,6 +3120,7 @@ async function resolveCoinMetadata(client, coinType, options) {
   );
   if (fromClient) {
     resolvedMetaCache.set(coinType, fromClient);
+    persistMeta(coinType, fromClient);
     return fromClient;
   }
   const known = hardcodedCoinMeta(coinType);
@@ -2759,10 +3134,419 @@ async function resolveCoinMetadata(client, coinType, options) {
   }
   const fromFallback = await fetchCoinMetadataFallback(coinType);
   resolvedMetaCache.set(coinType, fromFallback);
+  if (fromFallback) persistMeta(coinType, fromFallback);
   return fromFallback;
 }
+var METADATA_FALLBACK_RPCS, resolvedMetaCache, META_STORE_KEY, META_STORE_MAX, metaStore, hardcodedByType;
+var init_coinMetadata = __esm({
+  "src/services/coinMetadata.ts"() {
+    init_hardcodedVerifiedCoins();
+    init_coinBalanceAmount();
+    init_rpcBackoff();
+    init_externalFetchUrl();
+    init_suiCoinType();
+    init_suiRpcUrl();
+    METADATA_FALLBACK_RPCS = DASHBOARD_RPC_FALLBACK_URLS.filter(
+      (url) => !url.includes("blastapi.io")
+    );
+    resolvedMetaCache = /* @__PURE__ */ new Map();
+    META_STORE_KEY = "suilp.coinMeta.v1";
+    META_STORE_MAX = 600;
+    metaStore = null;
+    hardcodedByType = new Map(
+      HARDCODED_VERIFIED.map((coin) => [normalizeCoinTypeForMatch(coin.type), coin])
+    );
+  }
+});
+
+// src/services/cetusDlmmSdk.ts
+import { CetusDlmmSDK } from "@cetusprotocol/dlmm-sdk";
+function getCetusDlmmSdk() {
+  if (cached) return cached;
+  cached = CetusDlmmSDK.createSDK({ env: "mainnet" });
+  return cached;
+}
+var cached;
+var init_cetusDlmmSdk = __esm({
+  "src/services/cetusDlmmSdk.ts"() {
+    cached = null;
+  }
+});
+
+// src/services/cetusDlmmService.ts
+var cetusDlmmService_exports = {};
+__export(cetusDlmmService_exports, {
+  getCetusDlmmPositions: () => getCetusDlmmPositions,
+  requireDlmmOwnerRows: () => requireDlmmOwnerRows
+});
+import { BinUtils, FEE_PRECISION } from "@cetusprotocol/dlmm-sdk";
+import Decimal8 from "decimal.js";
+function symbolFromCoinType3(ct) {
+  const parts = ct.split("::");
+  return parts[2] ?? parts[1] ?? "\u2014";
+}
+function clampUsd3(v) {
+  if (!Number.isFinite(v) || v < 0) return 0;
+  return v <= MAX_SANE_POSITION_USD4 ? v : 0;
+}
+function safeHumanFromStringRaw2(raw, decimals) {
+  const s = raw?.trim();
+  if (!s || !/^\d+$/.test(s) || !Number.isFinite(decimals) || decimals < 0) return 0;
+  try {
+    const n2 = new Decimal8(s).div(new Decimal8(10).pow(decimals)).toNumber();
+    if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS4) return 0;
+    return n2;
+  } catch {
+    return 0;
+  }
+}
+function spotPriceSafe2(raw) {
+  if (raw == null || !Number.isFinite(raw) || raw <= 0 || raw > 1e8) return null;
+  return raw;
+}
+function binPriceBPerA(binId, binStep, decimalsA, decimalsB) {
+  try {
+    const n2 = Number(BinUtils.getPriceFromBinId(binId, binStep, decimalsA, decimalsB));
+    return Number.isFinite(n2) && n2 > 0 ? n2 : 0;
+  } catch {
+    return 0;
+  }
+}
+function feeFractionFromRaw(raw) {
+  if (!raw || !/^\d+$/.test(raw)) return 0;
+  const n2 = Number(raw) / FEE_PRECISION;
+  return Number.isFinite(n2) && n2 >= 0 ? n2 : 0;
+}
+function requireDlmmOwnerRows(rows, err) {
+  if (err) throw err instanceof Error ? err : new Error(String(err));
+  return rows ?? [];
+}
+async function getCetusDlmmPositions(walletAddress, options) {
+  const sdk2 = getCetusDlmmSdk();
+  sdk2.setSenderAddress(walletAddress);
+  let listed;
+  let listErr;
+  try {
+    listed = await sdk2.Position.getOwnerPositionList(walletAddress);
+  } catch (e) {
+    listErr = e;
+  }
+  const rows = requireDlmmOwnerRows(listed, listErr);
+  if (!rows.length) return [];
+  const poolCache = /* @__PURE__ */ new Map();
+  const feeCache = /* @__PURE__ */ new Map();
+  const allCoinTypes = /* @__PURE__ */ new Set();
+  for (const pos of rows) {
+    allCoinTypes.add(pos.coin_type_a);
+    allCoinTypes.add(pos.coin_type_b);
+  }
+  const metaMap = /* @__PURE__ */ new Map();
+  await mapPool([...allCoinTypes], RPC_CONCURRENCY, async (ct) => {
+    const m = await resolveCoinMetadata(suiClient, ct);
+    if (!m) return;
+    metaMap.set(ct, {
+      symbol: m.symbol || symbolFromCoinType3(ct),
+      decimals: m.decimals,
+      iconUrl: m.iconUrl
+    });
+  });
+  const getMeta = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType3(ct), decimals: -1, iconUrl: null };
+  const spotOpts = options?.forceRefreshPrices ? { forceRefresh: true } : void 0;
+  let spotsMap;
+  try {
+    spotsMap = await resolveSpots([...allCoinTypes], (ct) => getMeta(ct).symbol, spotOpts);
+  } catch {
+    spotsMap = /* @__PURE__ */ new Map();
+  }
+  const openedAt = Math.floor(Date.now() / 1e3);
+  const out = [];
+  const feeFetchOpts = [];
+  for (const pos of rows) {
+    try {
+      let pool = poolCache.get(pos.pool_id);
+      if (!pool) {
+        pool = await sdk2.Pool.getPool(pos.pool_id);
+        poolCache.set(pos.pool_id, pool);
+      }
+      const metaA = getMeta(pos.coin_type_a);
+      const metaB = getMeta(pos.coin_type_b);
+      const decA = metaA.decimals;
+      const decB = metaB.decimals;
+      if (decA < 0 || decB < 0) continue;
+      const amounts = await sdk2.Position.getPositionAmounts(pos, pool);
+      const humA = safeHumanFromStringRaw2(amounts.amount_a, decA);
+      const humB = safeHumanFromStringRaw2(amounts.amount_b, decB);
+      const pxaF = spotPriceSafe2(spotsMap.get(pos.coin_type_a)?.price);
+      const pxbF = spotPriceSafe2(spotsMap.get(pos.coin_type_b)?.price);
+      const valueUsd = clampUsd3((pxaF != null ? humA * pxaF : 0) + (pxbF != null ? humB * pxbF : 0));
+      let feeFrac = feeCache.get(pos.pool_id);
+      if (feeFrac == null) {
+        try {
+          const fr = await sdk2.Pool.getTotalFeeRate({
+            pool_id: pool.id,
+            coin_type_a: pos.coin_type_a,
+            coin_type_b: pos.coin_type_b
+          });
+          feeFrac = feeFractionFromRaw(fr.total_fee_rate);
+        } catch {
+          feeFrac = feeFractionFromRaw(pool.base_fee_rate);
+        }
+        feeCache.set(pos.pool_id, feeFrac);
+      }
+      const priceLo = binPriceBPerA(pos.lower_bin_id, pool.bin_step, decA, decB);
+      const priceHi = binPriceBPerA(pos.upper_bin_id, pool.bin_step, decA, decB);
+      const priceCur = binPriceBPerA(pool.active_id, pool.bin_step, decA, decB);
+      if (!(priceLo > 0) || !(priceHi > 0) || !(priceCur > 0)) continue;
+      const inRange = pool.active_id >= pos.lower_bin_id && pool.active_id <= pos.upper_bin_id;
+      const feeLabelPct = `${(feeFrac * 100).toFixed(3)}%`;
+      const pair = `${metaA.symbol}/${metaB.symbol} \xB7 DLMM \xB7 ${feeLabelPct}${inRange ? "" : " \xB7 OUT"}`;
+      const rewardCoins = (pool.reward_manager?.rewards ?? []).map((r) => r.reward_coin).filter((c) => typeof c === "string" && c.length > 0);
+      feeFetchOpts.push({
+        pool_id: pool.id,
+        position_id: pos.id,
+        reward_coins: rewardCoins,
+        coin_type_a: pos.coin_type_a,
+        coin_type_b: pos.coin_type_b
+      });
+      out.push({
+        id: pos.id,
+        protocol: "cetus",
+        poolId: pos.pool_id,
+        pair,
+        tokenA: metaA.symbol,
+        tokenB: metaB.symbol,
+        tokenAAddress: pos.coin_type_a,
+        tokenBAddress: pos.coin_type_b,
+        tokenAIconUrl: metaA.iconUrl,
+        tokenBIconUrl: metaB.iconUrl,
+        tokenADecimals: decA,
+        tokenBDecimals: decB,
+        fee: feeFrac,
+        // Bins are not CLMM ticks — range bar uses priceRangeOverride.
+        tickLower: pos.lower_bin_id,
+        tickUpper: pos.upper_bin_id,
+        currentTick: pool.active_id,
+        currentSqrtPrice: "0",
+        liquidity: pos.liquidity_shares?.[0] ?? "0",
+        status: inRange ? "in_range" : "out_of_range",
+        tokenAAmount: humA,
+        tokenBAmount: humB,
+        currentPriceA_USD: pxaF ?? 0,
+        currentPriceB_USD: pxbF ?? 0,
+        currentValueUSD: valueUsd,
+        depositedUSD: 0,
+        pnlUSD: 0,
+        pnlPct: 0,
+        unclaimedFeeA: 0,
+        unclaimedFeeB: 0,
+        unclaimedFeeUSD: 0,
+        unclaimedRewardUSD: 0,
+        openedAt,
+        daysOpen: 0,
+        lifetimeEarningsUSD: 0,
+        vsHodlDeltaUSD: 0,
+        aprEstimatePct: 0,
+        priceCurrentOverride: priceCur,
+        priceRangeOverride: {
+          min: Math.min(priceLo, priceHi),
+          max: Math.max(priceLo, priceHi),
+          current: priceCur
+        },
+        cetusDlmm: {
+          lowerBinId: pos.lower_bin_id,
+          upperBinId: pos.upper_bin_id,
+          activeBinId: pool.active_id,
+          binStep: pool.bin_step
+        }
+      });
+    } catch (e) {
+      console.warn("[cetus-dlmm] position map failed", pos.id?.slice?.(0, 10), e);
+    }
+  }
+  if (feeFetchOpts.length > 0) {
+    try {
+      const { feeData, rewardData } = await sdk2.Position.fetchPositionFeeAndReward(feeFetchOpts);
+      for (const p of out) {
+        const fee = feeData[p.id];
+        const rew = rewardData[p.id];
+        const feeHumA = safeHumanFromStringRaw2(fee?.fee_owned_a, p.tokenADecimals);
+        const feeHumB = safeHumanFromStringRaw2(fee?.fee_owned_b, p.tokenBDecimals);
+        const pxaF = spotPriceSafe2(spotsMap.get(p.tokenAAddress)?.price);
+        const pxbF = spotPriceSafe2(spotsMap.get(p.tokenBAddress)?.price);
+        let feeUsd = 0;
+        if (pxaF != null) feeUsd += feeHumA * pxaF;
+        if (pxbF != null) feeUsd += feeHumB * pxbF;
+        p.unclaimedFeeA = feeHumA;
+        p.unclaimedFeeB = feeHumB;
+        p.unclaimedFeeUSD = clampUsd3(feeUsd);
+        const rows2 = [];
+        let rewUsd = 0;
+        for (const r of rew?.rewards ?? []) {
+          const ct = r.coin_type;
+          const meta = getMeta(ct);
+          const hum = safeHumanFromStringRaw2(r.reward_owned, meta.decimals);
+          const spot = spotsMap.get(ct);
+          const px = spotPriceSafe2(spot?.price);
+          const amountUsd = px != null ? clampUsd3(hum * px) : 0;
+          rewUsd += amountUsd;
+          rows2.push({
+            token: meta.symbol || symbolFromCoinType3(ct),
+            coinType: ct,
+            amount: hum,
+            amount_usd: amountUsd,
+            price_source: px != null ? String(spot?.priceSource ?? "spot") : "unavailable"
+          });
+        }
+        p.unclaimedRewardUSD = clampUsd3(rewUsd);
+        p.unclaimedRewardRows = rows2;
+      }
+    } catch (e) {
+      console.warn("[cetus-dlmm] fetchPositionFeeAndReward failed", e);
+    }
+  }
+  for (const p of out) {
+    const aIsStable = STABLECOIN_SYMS.has(p.tokenA.toUpperCase());
+    const bIsStable = STABLECOIN_SYMS.has(p.tokenB.toUpperCase());
+    p.cetusOriginalDecimalsA = p.tokenADecimals;
+    p.cetusOriginalDecimalsB = p.tokenBDecimals;
+    if (!aIsStable || bIsStable) continue;
+    const a = {
+      tokenA: p.tokenA,
+      tokenB: p.tokenB,
+      tokenAAddress: p.tokenAAddress,
+      tokenBAddress: p.tokenBAddress,
+      tokenAIconUrl: p.tokenAIconUrl,
+      tokenBIconUrl: p.tokenBIconUrl,
+      tokenADecimals: p.tokenADecimals,
+      tokenBDecimals: p.tokenBDecimals,
+      tokenAAmount: p.tokenAAmount,
+      tokenBAmount: p.tokenBAmount,
+      currentPriceA_USD: p.currentPriceA_USD,
+      currentPriceB_USD: p.currentPriceB_USD,
+      unclaimedFeeA: p.unclaimedFeeA,
+      unclaimedFeeB: p.unclaimedFeeB,
+      tickLower: p.tickLower,
+      tickUpper: p.tickUpper,
+      currentTick: p.currentTick
+    };
+    p.tokenA = a.tokenB;
+    p.tokenB = a.tokenA;
+    p.tokenAAddress = a.tokenBAddress;
+    p.tokenBAddress = a.tokenAAddress;
+    p.tokenAIconUrl = a.tokenBIconUrl;
+    p.tokenBIconUrl = a.tokenAIconUrl;
+    p.tokenADecimals = a.tokenBDecimals;
+    p.tokenBDecimals = a.tokenADecimals;
+    p.tokenAAmount = a.tokenBAmount;
+    p.tokenBAmount = a.tokenAAmount;
+    p.currentPriceA_USD = a.currentPriceB_USD;
+    p.currentPriceB_USD = a.currentPriceA_USD;
+    p.unclaimedFeeA = a.unclaimedFeeB;
+    p.unclaimedFeeB = a.unclaimedFeeA;
+    p.tickLower = -a.tickUpper;
+    p.tickUpper = -a.tickLower;
+    p.currentTick = -a.currentTick;
+    p.cetusSwapped = true;
+    const ov = p.priceRangeOverride;
+    if (ov && ov.min > 0 && ov.max > 0 && ov.current > 0) {
+      const invMin = 1 / ov.max;
+      const invMax = 1 / ov.min;
+      const invCur = 1 / ov.current;
+      p.priceRangeOverride = { min: invMin, max: invMax, current: invCur };
+      p.priceCurrentOverride = invCur;
+    }
+    const feeLabelPct = `${(p.fee * 100).toFixed(3)}%`;
+    p.pair = `${p.tokenA}/${p.tokenB} \xB7 DLMM \xB7 ${feeLabelPct}${p.status === "in_range" ? "" : " \xB7 OUT"}`;
+  }
+  return out;
+}
+var MAX_SANE_POSITION_USD4, MAX_SANE_HUMAN_TOKENS4, STABLECOIN_SYMS;
+var init_cetusDlmmService = __esm({
+  "src/services/cetusDlmmService.ts"() {
+    init_cetusDlmmSdk();
+    init_resolveSpots();
+    init_coinMetadata();
+    init_suiClient();
+    init_concurrency();
+    init_constants();
+    MAX_SANE_POSITION_USD4 = 5e7;
+    MAX_SANE_HUMAN_TOKENS4 = 1e18;
+    STABLECOIN_SYMS = /* @__PURE__ */ new Set([
+      "USDC",
+      "USDT",
+      "DAI",
+      "BUSD",
+      "TUSD",
+      "FDUSD",
+      "PYUSD",
+      "USDD",
+      "FRAX",
+      "LUSD",
+      "SUSD",
+      "GUSD"
+    ]);
+  }
+});
+
+// server/esbuild-env-setup.ts
+import process2 from "node:process";
+import { createRequire } from "node:module";
+var envProxy = new Proxy(process2.env, {
+  get(target, prop) {
+    if (prop === "DEV") return false;
+    if (prop === "PROD") return true;
+    if (prop === "MODE") return "production";
+    if (prop === "SSR") return true;
+    if (typeof prop === "string" && prop in target) return target[prop];
+    return void 0;
+  }
+});
+Object.defineProperty(import.meta, "env", {
+  value: envProxy,
+  writable: false,
+  enumerable: true,
+  configurable: true
+});
+var require2 = createRequire(import.meta.url);
+if (!globalThis.Buffer) {
+  globalThis.Buffer = require2("buffer").Buffer;
+}
+
+// src/services/server/loadPortfolioSnapshot.ts
+import { normalizeSuiAddress as normalizeSuiAddress19 } from "@mysten/sui/utils";
 
 // src/services/balanceService.ts
+init_suiClient();
+
+// src/utils/formatting.ts
+import Decimal from "decimal.js";
+var STABLECOIN_SYMBOLS_UPPER = new Set(
+  [
+    "USDC",
+    "USDT",
+    "DAI",
+    "BUSD",
+    "TUSD",
+    "USDD",
+    "FDUSD",
+    "USDP",
+    "PYUSD",
+    "USDE",
+    "AUSD",
+    "USDY",
+    "USDX"
+  ].map((s) => s.toUpperCase())
+);
+
+// src/services/balanceService.ts
+init_resolveSpots();
+init_currentSpotCache();
+init_coinBalanceAmount();
+init_coinMetadata();
+init_constants();
+init_concurrency();
+init_constants();
+init_rpcBackoff();
 var BALANCE_META_CONCURRENCY = Math.min(4, RPC_CONCURRENCY);
 async function loadBalancesWithMetadata(walletAddress, client) {
   const balances = await withRpcBackoff(
@@ -3103,6 +3887,10 @@ function safeNum(v) {
 }
 
 // src/services/naviService.ts
+init_currentSpotCache();
+init_externalFetchUrl();
+init_suiClient();
+init_createGrpcClient();
 var NAVI_ORIGIN = "https://open-api.naviprotocol.io";
 var SDK_VER = "2.0.12";
 function naviUrl(path) {
@@ -3265,6 +4053,36 @@ function bignumToHuman(amount, decimals = 9) {
   const frac = amount % scale;
   return Number(whole) + Number(frac) / Number(scale);
 }
+var NAVI_TX_STORE = (addr) => `suilp.navi.tx.${addr.toLowerCase()}`;
+var NAVI_TX_FULL_REFRESH_MS = 7 * 24 * 60 * 60 * 1e3;
+function naviTxKey(tx) {
+  const ch = (tx.coinChanges ?? []).map((c) => `${c.symbol ?? ""}:${c.amount ?? ""}`).join(",");
+  return `${tx.timestamp ?? ""}|${tx.type ?? ""}|${tx.status ?? ""}|${ch}`;
+}
+function readNaviTxStore(addr) {
+  try {
+    const raw = localStorage.getItem(NAVI_TX_STORE(addr));
+    if (!raw) return null;
+    const j = JSON.parse(raw);
+    if (!Array.isArray(j.rows) || typeof j.ts !== "number") return null;
+    if (Date.now() - j.ts > NAVI_TX_FULL_REFRESH_MS) return null;
+    return { rows: j.rows, ts: j.ts };
+  } catch {
+    return null;
+  }
+}
+function writeNaviTxStore(addr, rows, keepTs) {
+  try {
+    const slim = rows.map((r) => ({
+      type: r.type,
+      status: r.status,
+      timestamp: r.timestamp,
+      coinChanges: (r.coinChanges ?? []).map((c) => ({ symbol: c.symbol, amount: c.amount, value: c.value }))
+    }));
+    localStorage.setItem(NAVI_TX_STORE(addr), JSON.stringify({ ts: keepTs ?? Date.now(), rows: slim }));
+  } catch {
+  }
+}
 function symKey(symbol) {
   return symbol.trim().toUpperCase();
 }
@@ -3309,6 +4127,9 @@ async function loadNaviCashflowUncached(address, pools) {
     if (price > 0) priceBySymbol.set(key, price);
   }
   const rows = [];
+  const stored = readNaviTxStore(address);
+  const storedKeys = new Set((stored?.rows ?? []).map(naviTxKey));
+  let reachedKnown = false;
   const seenCursors = /* @__PURE__ */ new Set();
   let cursor = "";
   for (let page = 0; page < 40; page++) {
@@ -3333,11 +4154,20 @@ async function loadNaviCashflowUncached(address, pools) {
     }
     const batch = json.data?.data ?? [];
     rows.push(...batch);
+    if (stored && batch.length > 0 && batch.some((t) => storedKeys.has(naviTxKey(t)))) {
+      reachedKnown = true;
+      break;
+    }
     const next = json.data?.cursor ?? "";
     if (!next || next.startsWith("no_more") || batch.length === 0 || seenCursors.has(next)) break;
     seenCursors.add(next);
     cursor = next;
   }
+  if (reachedKnown && stored) {
+    const have = new Set(rows.map(naviTxKey));
+    for (const t of stored.rows) if (!have.has(naviTxKey(t))) rows.push(t);
+  }
+  if (rows.length > 0) writeNaviTxStore(address, rows, reachedKnown ? stored?.ts : void 0);
   const deposited = /* @__PURE__ */ new Map();
   const borrowed = /* @__PURE__ */ new Map();
   let claimedRewardsUSD = 0;
@@ -3630,6 +4460,12 @@ var EMPTY_NAVI_SNAP = {
   protocol: "Navi"
 };
 
+// src/services/currentService.ts
+init_suiClient();
+
+// src/services/priceService.ts
+init_constants();
+
 // src/utils/rateLimiter.ts
 var sleep2 = (ms) => new Promise((r) => setTimeout(r, ms));
 function createRateLimiter(minIntervalMs) {
@@ -3648,6 +4484,9 @@ function createRateLimiter(minIntervalMs) {
 var _legacyLimiter = createRateLimiter(0);
 
 // src/services/okxHistoricalUsd.ts
+init_okxDexApi();
+init_suiCoinType();
+init_suiCoinType();
 var CHAIN_SUI2 = "784";
 function okxWalletTokenAddressParam(coinType) {
   return isNativeSuiCoinType(coinType) ? "" : coinType;
@@ -3717,6 +4556,56 @@ async function dexCandlesFetch(coinType, bar, pivot) {
   if (j == null || j.data == null) return [];
   return parseOkxHistoricalCandlesData(j.data);
 }
+var DEX_BAR_STORE_TTL_MS = 10 * 6e4;
+var dexBarStore = /* @__PURE__ */ new Map();
+var dexBarInflight = /* @__PURE__ */ new Map();
+var dexBarEmpty = /* @__PURE__ */ new Map();
+var DEX_BAR_EMPTY_TTL_MS = 2 * 6e4;
+async function dexBarCandlesAround(coinType, bar, targetMs) {
+  const key = `${normalizeCoinTypeForMatch(coinType)}|${bar}`;
+  const now2 = Date.now();
+  const covered = () => {
+    const e2 = dexBarStore.get(key);
+    if (!e2 || now2 - e2.at > DEX_BAR_STORE_TTL_MS || e2.candles.size === 0) return null;
+    let min = Infinity;
+    let max = -Infinity;
+    for (const t of e2.candles.keys()) {
+      if (t < min) min = t;
+      if (t > max) max = t;
+    }
+    return targetMs > min && targetMs < max ? [...e2.candles.values()] : null;
+  };
+  const hit = covered();
+  if (hit) return hit;
+  const emptyAt = dexBarEmpty.get(key);
+  if (emptyAt != null && now2 - emptyAt < DEX_BAR_EMPTY_TTL_MS) return [];
+  const pending = dexBarInflight.get(key);
+  if (pending) {
+    await pending.catch(() => void 0);
+    const again = covered();
+    if (again) return again;
+  }
+  const job = (async () => {
+    const [afterBranch, beforeBranch] = await Promise.all([
+      dexCandlesFetch(coinType, bar, { afterMs: targetMs }),
+      dexCandlesFetch(coinType, bar, { beforeMs: targetMs })
+    ]);
+    if (afterBranch.length + beforeBranch.length === 0) dexBarEmpty.set(key, Date.now());
+    const prev = dexBarStore.get(key);
+    const fresh = prev && Date.now() - prev.at <= DEX_BAR_STORE_TTL_MS;
+    const candles = fresh ? prev.candles : /* @__PURE__ */ new Map();
+    for (const c of [...afterBranch, ...beforeBranch]) candles.set(Math.floor(c.tsMs), c);
+    dexBarStore.set(key, { at: fresh ? prev.at : Date.now(), candles });
+  })();
+  dexBarInflight.set(key, job);
+  try {
+    await job;
+  } finally {
+    if (dexBarInflight.get(key) === job) dexBarInflight.delete(key);
+  }
+  const e = dexBarStore.get(key);
+  return e ? [...e.candles.values()] : [];
+}
 var OKX_BAR_DURATION_MS = {
   "1Dutc": 864e5,
   "4H": 144e5,
@@ -3746,13 +4635,8 @@ async function okxDexHistoricalClosestUsd(coinType, timestampSec) {
   let fallback = null;
   for (const bar of DEX_BARS_CASCADE) {
     const barDurationMs = OKX_BAR_DURATION_MS[bar] ?? 36e5;
-    const merged = /* @__PURE__ */ new Map();
-    const [afterBranch, beforeBranch] = await Promise.all([
-      dexCandlesFetch(coinType, bar, { afterMs: targetMs }),
-      dexCandlesFetch(coinType, bar, { beforeMs: targetMs })
-    ]);
-    for (const c of [...afterBranch, ...beforeBranch]) merged.set(Math.floor(c.tsMs), c);
-    const cand = closestCandleToTarget([...merged.values()], targetMs, barDurationMs);
+    const merged = await dexBarCandlesAround(coinType, bar, targetMs);
+    const cand = closestCandleToTarget(merged, targetMs, barDurationMs);
     if (cand && cand.close > 0) {
       const openSec = Math.floor(cand.tsMs / 1e3);
       const midpointOffsetSec = Math.floor(barDurationMs / 2e3);
@@ -3831,114 +4715,66 @@ async function okxWalletHistoricalClosestUsd(coinType, timestampSec) {
   }
   return null;
 }
-async function okxCurrentSpotUsd(coinType) {
-  const m = await okxPriceInfoByCoinType([coinType]);
-  const n2 = normalizeCoinTypeForMatch(coinType);
-  for (const [k, v] of m) {
-    if (normalizeCoinTypeForMatch(k) === n2 && v.price > 0) return v.price;
-  }
-  return null;
-}
-
-// src/services/pythSymbolStatic.ts
-var ALIAS = {
-  SUI: "SUI",
-  USDC: "USDC",
-  USDT: "USDT",
-  BTC: "BTC",
-  ETH: "ETH",
-  WETH: "ETH",
-  WBTC: "WBTC",
-  BSUI: "SUI",
-  /* LST / обгортки ≈ SUI для Pyth feed */
-  AFSUI: "SUI",
-  STSUI: "SUI",
-  VSUI: "SUI",
-  XSUI: "SUI",
-  X_SUI: "SUI",
-  HASUI: "SUI",
-  FSUI: "SUI"
-};
-function normSymbol(symbol) {
-  return symbol.toUpperCase().split(/[/]|[\s-]/)[0] ?? "";
-}
-function getPythStaticFeedId(symbol) {
-  const raw = normSymbol(symbol);
-  const k = ALIAS[raw] ?? (raw in PYTH_USD_FEEDS ? raw : null);
-  if (!k) return null;
-  return PYTH_USD_FEEDS[k] ?? null;
-}
-
-// src/services/pythFeedDiscovery.ts
-var LS_KEY2 = "pyth-hermes-feed-cache-v1";
-var LS_NEGATIVE = "pyth-hermes-no-feed-v1";
-var memory = null;
-var negativeMemory = null;
-function loadFromStorage() {
-  if (typeof localStorage === "undefined") return /* @__PURE__ */ new Map();
-  try {
-    const raw = localStorage.getItem(LS_KEY2);
-    if (!raw) return /* @__PURE__ */ new Map();
-    const o = JSON.parse(raw);
-    const m = /* @__PURE__ */ new Map();
-    for (const [k, v] of Object.entries(o)) {
-      if (typeof v === "string" && v.startsWith("0x") && v.length > 4) m.set(k.toUpperCase(), v);
+var SPOT_BATCH_WINDOW_MS = 40;
+var SPOT_RESULT_TTL_MS = 6e4;
+var spotQueue = /* @__PURE__ */ new Map();
+var spotTimer = null;
+var spotResults = /* @__PURE__ */ new Map();
+async function flushSpotQueue() {
+  const queue = spotQueue;
+  spotQueue = /* @__PURE__ */ new Map();
+  spotTimer = null;
+  const coinTypes = [...queue.keys()];
+  const m = await okxPriceInfoByCoinType(coinTypes).catch(() => null);
+  const byNorm = /* @__PURE__ */ new Map();
+  if (m) {
+    for (const [k, v] of m) {
+      if (v.price > 0) byNorm.set(normalizeCoinTypeForMatch(k), v.price);
     }
-    return m;
-  } catch {
-    return /* @__PURE__ */ new Map();
+  }
+  const now2 = Date.now();
+  for (const [ct, waiters2] of queue) {
+    const px = byNorm.get(normalizeCoinTypeForMatch(ct)) ?? null;
+    spotResults.set(ct, { px, until: now2 + SPOT_RESULT_TTL_MS });
+    for (const w of waiters2) w.resolve(px);
   }
 }
-function loadNegative() {
-  if (typeof localStorage === "undefined") return /* @__PURE__ */ new Set();
-  try {
-    const raw = localStorage.getItem(LS_NEGATIVE);
-    if (!raw) return /* @__PURE__ */ new Set();
-    const a = JSON.parse(raw);
-    if (!Array.isArray(a)) return /* @__PURE__ */ new Set();
-    return new Set(a.filter((x) => typeof x === "string").map((x) => x.toUpperCase()));
-  } catch {
-    return /* @__PURE__ */ new Set();
-  }
-}
-function getNegative() {
-  if (!negativeMemory) negativeMemory = loadNegative();
-  return negativeMemory;
-}
-function getMap() {
-  if (!memory) memory = loadFromStorage();
-  return memory;
-}
-function getCachedPythFeedId(symbol) {
-  const k = symbol.toUpperCase().split(/[/]|[\s-]/)[0] ?? "";
-  if (getNegative().has(k)) return null;
-  return getMap().get(k) ?? null;
+function okxCurrentSpotUsd(coinType) {
+  const cached2 = spotResults.get(coinType);
+  if (cached2 && cached2.until > Date.now()) return Promise.resolve(cached2.px);
+  return new Promise((resolve) => {
+    const list = spotQueue.get(coinType);
+    if (list) list.push({ resolve });
+    else spotQueue.set(coinType, [{ resolve }]);
+    if (!spotTimer) spotTimer = setTimeout(() => void flushSpotQueue(), SPOT_BATCH_WINDOW_MS);
+  });
 }
 
-// src/services/pythBenchmark.ts
-function resolveFeed(symbol) {
-  return getPythStaticFeedId(symbol) ?? getCachedPythFeedId(symbol);
-}
-var pythLimiter = createRateLimiter(200);
-var PYTH_FETCH_TIMEOUT_MS = 1e4;
-async function getPythBenchmarkUsd(symbol, timestampSec) {
-  const id = resolveFeed(symbol);
-  if (!id) return null;
-  const feedId = id.startsWith("0x") ? id.slice(2) : id;
-  return pythLimiter(async () => {
+// src/services/priceService.ts
+init_okxDexApi();
+
+// src/services/llamaHistorical.ts
+init_externalFetchUrl();
+var LLAMA_TIMEOUT_MS = 8e3;
+var SEARCH_WIDTH = "6h";
+var limiter = createRateLimiter(60);
+async function getLlamaHistoricalQuote(coinType, timestampSec) {
+  if (!coinType || !Number.isFinite(timestampSec) || timestampSec <= 0) return null;
+  const key = `sui:${coinType}`;
+  const u = new URL(`https://coins.llama.fi/prices/historical/${Math.floor(timestampSec)}/${encodeURIComponent(key)}`);
+  u.searchParams.set("searchWidth", SEARCH_WIDTH);
+  return limiter(async () => {
     const ac = new AbortController();
-    const t = setTimeout(() => ac.abort(), PYTH_FETCH_TIMEOUT_MS);
+    const t = setTimeout(() => ac.abort(), LLAMA_TIMEOUT_MS);
     try {
-      const u = new URL(`https://hermes.pyth.network/v2/updates/price/${Math.floor(timestampSec)}`);
-      u.searchParams.append("ids[]", feedId);
-      u.searchParams.set("parsed", "true");
       const r = await fetch(extFetchUrl(u.toString()), { signal: ac.signal });
       if (!r.ok) return null;
       const j = await r.json();
-      const p = j.parsed?.[0]?.price;
-      if (!p) return null;
-      const px = Number(p.price) * 10 ** p.expo;
-      return Number.isFinite(px) && px > 0 ? px : null;
+      const row = j.coins?.[key];
+      const px = row?.price;
+      if (typeof px !== "number" || !Number.isFinite(px) || px <= 0) return null;
+      const ts = typeof row?.timestamp === "number" && row.timestamp > 0 ? Math.floor(row.timestamp) : Math.floor(timestampSec);
+      return { usd: px, quoteAsOfSec: ts };
     } catch {
       return null;
     } finally {
@@ -3948,6 +4784,7 @@ async function getPythBenchmarkUsd(symbol, timestampSec) {
 }
 
 // src/services/poolAddressCache.ts
+init_constants();
 var LS = "sui_lp_pool_for_token_v1";
 var DAY = 24 * 60 * 60 * 1e3;
 var TTL = 24 * DAY;
@@ -3991,11 +4828,24 @@ var poolAddressCache = {
 
 // src/services/priceCache.ts
 var HOUR_MS = 60 * 60 * 1e3;
-var LS_KEY3 = "sui_lp_price_cache_v6";
+var LS_KEY2 = "sui_lp_price_cache_v6";
 var CACHE_TTL_MS = 30 * 24 * HOUR_MS;
-function readStore() {
+var backend = null;
+var memStore = null;
+function hasLocalStorage() {
   try {
-    const raw = localStorage.getItem(LS_KEY3);
+    return typeof localStorage !== "undefined" && localStorage != null;
+  } catch {
+    return false;
+  }
+}
+function readStore() {
+  if (!hasLocalStorage()) {
+    if (!memStore) memStore = backend ? backend.load() : {};
+    return memStore;
+  }
+  try {
+    const raw = localStorage.getItem(LS_KEY2);
     if (!raw) return {};
     return JSON.parse(raw);
   } catch {
@@ -4003,8 +4853,13 @@ function readStore() {
   }
 }
 function writeStore(s) {
+  if (!hasLocalStorage()) {
+    memStore = s;
+    backend?.save(s);
+    return;
+  }
   try {
-    localStorage.setItem(LS_KEY3, JSON.stringify(s));
+    localStorage.setItem(LS_KEY2, JSON.stringify(s));
   } catch {
   }
 }
@@ -4089,13 +4944,12 @@ async function getUsdPerTokenAtTimestamp(tokenSymbol, coinType, timestampSec) {
     priceCache.set(tokenSymbol, tsSec, usdPerToken, cacheQuote);
     return { usdPerToken, source, approximate, quoteAsOfUnixSec };
   };
-  let pythPx;
   try {
-    pythPx = asPositive(await getPythBenchmarkUsd(tokenSymbol, tsSec));
+    const ll = await getLlamaHistoricalQuote(coinType, tsSec);
+    const px = ll != null ? asPositive(ll.usd) : null;
+    if (px != null) return finalize(px, "defillama", false, ll.quoteAsOfSec);
   } catch {
-    pythPx = null;
   }
-  if (pythPx != null) return finalize(pythPx, "pyth", false, tsSec);
   if (isOkxDexConfigured() && !isOkxCircuitOpen()) {
     try {
       const c = await okxDexHistoricalClosestUsd(coinType, tsSec);
@@ -4221,6 +5075,10 @@ async function fetchOhlcvAggregatedRow(poolAddress, timestampSec, aggregateHours
     }
   });
 }
+
+// src/services/currentService.ts
+init_externalFetchUrl();
+init_concurrency();
 
 // src/utils/lendingCashflowUsd.ts
 function buildLendingCashflowUsd(input) {
@@ -4617,6 +5475,26 @@ function readPrice(meta) {
   const p = Number(meta?.tokenInfo?.price);
   return Number.isFinite(p) && p > 0 ? p : null;
 }
+function currentRewardCoinMeta(allMarkets, coin) {
+  const meta = marketByToken(allMarkets, coin);
+  return {
+    symbol: meta?.tokenInfo?.symbol ?? coin.split("::").pop() ?? "?",
+    decimals: readDecimals(meta),
+    price: readPrice(meta)
+  };
+}
+var SHARED_READ_TTL_MS = 2e4;
+var sharedReads = /* @__PURE__ */ new Map();
+function memoRead(key, fn) {
+  const hit = sharedReads.get(key);
+  if (hit && Date.now() - hit.at < SHARED_READ_TTL_MS) return hit.p;
+  const p = fn();
+  sharedReads.set(key, { at: Date.now(), p });
+  p.catch(() => {
+    if (sharedReads.get(key)?.p === p) sharedReads.delete(key);
+  });
+  return p;
+}
 async function readMiningRewardApr(marketId, side, reserveCoin, exchangeOrIndex, reserveDecimals, reservePrice, listed, priceCatalog) {
   const catalog = priceCatalog ?? listed;
   const readAtMs = Date.now();
@@ -4625,7 +5503,7 @@ async function readMiningRewardApr(marketId, side, reserveCoin, exchangeOrIndex,
   }
   let market;
   try {
-    market = await suiClient.getObject({ id: marketId, options: { showContent: true } });
+    market = await memoRead(`obj:${marketId}`, () => suiClient.getObject({ id: marketId, options: { showContent: true } }));
   } catch (err) {
     return { status: "unavailable", apr: null, parts: [], reason: err instanceof Error ? err.message : String(err), readAtMs };
   }
@@ -4644,10 +5522,14 @@ async function readMiningRewardApr(marketId, side, reserveCoin, exchangeOrIndex,
   }
   let df;
   try {
-    df = await suiClient.getDynamicFieldObject({
-      parentId: tableId,
-      name: { type: "0x1::type_name::TypeName", value: { name: normTypeName(reserveCoin) } }
-    });
+    const dfName = normTypeName(reserveCoin);
+    df = await memoRead(
+      `df:${tableId}:${dfName}`,
+      () => suiClient.getDynamicFieldObject({
+        parentId: tableId,
+        name: { type: "0x1::type_name::TypeName", value: { name: dfName } }
+      })
+    );
   } catch (err) {
     const classified = classifySuiObjectRead(null, err);
     if (classified.kind === "not_found") return { status: "empty", apr: 0, parts: [], readAtMs };
@@ -4802,7 +5684,7 @@ function claimableRows(pool, ob, now2) {
     if (claim <= 0n) continue;
     const coin = typeNameString(f.coin_type);
     if (!coin) continue;
-    out.push({ coin, raw: claim });
+    out.push({ coin, raw: claim, idx: i });
   }
   return out;
 }
@@ -4817,7 +5699,7 @@ async function readClaimableMining(marketId, obligationId, deposits, borrows, li
   }
   let market;
   try {
-    market = await suiClient.getObject({ id: marketId, options: { showContent: true } });
+    market = await memoRead(`obj:${marketId}`, () => suiClient.getObject({ id: marketId, options: { showContent: true } }));
   } catch (err) {
     return {
       status: "unavailable",
@@ -4834,6 +5716,7 @@ async function readClaimableMining(marketId, obligationId, deposits, borrows, li
   if (!miner) return { status: "unavailable", rows: [], reason: "malformed liquidity miner", readAtMs };
   const now2 = BigInt(Date.now());
   const rawByCoin = /* @__PURE__ */ new Map();
+  const targets = [];
   let sawError = false;
   let errorReason = "";
   let sawPool = false;
@@ -4846,10 +5729,13 @@ async function readClaimableMining(marketId, obligationId, deposits, borrows, li
     for (const coin of coins) {
       let poolDf;
       try {
-        poolDf = await suiClient.getDynamicFieldObject({
-          parentId,
-          name: { type: "0x1::type_name::TypeName", value: { name: coin } }
-        });
+        poolDf = await memoRead(
+          `df:${parentId}:${coin}`,
+          () => suiClient.getDynamicFieldObject({
+            parentId,
+            name: { type: "0x1::type_name::TypeName", value: { name: coin } }
+          })
+        );
       } catch (err) {
         const classified = classifySuiObjectRead(null, err);
         if (classified.kind === "not_found") continue;
@@ -4901,6 +5787,13 @@ async function readClaimableMining(marketId, obligationId, deposits, borrows, li
       }
       for (const row of claimableRows(pool, ob, now2)) {
         rawByCoin.set(row.coin, (rawByCoin.get(row.coin) ?? 0n) + row.raw);
+        targets.push({
+          rewardType: side === "deposit" ? 0 : 1,
+          reserveCoin: coin,
+          rewardCoin: row.coin,
+          rewardIndex: row.idx,
+          raw: row.raw.toString()
+        });
       }
     }
   }
@@ -4908,18 +5801,16 @@ async function readClaimableMining(marketId, obligationId, deposits, borrows, li
   let missingMeta = false;
   for (const [coin, raw] of rawByCoin) {
     if (raw <= 0n) continue;
-    const meta = marketByToken(listed, coin);
-    const decimals = readDecimals(meta);
-    const price = readPrice(meta);
-    const amount = decimals != null ? humanFromRaw(raw, decimals) : null;
-    if (decimals == null || price == null || amount == null) missingMeta = true;
+    const meta = currentRewardCoinMeta(listed, coin);
+    const amount = meta.decimals != null ? humanFromRaw(raw, meta.decimals) : null;
+    if (meta.decimals == null || meta.price == null || amount == null) missingMeta = true;
     rows.push({
       coinType: with0x(coin),
-      symbol: meta?.tokenInfo?.symbol ?? coin.split("::").pop() ?? "?",
+      symbol: meta.symbol,
       amountRaw: raw.toString(),
-      decimals,
+      decimals: meta.decimals,
       amount,
-      valueUSD: amount != null && price != null ? amount * price : null
+      valueUSD: amount != null && meta.price != null ? amount * meta.price : null
     });
   }
   if (sawError && rows.length === 0 && !sawPool) {
@@ -4927,9 +5818,9 @@ async function readClaimableMining(marketId, obligationId, deposits, borrows, li
   }
   if (rows.length === 0 && !sawError) return { status: "empty", rows: [], readAtMs };
   if (sawError || missingMeta) {
-    return { status: "partial", rows, reason: errorReason || "reward metadata incomplete", readAtMs };
+    return { status: "partial", rows, targets, reason: errorReason || "reward metadata incomplete", readAtMs };
   }
-  return { status: "complete", rows, readAtMs };
+  return { status: "complete", rows, targets, readAtMs };
 }
 function mergeClaimed(rows) {
   const map = /* @__PURE__ */ new Map();
@@ -5066,12 +5957,15 @@ async function currentAdvisorTimed(step, fn) {
     logCurrentAdvisorStep(step, performance.now() - t0);
   }
 }
+var claimGroupsByWallet = /* @__PURE__ */ new Map();
 async function getCurrentPositions(walletAddress, options) {
   const obligations = await currentAdvisorTimed(
     "obligations-rest",
     () => getJson(`/user/getObligationList/${walletAddress}`)
   );
   const rows = (obligations ?? []).filter((o) => o.obligationObject && o.marketType);
+  const claimGroups = [];
+  claimGroupsByWallet.set(walletAddress.toLowerCase(), claimGroups);
   if (rows.length === 0) return EMPTY_CURRENT_SNAP;
   const supplies = [];
   const borrows = [];
@@ -5096,102 +5990,122 @@ async function getCurrentPositions(walletAddress, options) {
       else claimableMs += delta;
     }
   }
+  async function readObligationBundle(ob) {
+    const marketType = ob.marketType;
+    const listed = rowsForMarket(allListed, marketType);
+    const priceRows = listed.length > 0 ? listed : allListed;
+    const marketObjectId = resolveMarketObjectId(marketType, listed) ?? await readLendingMarketId(ob.obligationObject) ?? void 0;
+    if (!marketObjectId) {
+      throw new Error(`Current market object missing for ${marketType}`);
+    }
+    const overview = await currentAdvisorAccum(
+      "devInspect",
+      () => inspectOverview(marketType, marketObjectId, ob.obligationObject, walletAddress)
+    );
+    const assets = [
+      ...overview.deposits.map((d) => d.asset),
+      ...overview.borrows.map((b) => b.asset)
+    ];
+    const rates = await currentAdvisorAccum(
+      "devInspect",
+      () => inspectRates(marketType, marketObjectId, assets, walletAddress)
+    );
+    const chainApr = await currentAdvisorAccum(
+      "devInspect",
+      async () => listed.length > 0 ? /* @__PURE__ */ new Map() : await inspectInterestApr(marketType, marketObjectId, assets, walletAddress).catch((err) => {
+        console.warn("[Current] interest overview", marketType, err);
+        return /* @__PURE__ */ new Map();
+      })
+    );
+    const depositMiningReads = overview.deposits.map((dep) => {
+      const own = marketByToken(listed, dep.asset);
+      const meta = own ?? marketByToken(priceRows, dep.asset);
+      const rate = rates.get(typeKey(dep.asset));
+      const exchange = rate?.exchange ?? DECIMAL_SCALE;
+      const decimals = Number(meta?.tokenInfo?.decimals ?? 9);
+      const price = Number(meta?.tokenInfo?.price ?? 0);
+      return readMiningRewardApr(
+        marketObjectId,
+        "deposit",
+        dep.asset,
+        exchange,
+        decimals,
+        price,
+        priceRows,
+        allListed
+      ).catch((err) => ({
+        status: "unavailable",
+        apr: null,
+        parts: [],
+        reason: err instanceof Error ? err.message : String(err),
+        readAtMs: Date.now()
+      }));
+    });
+    const borrowMiningReads = overview.borrows.map((bor) => {
+      const own = marketByToken(listed, bor.asset);
+      const meta = own ?? marketByToken(priceRows, bor.asset);
+      const decimals = Number(meta?.tokenInfo?.decimals ?? 6);
+      const price = Number(meta?.tokenInfo?.price ?? 0);
+      return readMiningRewardApr(
+        marketObjectId,
+        "borrow",
+        bor.asset,
+        DECIMAL_SCALE,
+        decimals,
+        price,
+        priceRows,
+        allListed
+      ).catch((err) => ({
+        status: "unavailable",
+        apr: null,
+        parts: [],
+        reason: err instanceof Error ? err.message : String(err),
+        readAtMs: Date.now()
+      }));
+    });
+    const claimableP = currentAdvisorAccum(
+      "claimable",
+      () => readClaimableMining(
+        marketObjectId,
+        ob.obligationObject,
+        overview.deposits.map((d) => d.asset),
+        overview.borrows.map((b) => b.asset),
+        // Full book: Market01 pays SUI but does not list SUI.
+        allListed
+      ).catch((err) => ({
+        status: "unavailable",
+        rows: [],
+        reason: err instanceof Error ? err.message : String(err),
+        readAtMs: Date.now()
+      }))
+    );
+    const miningP = currentAdvisorAccum(
+      "mining",
+      () => Promise.all([Promise.all(depositMiningReads), Promise.all(borrowMiningReads)])
+    );
+    const { depositMiningResults, borrowMiningResults, mined } = await parallelCurrentMiningAndClaimableFromBundle(miningP, claimableP);
+    return { marketType, listed, priceRows, marketObjectId, overview, rates, chainApr, depositMiningResults, borrowMiningResults, mined };
+  }
+  const bundles = rows.map((ob) => {
+    const pr = readObligationBundle(ob);
+    pr.catch(() => {
+    });
+    return pr;
+  });
   let skippedObligations = 0;
-  for (const ob of rows) {
+  for (let obIdx = 0; obIdx < rows.length; obIdx++) {
+    const ob = rows[obIdx];
     const marketType = ob.marketType;
     try {
       if (!marketTypes.includes(marketType)) marketTypes.push(marketType);
-      const listed = rowsForMarket(allListed, marketType);
-      const priceRows = listed.length > 0 ? listed : allListed;
-      const marketObjectId = resolveMarketObjectId(marketType, listed) ?? await readLendingMarketId(ob.obligationObject) ?? void 0;
-      if (!marketObjectId) {
-        throw new Error(`Current market object missing for ${marketType}`);
-      }
-      const overview = await currentAdvisorAccum(
-        "devInspect",
-        () => inspectOverview(marketType, marketObjectId, ob.obligationObject, walletAddress)
-      );
-      const assets = [
-        ...overview.deposits.map((d) => d.asset),
-        ...overview.borrows.map((b) => b.asset)
-      ];
-      const rates = await currentAdvisorAccum(
-        "devInspect",
-        () => inspectRates(marketType, marketObjectId, assets, walletAddress)
-      );
-      const chainApr = await currentAdvisorAccum(
-        "devInspect",
-        async () => listed.length > 0 ? /* @__PURE__ */ new Map() : await inspectInterestApr(marketType, marketObjectId, assets, walletAddress).catch((err) => {
-          console.warn("[Current] interest overview", marketType, err);
-          return /* @__PURE__ */ new Map();
-        })
-      );
-      const depositMiningReads = overview.deposits.map((dep) => {
-        const own = marketByToken(listed, dep.asset);
-        const meta = own ?? marketByToken(priceRows, dep.asset);
-        const rate = rates.get(typeKey(dep.asset));
-        const exchange = rate?.exchange ?? DECIMAL_SCALE;
-        const decimals = Number(meta?.tokenInfo?.decimals ?? 9);
-        const price = Number(meta?.tokenInfo?.price ?? 0);
-        return readMiningRewardApr(
-          marketObjectId,
-          "deposit",
-          dep.asset,
-          exchange,
-          decimals,
-          price,
-          priceRows,
-          allListed
-        ).catch((err) => ({
-          status: "unavailable",
-          apr: null,
-          parts: [],
-          reason: err instanceof Error ? err.message : String(err),
-          readAtMs: Date.now()
-        }));
+      const { listed, priceRows, marketObjectId, overview, rates, chainApr, depositMiningResults, borrowMiningResults, mined } = await bundles[obIdx];
+      claimGroups.push({
+        obligationId: ob.obligationObject,
+        marketType,
+        marketObjectId,
+        deposits: overview.deposits.map((d) => d.asset),
+        borrows: overview.borrows.map((b) => b.asset)
       });
-      const borrowMiningReads = overview.borrows.map((bor) => {
-        const own = marketByToken(listed, bor.asset);
-        const meta = own ?? marketByToken(priceRows, bor.asset);
-        const decimals = Number(meta?.tokenInfo?.decimals ?? 6);
-        const price = Number(meta?.tokenInfo?.price ?? 0);
-        return readMiningRewardApr(
-          marketObjectId,
-          "borrow",
-          bor.asset,
-          DECIMAL_SCALE,
-          decimals,
-          price,
-          priceRows,
-          allListed
-        ).catch((err) => ({
-          status: "unavailable",
-          apr: null,
-          parts: [],
-          reason: err instanceof Error ? err.message : String(err),
-          readAtMs: Date.now()
-        }));
-      });
-      const claimableP = currentAdvisorAccum(
-        "claimable",
-        () => readClaimableMining(
-          marketObjectId,
-          ob.obligationObject,
-          overview.deposits.map((d) => d.asset),
-          overview.borrows.map((b) => b.asset),
-          priceRows
-        ).catch((err) => ({
-          status: "unavailable",
-          rows: [],
-          reason: err instanceof Error ? err.message : String(err),
-          readAtMs: Date.now()
-        }))
-      );
-      const miningP = currentAdvisorAccum(
-        "mining",
-        () => Promise.all([Promise.all(depositMiningReads), Promise.all(borrowMiningReads)])
-      );
-      const { depositMiningResults, borrowMiningResults, mined } = await parallelCurrentMiningAndClaimableFromBundle(miningP, claimableP);
       for (let i = 0; i < overview.deposits.length; i++) {
         const dep = overview.deposits[i];
         const mining = depositMiningResults[i];
@@ -5571,7 +6485,14 @@ function dynamicFieldChildId(item) {
   return fromName;
 }
 
+// src/services/tokenClassifier.ts
+init_constants();
+
 // src/services/verifiedTokenList.ts
+init_hardcodedVerifiedCoins();
+init_aftermathSpot();
+init_constants();
+init_http();
 import { normalizeSuiAddress as normalizeSuiAddress2 } from "@mysten/sui/utils";
 var LS_VERIFIED = "suiet_verified_coins";
 var LS_BLOCK = "suiet_blocklist_coins";
@@ -6139,14 +7060,33 @@ function currentHourBucket(nowMs = Date.now()) {
 }
 
 // src/services/serverSuiClient.ts
+init_portfolioSuiReadClient();
 function createServerSuiClient() {
   return getPortfolioReadSuiClient();
 }
 
+// src/utils/devTiming.ts
+function enabled() {
+  return typeof process !== "undefined" && process.env?.VITEST !== "true" && process.env?.SUI_LP_ADVISOR_DEV_TIMING === "1";
+}
+async function devTime(label, fn) {
+  if (!enabled()) return fn();
+  const t0 = Date.now();
+  try {
+    return await fn();
+  } finally {
+    console.log(`[step] ${label}: ${Date.now() - t0}ms`);
+  }
+}
+
 // src/services/momentumService.ts
+init_suiClient();
+init_jsonRpcCompat();
 import { MmtSDK, TickMath as TickMath2, Utils as Utils2 } from "@mmt-finance/clmm-sdk";
 
 // src/services/momentumPositionsRpcFallback.ts
+init_constants();
+init_suiClient();
 import { TickMath, Utils } from "@mmt-finance/clmm-sdk";
 import { convertI32ToSigned } from "@mmt-finance/clmm-sdk/dist/utils/math/tickMath";
 import BN from "bn.js";
@@ -6487,6 +7427,9 @@ async function momentumUserRowsFromOwnedRpc(walletAddress, sdk2, poolsData, toke
   return out;
 }
 
+// src/services/momentumService.ts
+init_resolveSpots();
+
 // src/services/momentumPoolFee.ts
 function momentumPoolFeeFraction(lpFeesPercent) {
   const s = lpFeesPercent.trim();
@@ -6636,23 +7579,30 @@ async function getMomentumPositions(walletAddress, options) {
     console.warn("Momentum Pool.getAllPools/getAllTokens failed", e);
     return [];
   }
-  let fromSdk;
-  try {
-    fromSdk = await sdk2.Position.getAllUserPositions(
-      walletAddress,
-      poolsData,
-      tokensData
-    );
-  } catch (e) {
-    console.warn("Momentum getAllUserPositions failed", e);
-    fromSdk = [];
-  }
-  let fromRpc = [];
-  try {
-    fromRpc = await momentumUserRowsFromOwnedRpc(walletAddress, sdk2, poolsData, tokensData);
-  } catch (e2) {
-    console.warn("Momentum RPC fallback (owned objects) failed", e2);
-  }
+  const [fromSdk, fromRpc] = await Promise.all([
+    (async () => {
+      try {
+        return await devTime(
+          "momentum/sdk-positions",
+          () => sdk2.Position.getAllUserPositions(walletAddress, poolsData, tokensData)
+        );
+      } catch (e) {
+        console.warn("Momentum getAllUserPositions failed", e);
+        return [];
+      }
+    })(),
+    (async () => {
+      try {
+        return await devTime(
+          "momentum/rpc-fallback",
+          () => momentumUserRowsFromOwnedRpc(walletAddress, sdk2, poolsData, tokensData)
+        );
+      } catch (e2) {
+        console.warn("Momentum RPC fallback (owned objects) failed", e2);
+        return [];
+      }
+    })()
+  ]);
   const mergedById = /* @__PURE__ */ new Map();
   for (const r of fromSdk) {
     if (r?.objectId) mergedById.set(normalizedMomentumPositionKey(String(r.objectId)), r);
@@ -6667,7 +7617,7 @@ async function getMomentumPositions(walletAddress, options) {
   const poolIdsHint = [...new Set(rawRows.map((r) => String(r.poolId).trim()))];
   let poolsHydrated;
   try {
-    const byNorm = await hydrateMomentumPoolsByApiId(sdk2, poolsData, poolIdsHint);
+    const byNorm = await devTime("momentum/hydrate-pools", () => hydrateMomentumPoolsByApiId(sdk2, poolsData, poolIdsHint));
     poolsHydrated = [...byNorm.values()];
   } catch {
     poolsHydrated = poolsData;
@@ -6693,7 +7643,7 @@ async function getMomentumPositions(walletAddress, options) {
   }
   let spotsMap;
   try {
-    spotsMap = await resolveSpots(
+    spotsMap = await devTime("momentum/spots", () => resolveSpots(
       [...allSpotTypes],
       (ct) => {
         try {
@@ -6711,7 +7661,7 @@ async function getMomentumPositions(walletAddress, options) {
         }
       },
       spotOpts
-    );
+    ));
   } catch {
     spotsMap = /* @__PURE__ */ new Map();
   }
@@ -6855,6 +7805,7 @@ async function getMomentumPositions(walletAddress, options) {
 }
 
 // src/services/bluefinService.ts
+init_suiClient();
 import { TickMath as TickMath3, Utils as Utils3 } from "@mmt-finance/clmm-sdk";
 
 // src/services/objectVersionCache.ts
@@ -6907,14 +7858,21 @@ function getObjectVersionCache() {
   if (!shared3) shared3 = new ObjectVersionCache();
   return shared3;
 }
+var CHUNK_CONCURRENCY = 4;
 async function multiGetChunked(client, ids, options) {
-  const out = [];
-  for (let i = 0; i < ids.length; i += CHUNK2) {
-    const part = ids.slice(i, i + CHUNK2);
-    const res = await client.multiGetObjects({ ids: part, options });
-    out.push(...res);
-  }
-  return out;
+  const parts = [];
+  for (let i = 0; i < ids.length; i += CHUNK2) parts.push(ids.slice(i, i + CHUNK2));
+  const results = new Array(parts.length);
+  let next = 0;
+  const worker = async () => {
+    for (; ; ) {
+      const idx = next++;
+      if (idx >= parts.length) return;
+      results[idx] = await client.multiGetObjects({ ids: parts[idx], options });
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, parts.length) }, worker));
+  return results.flat();
 }
 async function multiGetObjectsHydrated(client, ids, opts) {
   if (!ids.length) return [];
@@ -6986,7 +7944,11 @@ async function listOwnedMoveObjects(client, args) {
   return multiGetObjectsHydrated(client, ids, { incremental: true, showType: true });
 }
 
+// src/services/bluefinService.ts
+init_resolveSpots();
+
 // src/services/bluefinAccruedInspect.ts
+init_constants();
 import { bcs as bcs3 } from "@mysten/sui/bcs";
 import { Transaction as Transaction2 } from "@mysten/sui/transactions";
 import { normalizeStructTag as normalizeStructTag3, normalizeSuiAddress as normalizeSuiAddress6, SUI_CLOCK_OBJECT_ID } from "@mysten/sui/utils";
@@ -7193,6 +8155,8 @@ function logBluefinUnclaimedDebug(s) {
 
 // src/services/bluefinAccruedSdk.ts
 import Decimal5 from "decimal.js";
+init_resolveSpots();
+init_suiClient();
 
 // src/services/lpFeatureFlags.ts
 function envTruthy(v) {
@@ -7218,6 +8182,8 @@ function isLocalUnclaimedEnabled() {
 }
 
 // src/services/bluefinService.ts
+init_constants();
+init_hardcodedVerifiedCoins();
 import { normalizeSuiAddress as normalizeSuiAddress7, normalizeStructTag as normalizeStructTag4 } from "@mysten/sui/utils";
 import Decimal6 from "decimal.js";
 import BN3 from "bn.js";
@@ -7678,7 +8644,12 @@ async function getBluefinSpotPositions(walletAddress, options) {
 }
 
 // src/services/cetusService.ts
+init_suiClient();
 import { TickMath as TickMath4, Utils as Utils4 } from "@mmt-finance/clmm-sdk";
+init_resolveSpots();
+init_constants();
+init_concurrency();
+init_coinMetadata();
 import { normalizeStructTag as normalizeStructTag6, normalizeSuiAddress as normalizeSuiAddress10 } from "@mysten/sui/utils";
 
 // src/services/cetusAccruedInspect.ts
@@ -7794,6 +8765,9 @@ async function fetchCetusAccruedFees(client, input) {
   return { ok: false, error: lastErr };
 }
 
+// src/services/cetusLocalUnclaimed.ts
+init_constants();
+
 // src/clmm/feeGrowth.ts
 var U128_MOD = 2n ** 128n;
 var U64_MAX = 18446744073709551615n;
@@ -7907,6 +8881,8 @@ async function fetchCetusLocalAccrued(client, args) {
 }
 
 // src/services/cetusCompensationLock.ts
+init_concurrency();
+init_constants();
 import { normalizeSuiAddress as normalizeSuiAddress9 } from "@mysten/sui/utils";
 var SNAPSHOT_DOF_KEY = "position_liquidity_snapshot";
 function normId2(id) {
@@ -8321,7 +9297,7 @@ async function fetchPools2(poolIds, incremental = false) {
 async function getCetusPositions(walletAddress, options) {
   let positions;
   try {
-    positions = await fetchPositionNFTs(walletAddress, options?.incremental === true);
+    positions = await devTime("cetus-clmm/position-nfts", () => fetchPositionNFTs(walletAddress, options?.incremental === true));
   } catch (e) {
     console.warn("[cetus] fetchPositionNFTs failed", e);
     return [];
@@ -8330,7 +9306,7 @@ async function getCetusPositions(walletAddress, options) {
   const uniquePoolIds = [...new Set(positions.map((p) => p.poolId))];
   let poolMap;
   try {
-    poolMap = await fetchPools2(uniquePoolIds, options?.incremental === true);
+    poolMap = await devTime("cetus-clmm/pools", () => fetchPools2(uniquePoolIds, options?.incremental === true));
   } catch (e) {
     console.warn("[cetus] fetchPools failed", e);
     return [];
@@ -8345,7 +9321,16 @@ async function getCetusPositions(walletAddress, options) {
       if (ct) allCoinTypes.add(ct);
     }
   }
-  const metaMap = await (async () => {
+  const closeLockedP = devTime(
+    "cetus-clmm/close-locked",
+    () => fetchCetusCloseLockedIds(
+      suiClient,
+      positions.map((p) => ({ poolId: p.poolId, positionId: p.objectId }))
+    )
+  );
+  closeLockedP.catch(() => {
+  });
+  const metaMap = await devTime("cetus-clmm/coin-metadata", async () => {
     const mm = /* @__PURE__ */ new Map();
     await mapPool([...allCoinTypes], RPC_CONCURRENCY, async (ct) => {
       const m = await resolveCoinMetadata(suiClient, ct);
@@ -8357,15 +9342,14 @@ async function getCetusPositions(walletAddress, options) {
       });
     });
     return mm;
-  })();
+  });
   const getMeta = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType2(ct), decimals: -1, iconUrl: null };
   const spotOpts = options?.forceRefreshPrices ? { forceRefresh: true } : void 0;
   let spotsMap;
   try {
-    spotsMap = await resolveSpots(
-      [...allCoinTypes],
-      (ct) => getMeta(ct).symbol,
-      spotOpts
+    spotsMap = await devTime(
+      "cetus-clmm/spots",
+      () => resolveSpots([...allCoinTypes], (ct) => getMeta(ct).symbol, spotOpts)
     );
   } catch {
     spotsMap = /* @__PURE__ */ new Map();
@@ -8374,10 +9358,7 @@ async function getCetusPositions(walletAddress, options) {
   const out = [];
   let closeLockedIds;
   try {
-    closeLockedIds = await fetchCetusCloseLockedIds(
-      suiClient,
-      positions.map((p) => ({ poolId: p.poolId, positionId: p.objectId }))
-    );
+    closeLockedIds = await closeLockedP;
     if (closeLockedIds.size > 0) {
       console.info("[cetus] hiding compensation-certificate positions:", closeLockedIds.size);
     }
@@ -8592,323 +9573,24 @@ async function getCetusPositions(walletAddress, options) {
   return out;
 }
 
-// src/services/cetusDlmmService.ts
-import { BinUtils, FEE_PRECISION } from "@cetusprotocol/dlmm-sdk";
-
-// src/services/cetusDlmmSdk.ts
-import { CetusDlmmSDK } from "@cetusprotocol/dlmm-sdk";
-var cached = null;
-function getCetusDlmmSdk() {
-  if (cached) return cached;
-  cached = CetusDlmmSDK.createSDK({ env: "mainnet" });
-  return cached;
-}
-
-// src/services/cetusDlmmService.ts
-import Decimal8 from "decimal.js";
-var MAX_SANE_POSITION_USD4 = 5e7;
-var MAX_SANE_HUMAN_TOKENS4 = 1e18;
-var STABLECOIN_SYMS = /* @__PURE__ */ new Set([
-  "USDC",
-  "USDT",
-  "DAI",
-  "BUSD",
-  "TUSD",
-  "FDUSD",
-  "PYUSD",
-  "USDD",
-  "FRAX",
-  "LUSD",
-  "SUSD",
-  "GUSD"
-]);
-function symbolFromCoinType3(ct) {
-  const parts = ct.split("::");
-  return parts[2] ?? parts[1] ?? "\u2014";
-}
-function clampUsd3(v) {
-  if (!Number.isFinite(v) || v < 0) return 0;
-  return v <= MAX_SANE_POSITION_USD4 ? v : 0;
-}
-function safeHumanFromStringRaw2(raw, decimals) {
-  const s = raw?.trim();
-  if (!s || !/^\d+$/.test(s) || !Number.isFinite(decimals) || decimals < 0) return 0;
-  try {
-    const n2 = new Decimal8(s).div(new Decimal8(10).pow(decimals)).toNumber();
-    if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS4) return 0;
-    return n2;
-  } catch {
-    return 0;
-  }
-}
-function spotPriceSafe2(raw) {
-  if (raw == null || !Number.isFinite(raw) || raw <= 0 || raw > 1e8) return null;
-  return raw;
-}
-function binPriceBPerA(binId, binStep, decimalsA, decimalsB) {
-  try {
-    const n2 = Number(BinUtils.getPriceFromBinId(binId, binStep, decimalsA, decimalsB));
-    return Number.isFinite(n2) && n2 > 0 ? n2 : 0;
-  } catch {
-    return 0;
-  }
-}
-function feeFractionFromRaw(raw) {
-  if (!raw || !/^\d+$/.test(raw)) return 0;
-  const n2 = Number(raw) / FEE_PRECISION;
-  return Number.isFinite(n2) && n2 >= 0 ? n2 : 0;
-}
-function requireDlmmOwnerRows(rows, err) {
-  if (err) throw err instanceof Error ? err : new Error(String(err));
-  return rows ?? [];
-}
-async function getCetusDlmmPositions(walletAddress, options) {
-  const sdk2 = getCetusDlmmSdk();
-  sdk2.setSenderAddress(walletAddress);
-  let listed;
-  let listErr;
-  try {
-    listed = await sdk2.Position.getOwnerPositionList(walletAddress);
-  } catch (e) {
-    listErr = e;
-  }
-  const rows = requireDlmmOwnerRows(listed, listErr);
-  if (!rows.length) return [];
-  const poolCache = /* @__PURE__ */ new Map();
-  const feeCache = /* @__PURE__ */ new Map();
-  const allCoinTypes = /* @__PURE__ */ new Set();
-  for (const pos of rows) {
-    allCoinTypes.add(pos.coin_type_a);
-    allCoinTypes.add(pos.coin_type_b);
-  }
-  const metaMap = /* @__PURE__ */ new Map();
-  await mapPool([...allCoinTypes], RPC_CONCURRENCY, async (ct) => {
-    const m = await resolveCoinMetadata(suiClient, ct);
-    if (!m) return;
-    metaMap.set(ct, {
-      symbol: m.symbol || symbolFromCoinType3(ct),
-      decimals: m.decimals,
-      iconUrl: m.iconUrl
-    });
-  });
-  const getMeta = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType3(ct), decimals: -1, iconUrl: null };
-  const spotOpts = options?.forceRefreshPrices ? { forceRefresh: true } : void 0;
-  let spotsMap;
-  try {
-    spotsMap = await resolveSpots([...allCoinTypes], (ct) => getMeta(ct).symbol, spotOpts);
-  } catch {
-    spotsMap = /* @__PURE__ */ new Map();
-  }
-  const openedAt = Math.floor(Date.now() / 1e3);
-  const out = [];
-  const feeFetchOpts = [];
-  for (const pos of rows) {
-    try {
-      let pool = poolCache.get(pos.pool_id);
-      if (!pool) {
-        pool = await sdk2.Pool.getPool(pos.pool_id);
-        poolCache.set(pos.pool_id, pool);
-      }
-      const metaA = getMeta(pos.coin_type_a);
-      const metaB = getMeta(pos.coin_type_b);
-      const decA = metaA.decimals;
-      const decB = metaB.decimals;
-      if (decA < 0 || decB < 0) continue;
-      const amounts = await sdk2.Position.getPositionAmounts(pos, pool);
-      const humA = safeHumanFromStringRaw2(amounts.amount_a, decA);
-      const humB = safeHumanFromStringRaw2(amounts.amount_b, decB);
-      const pxaF = spotPriceSafe2(spotsMap.get(pos.coin_type_a)?.price);
-      const pxbF = spotPriceSafe2(spotsMap.get(pos.coin_type_b)?.price);
-      const valueUsd = clampUsd3((pxaF != null ? humA * pxaF : 0) + (pxbF != null ? humB * pxbF : 0));
-      let feeFrac = feeCache.get(pos.pool_id);
-      if (feeFrac == null) {
-        try {
-          const fr = await sdk2.Pool.getTotalFeeRate({
-            pool_id: pool.id,
-            coin_type_a: pos.coin_type_a,
-            coin_type_b: pos.coin_type_b
-          });
-          feeFrac = feeFractionFromRaw(fr.total_fee_rate);
-        } catch {
-          feeFrac = feeFractionFromRaw(pool.base_fee_rate);
-        }
-        feeCache.set(pos.pool_id, feeFrac);
-      }
-      const priceLo = binPriceBPerA(pos.lower_bin_id, pool.bin_step, decA, decB);
-      const priceHi = binPriceBPerA(pos.upper_bin_id, pool.bin_step, decA, decB);
-      const priceCur = binPriceBPerA(pool.active_id, pool.bin_step, decA, decB);
-      if (!(priceLo > 0) || !(priceHi > 0) || !(priceCur > 0)) continue;
-      const inRange = pool.active_id >= pos.lower_bin_id && pool.active_id <= pos.upper_bin_id;
-      const feeLabelPct = `${(feeFrac * 100).toFixed(3)}%`;
-      const pair = `${metaA.symbol}/${metaB.symbol} \xB7 DLMM \xB7 ${feeLabelPct}${inRange ? "" : " \xB7 OUT"}`;
-      const rewardCoins = (pool.reward_manager?.rewards ?? []).map((r) => r.reward_coin).filter((c) => typeof c === "string" && c.length > 0);
-      feeFetchOpts.push({
-        pool_id: pool.id,
-        position_id: pos.id,
-        reward_coins: rewardCoins,
-        coin_type_a: pos.coin_type_a,
-        coin_type_b: pos.coin_type_b
-      });
-      out.push({
-        id: pos.id,
-        protocol: "cetus",
-        poolId: pos.pool_id,
-        pair,
-        tokenA: metaA.symbol,
-        tokenB: metaB.symbol,
-        tokenAAddress: pos.coin_type_a,
-        tokenBAddress: pos.coin_type_b,
-        tokenAIconUrl: metaA.iconUrl,
-        tokenBIconUrl: metaB.iconUrl,
-        tokenADecimals: decA,
-        tokenBDecimals: decB,
-        fee: feeFrac,
-        // Bins are not CLMM ticks — range bar uses priceRangeOverride.
-        tickLower: pos.lower_bin_id,
-        tickUpper: pos.upper_bin_id,
-        currentTick: pool.active_id,
-        currentSqrtPrice: "0",
-        liquidity: pos.liquidity_shares?.[0] ?? "0",
-        status: inRange ? "in_range" : "out_of_range",
-        tokenAAmount: humA,
-        tokenBAmount: humB,
-        currentPriceA_USD: pxaF ?? 0,
-        currentPriceB_USD: pxbF ?? 0,
-        currentValueUSD: valueUsd,
-        depositedUSD: 0,
-        pnlUSD: 0,
-        pnlPct: 0,
-        unclaimedFeeA: 0,
-        unclaimedFeeB: 0,
-        unclaimedFeeUSD: 0,
-        unclaimedRewardUSD: 0,
-        openedAt,
-        daysOpen: 0,
-        lifetimeEarningsUSD: 0,
-        vsHodlDeltaUSD: 0,
-        aprEstimatePct: 0,
-        priceCurrentOverride: priceCur,
-        priceRangeOverride: {
-          min: Math.min(priceLo, priceHi),
-          max: Math.max(priceLo, priceHi),
-          current: priceCur
-        },
-        cetusDlmm: {
-          lowerBinId: pos.lower_bin_id,
-          upperBinId: pos.upper_bin_id,
-          activeBinId: pool.active_id,
-          binStep: pool.bin_step
-        }
-      });
-    } catch (e) {
-      console.warn("[cetus-dlmm] position map failed", pos.id?.slice?.(0, 10), e);
-    }
-  }
-  if (feeFetchOpts.length > 0) {
-    try {
-      const { feeData, rewardData } = await sdk2.Position.fetchPositionFeeAndReward(feeFetchOpts);
-      for (const p of out) {
-        const fee = feeData[p.id];
-        const rew = rewardData[p.id];
-        const feeHumA = safeHumanFromStringRaw2(fee?.fee_owned_a, p.tokenADecimals);
-        const feeHumB = safeHumanFromStringRaw2(fee?.fee_owned_b, p.tokenBDecimals);
-        const pxaF = spotPriceSafe2(spotsMap.get(p.tokenAAddress)?.price);
-        const pxbF = spotPriceSafe2(spotsMap.get(p.tokenBAddress)?.price);
-        let feeUsd = 0;
-        if (pxaF != null) feeUsd += feeHumA * pxaF;
-        if (pxbF != null) feeUsd += feeHumB * pxbF;
-        p.unclaimedFeeA = feeHumA;
-        p.unclaimedFeeB = feeHumB;
-        p.unclaimedFeeUSD = clampUsd3(feeUsd);
-        const rows2 = [];
-        let rewUsd = 0;
-        for (const r of rew?.rewards ?? []) {
-          const ct = r.coin_type;
-          const meta = getMeta(ct);
-          const hum = safeHumanFromStringRaw2(r.reward_owned, meta.decimals);
-          const spot = spotsMap.get(ct);
-          const px = spotPriceSafe2(spot?.price);
-          const amountUsd = px != null ? clampUsd3(hum * px) : 0;
-          rewUsd += amountUsd;
-          rows2.push({
-            token: meta.symbol || symbolFromCoinType3(ct),
-            coinType: ct,
-            amount: hum,
-            amount_usd: amountUsd,
-            price_source: px != null ? String(spot?.priceSource ?? "spot") : "unavailable"
-          });
-        }
-        p.unclaimedRewardUSD = clampUsd3(rewUsd);
-        p.unclaimedRewardRows = rows2;
-      }
-    } catch (e) {
-      console.warn("[cetus-dlmm] fetchPositionFeeAndReward failed", e);
-    }
-  }
-  for (const p of out) {
-    const aIsStable = STABLECOIN_SYMS.has(p.tokenA.toUpperCase());
-    const bIsStable = STABLECOIN_SYMS.has(p.tokenB.toUpperCase());
-    p.cetusOriginalDecimalsA = p.tokenADecimals;
-    p.cetusOriginalDecimalsB = p.tokenBDecimals;
-    if (!aIsStable || bIsStable) continue;
-    const a = {
-      tokenA: p.tokenA,
-      tokenB: p.tokenB,
-      tokenAAddress: p.tokenAAddress,
-      tokenBAddress: p.tokenBAddress,
-      tokenAIconUrl: p.tokenAIconUrl,
-      tokenBIconUrl: p.tokenBIconUrl,
-      tokenADecimals: p.tokenADecimals,
-      tokenBDecimals: p.tokenBDecimals,
-      tokenAAmount: p.tokenAAmount,
-      tokenBAmount: p.tokenBAmount,
-      currentPriceA_USD: p.currentPriceA_USD,
-      currentPriceB_USD: p.currentPriceB_USD,
-      unclaimedFeeA: p.unclaimedFeeA,
-      unclaimedFeeB: p.unclaimedFeeB,
-      tickLower: p.tickLower,
-      tickUpper: p.tickUpper,
-      currentTick: p.currentTick
-    };
-    p.tokenA = a.tokenB;
-    p.tokenB = a.tokenA;
-    p.tokenAAddress = a.tokenBAddress;
-    p.tokenBAddress = a.tokenAAddress;
-    p.tokenAIconUrl = a.tokenBIconUrl;
-    p.tokenBIconUrl = a.tokenAIconUrl;
-    p.tokenADecimals = a.tokenBDecimals;
-    p.tokenBDecimals = a.tokenADecimals;
-    p.tokenAAmount = a.tokenBAmount;
-    p.tokenBAmount = a.tokenAAmount;
-    p.currentPriceA_USD = a.currentPriceB_USD;
-    p.currentPriceB_USD = a.currentPriceA_USD;
-    p.unclaimedFeeA = a.unclaimedFeeB;
-    p.unclaimedFeeB = a.unclaimedFeeA;
-    p.tickLower = -a.tickUpper;
-    p.tickUpper = -a.tickLower;
-    p.currentTick = -a.currentTick;
-    p.cetusSwapped = true;
-    const ov = p.priceRangeOverride;
-    if (ov && ov.min > 0 && ov.max > 0 && ov.current > 0) {
-      const invMin = 1 / ov.max;
-      const invMax = 1 / ov.min;
-      const invCur = 1 / ov.current;
-      p.priceRangeOverride = { min: invMin, max: invMax, current: invCur };
-      p.priceCurrentOverride = invCur;
-    }
-    const feeLabelPct = `${(p.fee * 100).toFixed(3)}%`;
-    p.pair = `${p.tokenA}/${p.tokenB} \xB7 DLMM \xB7 ${feeLabelPct}${p.status === "in_range" ? "" : " \xB7 OUT"}`;
-  }
-  return out;
+// src/services/cetusDlmmLazy.ts
+async function getCetusDlmmPositions2(...args) {
+  const m = await Promise.resolve().then(() => (init_cetusDlmmService(), cetusDlmmService_exports));
+  return m.getCetusDlmmPositions(...args);
 }
 
 // src/services/cetusVaultsService.ts
+init_suiClient();
 import BN5 from "bn.js";
 import Decimal9 from "decimal.js";
 import { TickMath as TickMath5, Utils as Utils5 } from "@mmt-finance/clmm-sdk";
 import { normalizeStructTag as normalizeStructTag9, normalizeSuiAddress as normalizeSuiAddress12 } from "@mysten/sui/utils";
+init_resolveSpots();
+init_constants();
+init_concurrency();
 
 // src/services/vaultLpStakeService.ts
+init_suiClient();
 import { normalizeStructTag as normalizeStructTag7 } from "@mysten/sui/utils";
 
 // src/utils/haedalVault.ts
@@ -8918,6 +9600,7 @@ var VAULT_LP_INCENTIVE_DEPOSIT_INFO = `${VAULT_LP_INCENTIVE_PACKAGE}::core::Depo
 var VAULT_LP_INCENTIVE_ACC = 2n ** 64n;
 
 // src/services/vaultLpStakeService.ts
+init_rpcBackoff();
 var STAKE_CACHE_TTL_MS = 45e3;
 var stakeCache = null;
 function currentRewardRate(cfg, nowSec) {
@@ -8933,8 +9616,8 @@ function unwrap3(val) {
 function normType3(raw) {
   try {
     const s = raw.trim();
-    const with0x3 = s.startsWith("0x") ? s : `0x${s}`;
-    return normalizeStructTag7(with0x3);
+    const with0x4 = s.startsWith("0x") ? s : `0x${s}`;
+    return normalizeStructTag7(with0x4);
   } catch {
     return null;
   }
@@ -9203,6 +9886,7 @@ async function getVaultStakeIncentiveSnapshot(owner) {
 }
 
 // src/services/cetusPoolStats.ts
+init_externalFetchUrl();
 import { normalizeStructTag as normalizeStructTag8, normalizeSuiAddress as normalizeSuiAddress11 } from "@mysten/sui/utils";
 var STATS_URL = "https://api-sui.cetus.zone/v2/sui/stats_pools?limit=200";
 var CACHE_TTL_MS2 = 5 * 6e4;
@@ -9451,6 +10135,7 @@ async function overlayCetusStatsSpots(spots, coinTypes) {
 }
 
 // src/services/cetusVaultsService.ts
+init_rpcBackoff();
 var MAX_SANE_POSITION_USD5 = 5e7;
 var MAX_SANE_HUMAN_TOKENS5 = 1e18;
 var VAULT_LIST_TTL_MS = 60 * 6e4;
@@ -9481,8 +10166,8 @@ function readI323(val) {
 function normType4(raw) {
   try {
     const s = raw.trim();
-    const with0x3 = s.startsWith("0x") ? s : `0x${s}`;
-    return normalizeStructTag9(with0x3);
+    const with0x4 = s.startsWith("0x") ? s : `0x${s}`;
+    return normalizeStructTag9(with0x4);
   } catch {
     return null;
   }
@@ -9876,12 +10561,17 @@ async function getCetusVaultPositions(walletAddress, options) {
 }
 
 // src/services/haedalVaultsService.ts
+init_suiClient();
 import BN6 from "bn.js";
 import Decimal10 from "decimal.js";
 import { TickMath as TickMath6, Utils as Utils6 } from "@mmt-finance/clmm-sdk";
 import { normalizeStructTag as normalizeStructTag10, normalizeSuiAddress as normalizeSuiAddress13 } from "@mysten/sui/utils";
+init_resolveSpots();
+init_constants();
+init_concurrency();
 
 // src/services/haedalOraclePrices.ts
+init_externalFetchUrl();
 var PRICE_URL = "https://haedal.xyz/api/v1/price/now";
 var CACHE_TTL_MS3 = 6e4;
 var cache2 = null;
@@ -9949,6 +10639,7 @@ async function overlayHaedalOracleSpots(spots, coinTypes, symbolOf) {
 }
 
 // src/services/haedalVaultsService.ts
+init_rpcBackoff();
 var MAX_SANE_POSITION_USD6 = 5e7;
 var MAX_SANE_HUMAN_TOKENS6 = 1e18;
 var VAULT_LIST_TTL_MS2 = 60 * 6e4;
@@ -10050,8 +10741,8 @@ function readI324(val) {
 function normType5(raw) {
   try {
     const s = raw.trim();
-    const with0x3 = s.startsWith("0x") ? s : `0x${s}`;
-    return normalizeStructTag10(with0x3);
+    const with0x4 = s.startsWith("0x") ? s : `0x${s}`;
+    return normalizeStructTag10(with0x4);
   } catch {
     return null;
   }
@@ -10677,8 +11368,11 @@ async function getHaedalVaultPositions(walletAddress, options) {
 }
 
 // src/services/haedalLendingVaultsService.ts
+init_suiClient();
 import Decimal11 from "decimal.js";
 import { normalizeStructTag as normalizeStructTag11, normalizeSuiAddress as normalizeSuiAddress14 } from "@mysten/sui/utils";
+init_resolveSpots();
+init_rpcBackoff();
 
 // src/utils/haedalLendingVault.ts
 var HAEDAL_LENDING_FARMING_PACKAGE = "0xbddc4ecfd16683d1859500a5db1fb2cf00eeecb6719b76066bdc39c74dd03251";
@@ -11101,13 +11795,132 @@ async function getHaedalLendingVaultPositions(owner, options) {
   return out;
 }
 
+// src/services/currentMultiplyVaultsService.ts
+init_suiClient();
+init_externalFetchUrl();
+
 // src/services/server/advisorWalletCacheKey.ts
 import { normalizeSuiAddress as normalizeSuiAddress15 } from "@mysten/sui/utils";
 function advisorWalletCacheKey(wallet) {
   return normalizeSuiAddress15(wallet).toLowerCase();
 }
 
+// src/services/currentMultiplyClaims.ts
+init_suiClient();
+import { normalizeSuiAddress as normalizeSuiAddress16 } from "@mysten/sui/utils";
+var CURRENT_EVENT_PKG = "0xfe1d8929d13b00aaecd7642dec1c6d41cab82882a1b139efa46bf61dfd6380bf";
+var CLAIM_STRUCT = "::liquidity_mining::RewardClaimedEvent";
+var MAX_PAGES = 12;
+var PAGE_SIZE = 50;
+function normId4(id) {
+  try {
+    return normalizeSuiAddress16(id);
+  } catch {
+    return id.trim().toLowerCase();
+  }
+}
+function with0x2(t) {
+  const s = t.trim();
+  return s.startsWith("0x") || s.startsWith("0X") ? s : `0x${s}`;
+}
+function asRecord(v) {
+  return v != null && typeof v === "object" ? v : null;
+}
+function historicalClaimUsd(amount, quote) {
+  if (amount == null || !Number.isFinite(amount)) return null;
+  if (quote == null || quote.approximate) return null;
+  const px = quote.usdPerToken;
+  if (px == null || !Number.isFinite(px) || !(px > 0)) return null;
+  return amount * px;
+}
+function claimsForObligation(events, obligationId) {
+  const want = normId4(obligationId);
+  const eventsOut = [];
+  const sums = /* @__PURE__ */ new Map();
+  for (const event of events) {
+    const type = event.type ?? "";
+    if (!type.endsWith(CLAIM_STRUCT)) continue;
+    const json = asRecord(event.parsedJson);
+    if (!json) continue;
+    const obligation = typeof json.obligation === "string" ? json.obligation : "";
+    if (!obligation || normId4(obligation) !== want) continue;
+    const coin = typeof json.reward_coin_type === "string" ? json.reward_coin_type : "";
+    const raw = typeof json.reward_amount === "string" ? json.reward_amount : "";
+    if (!coin || !/^\d+$/.test(raw) || raw === "0") continue;
+    const coinType = with0x2(coin);
+    const ts = event.timestampMs != null && /^\d+$/.test(event.timestampMs) ? Number(event.timestampMs) : null;
+    eventsOut.push({ coinType, amountRaw: raw, timestampMs: Number.isFinite(ts) ? ts : null });
+    const key = coinType.toLowerCase();
+    sums.set(key, (sums.get(key) ?? 0n) + BigInt(raw));
+  }
+  const totals = [...sums.entries()].map(([key, raw]) => {
+    const sample = eventsOut.find((row) => row.coinType.toLowerCase() === key);
+    return { coinType: sample?.coinType ?? key, amountRaw: raw.toString() };
+  });
+  return { events: eventsOut, totals };
+}
+async function readWalletRewardClaims(owner, obligationIds) {
+  const wanted = new Set(obligationIds.map(normId4));
+  const byObligation = /* @__PURE__ */ new Map();
+  if (wanted.size === 0) return { status: "complete", byObligation };
+  const bucket = /* @__PURE__ */ new Map();
+  const typed = await scanClaims({ SenderAndMoveEventType: { sender: owner, type: `${CURRENT_EVENT_PKG}${CLAIM_STRUCT}` } }, wanted, bucket);
+  const useTyped = typed.ok && [...bucket.values()].some((l) => l.length > 0);
+  if (!useTyped) bucket.clear();
+  if (process.env.VITEST !== "true" && process.env.SUI_LP_ADVISOR_DEV_TIMING === "1") {
+    console.log(`[current-multiply] claims scan path: ${useTyped ? "typed" : "full-sender-fallback"}`);
+  }
+  const scanned = useTyped ? typed : await scanClaims({ Sender: owner }, wanted, bucket);
+  if (!scanned.ok) {
+    console.warn("[current-multiply] reward claim history unavailable", scanned.error);
+    return { status: "unavailable", byObligation };
+  }
+  for (const id of obligationIds) {
+    const key = normId4(id);
+    byObligation.set(key, claimsForObligation(bucket.get(key) ?? [], id));
+  }
+  return { status: scanned.partial ? "partial" : "complete", byObligation };
+}
+async function scanClaims(query, wanted, bucket) {
+  let cursor;
+  let partial = false;
+  try {
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const res = await suiClient.queryEvents({
+        query,
+        cursor,
+        limit: PAGE_SIZE,
+        order: "descending"
+      });
+      for (const event of res.data) {
+        const json = asRecord(event.parsedJson);
+        const obligation = typeof json?.obligation === "string" ? normId4(json.obligation) : "";
+        if (!wanted.has(obligation)) continue;
+        const list = bucket.get(obligation) ?? [];
+        list.push({
+          type: event.type,
+          parsedJson: event.parsedJson,
+          timestampMs: event.timestampMs
+        });
+        bucket.set(obligation, list);
+      }
+      const next = res.nextCursor;
+      if (!res.hasNextPage || !next) {
+        partial = false;
+        break;
+      }
+      cursor = next;
+      partial = page === MAX_PAGES - 1;
+    }
+  } catch (error) {
+    return { ok: false, error, partial };
+  }
+  return { ok: true, partial };
+}
+
 // src/services/currentMultiplyVaultsService.ts
+init_concurrency();
+import { normalizeSuiAddress as normalizeSuiAddress17 } from "@mysten/sui/utils";
 import { Transaction as Transaction4 } from "@mysten/sui/transactions";
 import { bcs as bcs4 } from "@mysten/sui/bcs";
 var API2 = "https://api.current.finance";
@@ -11137,7 +11950,7 @@ var overviewSchema2 = bcs4.struct("ObligationDetail", {
     })
   )
 });
-function with0x2(t) {
+function with0x3(t) {
   const s = t.trim();
   return s.startsWith("0x") || s.startsWith("0X") ? s : `0x${s}`;
 }
@@ -11199,7 +12012,7 @@ async function inspectOverview2(marketType, marketId, obligationId, sender) {
   const tx = new Transaction4();
   tx.moveCall({
     target: `${PROTOCOL_PKG2}::obligation_query::get_obligation_overview`,
-    typeArguments: [with0x2(marketType)],
+    typeArguments: [with0x3(marketType)],
     arguments: [tx.object(marketId), tx.pure.id(obligationId)]
   });
   const res = await suiClient.devInspectTransactionBlock({ sender, transactionBlock: tx });
@@ -11215,7 +12028,7 @@ async function inspectRates2(marketType, marketId, assets, sender) {
   for (const asset of assets) {
     tx.moveCall({
       target: `${PROTOCOL_PKG2}::market_query::get_asset_market_rates`,
-      typeArguments: [with0x2(marketType)],
+      typeArguments: [with0x3(marketType)],
       arguments: [tx.object(marketId), tx.pure.string(asset.replace(/^0x/i, "")), tx.object("0x6")]
     });
   }
@@ -11256,6 +12069,75 @@ function readPrice2(info) {
 function finiteOrNull(n2) {
   return n2 != null && Number.isFinite(n2) ? n2 : null;
 }
+function claimCoinMeta(rows, coinType) {
+  const key = typeKey2(coinType);
+  const row = rows.find((item) => typeKey2(item.token ?? "") === key);
+  const symbol = row?.tokenInfo?.symbol ?? coinType.split("::").pop() ?? "?";
+  const decimals = readDecimals2(row?.tokenInfo) ?? (key === "2::sui::sui" ? 9 : null);
+  return { symbol, decimals };
+}
+async function buildClaimedRewards(bag, scan, rows) {
+  if (scan === "unavailable") return { events: [], usd: null, status: "unavailable" };
+  const rawEvents = bag?.events ?? [];
+  if (rawEvents.length === 0) {
+    return scan === "partial" ? { events: [], usd: null, status: "partial" } : { events: [], usd: 0, status: "empty" };
+  }
+  const quoteByKey = /* @__PURE__ */ new Map();
+  const bucketOf = (coinType, sec) => `${typeKey2(coinType)}:${Math.floor(sec / 3600)}`;
+  const wanted = /* @__PURE__ */ new Map();
+  for (const event of rawEvents) {
+    if (event.timestampMs == null) continue;
+    const sec = Math.floor(event.timestampMs / 1e3);
+    const b = bucketOf(event.coinType, sec);
+    if (wanted.has(b)) continue;
+    wanted.set(b, { symbol: claimCoinMeta(rows, event.coinType).symbol, coinType: event.coinType, sec });
+  }
+  const bucketQuotes = /* @__PURE__ */ new Map();
+  await mapPool([...wanted.entries()], 2, async ([b, w]) => {
+    const cached2 = histQuoteCache.get(b);
+    if (cached2) {
+      bucketQuotes.set(b, cached2);
+      return;
+    }
+    const missAt = histQuoteMiss.get(b);
+    if (missAt != null && Date.now() - missAt < HIST_MISS_TTL_MS) {
+      bucketQuotes.set(b, null);
+      return;
+    }
+    const t0 = Date.now();
+    const quote = await getUsdPerTokenAtTimestamp(w.symbol, w.coinType, w.sec).catch(() => null);
+    if (multiplyTiming()) {
+      console.log(`[current-multiply] quote ${w.symbol} @${w.sec}: ${quote?.source ?? "none"} ${Date.now() - t0}ms`);
+    }
+    if (quote && quote.usdPerToken != null) histQuoteCache.set(b, quote);
+    else histQuoteMiss.set(b, Date.now());
+    bucketQuotes.set(b, quote);
+  });
+  if (multiplyTiming()) console.log(`[current-multiply] quote buckets: ${wanted.size} for ${rawEvents.length} events`);
+  for (const event of rawEvents) {
+    if (event.timestampMs == null) continue;
+    const sec = Math.floor(event.timestampMs / 1e3);
+    quoteByKey.set(`${typeKey2(event.coinType)}:${sec}`, bucketQuotes.get(bucketOf(event.coinType, sec)) ?? null);
+  }
+  const events = rawEvents.map((event) => {
+    const meta = claimCoinMeta(rows, event.coinType);
+    const amount = meta.decimals != null ? humanFromRawBigint(BigInt(event.amountRaw), meta.decimals) : null;
+    const sec = event.timestampMs != null ? Math.floor(event.timestampMs / 1e3) : null;
+    const quote = sec != null ? quoteByKey.get(`${typeKey2(event.coinType)}:${sec}`) ?? null : null;
+    return {
+      symbol: meta.symbol,
+      coinType: event.coinType,
+      amountRaw: event.amountRaw,
+      decimals: meta.decimals,
+      amount,
+      amountUsd: historicalClaimUsd(amount, quote),
+      timestampMs: event.timestampMs
+    };
+  });
+  const priced = events.every((event) => event.amountUsd != null);
+  const usd = priced ? events.reduce((sum, event) => sum + (event.amountUsd ?? 0), 0) : null;
+  return { events, usd, status: scan === "partial" || !priced ? "partial" : "complete" };
+}
 async function getCurrentMultiplyVaultPositions(walletAddress, _opts) {
   const key = advisorWalletCacheKey(walletAddress);
   const prev = multiplyInFlight.get(key);
@@ -11276,29 +12158,67 @@ async function getCurrentMultiplyVaultPositions(walletAddress, _opts) {
   multiplyInFlight.set(key, work);
   return work;
 }
+var CLAIMS_TTL_MS = 10 * 6e4;
+var claimsCache = /* @__PURE__ */ new Map();
+var claimsInFlight = /* @__PURE__ */ new Map();
+function readClaimsCached(wallet, obligationIds, force) {
+  const key = `${advisorWalletCacheKey(wallet)}:${[...obligationIds].sort().join(",")}`;
+  const hit = claimsCache.get(key);
+  if (!force && hit && Date.now() - hit.at < CLAIMS_TTL_MS) return Promise.resolve(hit.value);
+  const running = claimsInFlight.get(key);
+  if (running) return running;
+  const p = readWalletRewardClaims(wallet, obligationIds).then((value) => {
+    if (value.status !== "unavailable") claimsCache.set(key, { at: Date.now(), value });
+    return value;
+  }).finally(() => claimsInFlight.delete(key));
+  claimsInFlight.set(key, p);
+  return p;
+}
+var histQuoteCache = /* @__PURE__ */ new Map();
+var histQuoteMiss = /* @__PURE__ */ new Map();
+var HIST_MISS_TTL_MS = 5 * 6e4;
+var multiplyTiming = () => process.env.VITEST !== "true" && process.env.SUI_LP_ADVISOR_DEV_TIMING === "1";
+async function mt(label, fn) {
+  if (!multiplyTiming()) return fn();
+  const t0 = Date.now();
+  try {
+    return await fn();
+  } finally {
+    console.log(`[current-multiply] ${label}: ${Date.now() - t0}ms`);
+  }
+}
 async function loadCurrentMultiplyVaultPositionsOnce(walletAddress, _opts) {
-  const rows = await getJson2(
-    `/multiply/getLeverageObligationByAddress/${walletAddress}`
+  const rows = await mt(
+    "api-obligations",
+    () => getJson2(`/multiply/getLeverageObligationByAddress/${walletAddress}`)
   );
   const apiReceivedAtMs = Date.now();
   const active2 = (rows ?? []).filter(
     (r) => r.lendingObligationId && r.collateralToken && r.debtToken && r.positionState !== false
   );
   if (active2.length === 0) return [];
-  const vaultMeta = await fetchMultiplyList().catch(() => ({
+  const claimScan = mt(
+    "claim-events-scan",
+    () => readClaimsCached(
+      walletAddress,
+      active2.map((r) => r.lendingObligationId),
+      _opts?.forceRefreshPrices === true
+    )
+  );
+  const vaultMeta = await mt("multiply-list", () => fetchMultiplyList()).catch(() => ({
     rows: [],
     receivedAtMs: Date.now(),
     cacheAgeMs: 0
   }));
   const vaultList = vaultMeta.rows;
-  const marketRows = await fetchAllMarketRows().catch(() => []);
+  const marketRows = await mt("market-rows", () => fetchAllMarketRows()).catch(() => []);
   const marketMeta = currentMarketListMeta();
-  const out = [];
-  for (const row of active2) {
+  const claims = await claimScan;
+  const built = await Promise.all(active2.map(async (row) => {
     const obligationId = row.lendingObligationId;
-    const marketType = with0x2(row.market ?? "");
-    const collateralType = with0x2(row.collateralToken);
-    const debtType = with0x2(row.debtToken);
+    const marketType = with0x3(row.market ?? "");
+    const collateralType = with0x3(row.collateralToken);
+    const debtType = with0x3(row.debtToken);
     const emode = Number(row.emodeGroup ?? 0);
     const vault = matchVault(vaultList, marketType, emode, collateralType, debtType);
     const supplyMeta = vault?.tokenInfo0;
@@ -11316,15 +12236,15 @@ async function loadCurrentMultiplyVaultPositionsOnce(walletAddress, _opts) {
     let chainAmountsReadAtMs = null;
     let rewardsReadAtMs = null;
     const completenessFlags = [];
-    const marketId = await resolveMarketObjectId2(marketType, obligationId).catch(() => null);
+    const marketId = await mt("resolve-market", () => resolveMarketObjectId2(marketType, obligationId)).catch(() => null);
     if (marketId) {
       try {
-        const overview = await inspectOverview2(marketType, marketId, obligationId, walletAddress);
+        const overview = await mt("inspect-overview", () => inspectOverview2(marketType, marketId, obligationId, walletAddress));
         const assets = [
           ...overview.deposits.map((d) => d.asset),
           ...overview.borrows.map((b) => b.asset)
         ];
-        const rates = await inspectRates2(marketType, marketId, assets, walletAddress);
+        const rates = await mt("inspect-rates", () => inspectRates2(marketType, marketId, assets, walletAddress));
         const dep = overview.deposits.find((d) => typeKey2(d.asset) === typeKey2(collateralType));
         const bor = overview.borrows.find((b) => typeKey2(b.asset) === typeKey2(debtType));
         if (dep) {
@@ -11367,11 +12287,11 @@ async function loadCurrentMultiplyVaultPositionsOnce(walletAddress, _opts) {
     let rewardsStatus = "unavailable";
     let pendingStakeRewards;
     if (marketId && supplyDec != null && borrowDec != null && pxSupply != null && pxBorrow != null) {
-      const [depMining, borMining, mined] = await Promise.all([
+      const [depMining, borMining, mined] = await mt("mining+claimable", () => Promise.all([
         readMiningRewardApr(marketId, "deposit", collateralType, depositExchange, supplyDec, pxSupply, marketRows),
         readMiningRewardApr(marketId, "borrow", debtType, DECIMAL_SCALE2, borrowDec, pxBorrow, marketRows),
         readClaimableMining(marketId, obligationId, [collateralType], [debtType], marketRows)
-      ]);
+      ]));
       rewardsReadAtMs = Math.max(depMining.readAtMs, borMining.readAtMs, mined.readAtMs);
       const knownApr = (read2) => read2.status === "complete" || read2.status === "empty" ? read2.apr ?? 0 : null;
       depositRewardApr = knownApr(depMining);
@@ -11407,6 +12327,15 @@ async function loadCurrentMultiplyVaultPositionsOnce(walletAddress, _opts) {
     } else {
       completenessFlags.push("partial_missing_rewards");
     }
+    let claimKey = obligationId;
+    try {
+      claimKey = normalizeSuiAddress17(obligationId);
+    } catch {
+    }
+    const claimed = await mt(
+      "claimed-rewards",
+      () => buildClaimedRewards(claims.byObligation.get(claimKey), claims.status, marketRows)
+    );
     const apr = multiplyNetAprBreakdown({
       collateralUsd: supplyUsd,
       debtUsd: borrowUsd,
@@ -11472,6 +12401,9 @@ async function loadCurrentMultiplyVaultPositionsOnce(walletAddress, _opts) {
       claimableRewards,
       claimableRewardsUsd,
       rewardsStatus,
+      claimedRewards: claimed.events,
+      claimedRewardsUsd: claimed.usd,
+      claimedStatus: claimed.status,
       initialNetValueUsd: initialNet,
       lastUpdateTimeMs: lastUpdate,
       observedAtMs: requestFinishedAtMs,
@@ -11495,7 +12427,7 @@ async function loadCurrentMultiplyVaultPositionsOnce(walletAddress, _opts) {
     const equityKnown = equityUsd != null && Number.isFinite(equityUsd);
     const rewardUsdKnown = claimableRewardsUsd != null && Number.isFinite(claimableRewardsUsd);
     const unclaimedRewardUSD = rewardUsdKnown ? claimableRewardsUsd : Number.NaN;
-    out.push({
+    return {
       id: obligationId,
       protocol: "cetus",
       poolId: row.leverageOwnerCap ?? obligationId,
@@ -11535,7 +12467,7 @@ async function loadCurrentMultiplyVaultPositionsOnce(walletAddress, _opts) {
       unclaimedRewardUSD,
       openedAt: 0,
       daysOpen: 0,
-      lifetimeEarningsUSD: Number.NaN,
+      lifetimeEarningsUSD: claimed.usd != null ? claimed.usd : Number.NaN,
       vsHodlDeltaUSD: 0,
       aprEstimatePct: apr.netAprPct ?? Number.NaN,
       currentMultiply,
@@ -11552,14 +12484,18 @@ async function loadCurrentMultiplyVaultPositionsOnce(walletAddress, _opts) {
         rewardAprPct: void 0,
         pendingStakeRewards
       }
-    });
-  }
-  return out;
+    };
+  }));
+  return built;
 }
 
 // src/services/turbosService.ts
+init_suiClient();
 import { TickMath as TickMath7, Utils as Utils7 } from "@mmt-finance/clmm-sdk";
-import { normalizeStructTag as normalizeStructTag12, normalizeSuiAddress as normalizeSuiAddress16 } from "@mysten/sui/utils";
+init_resolveSpots();
+init_concurrency();
+init_constants();
+import { normalizeStructTag as normalizeStructTag12, normalizeSuiAddress as normalizeSuiAddress18 } from "@mysten/sui/utils";
 import Decimal12 from "decimal.js";
 import BN7 from "bn.js";
 var TURBOS_POSITION_TYPE = `${PROTOCOL_PACKAGES.TURBOS}::position_nft::TurbosPositionNFT`;
@@ -11608,10 +12544,10 @@ function extractTypeName(val) {
   if (typeof name !== "string" || !name) return null;
   return normCoinType3(name);
 }
-function normId4(raw) {
+function normId5(raw) {
   if (typeof raw !== "string") return "";
   try {
-    return normalizeSuiAddress16(raw.trim());
+    return normalizeSuiAddress18(raw.trim());
   } catch {
     return raw.trim();
   }
@@ -11666,9 +12602,9 @@ function parseNftObject(obj) {
   const content = data.content;
   if (!content) return null;
   const fields = content.fields ?? content;
-  const nftId = normId4(data.objectId ?? data.id?.id);
-  const poolId = normId4(fields.pool_id);
-  const positionId = normId4(fields.position_id);
+  const nftId = normId5(data.objectId ?? data.id?.id);
+  const poolId = normId5(fields.pool_id);
+  const positionId = normId5(fields.position_id);
   if (!nftId || !poolId || !positionId) return null;
   const coinTypeA = extractTypeName(fields.coin_type_a);
   const coinTypeB = extractTypeName(fields.coin_type_b);
@@ -12064,7 +13000,10 @@ async function getTurbosPositions(walletAddress, options) {
 }
 
 // src/services/aftermathService.ts
-import { Aftermath as Aftermath2 } from "aftermath-ts-sdk";
+init_concurrency();
+init_constants();
+init_suiClient();
+init_config();
 var _sdk = null;
 var _sdkFailed = false;
 var _sdkInflight = null;
@@ -12074,7 +13013,8 @@ async function getAftermathSdk() {
   if (_sdkInflight) return _sdkInflight;
   _sdkInflight = (async () => {
     try {
-      const a = await Aftermath2.create({
+      const { Aftermath: AftermathSdk } = await import("aftermath-ts-sdk");
+      const a = await AftermathSdk.create({
         network: "MAINNET",
         fullnodeUrl: MYSTEN_PUBLIC_GRPC_URL
       });
@@ -12397,6 +13337,7 @@ async function getAftermathFarmsPositions(walletAddress) {
 }
 
 // src/services/portfolioLpSources.ts
+init_concurrency();
 function readEnv2(name) {
   if (typeof process !== "undefined" && process.env) {
     const v = process.env[name];
@@ -12424,7 +13365,7 @@ var LOADERS = {
   momentum: (w) => getMomentumPositions(w),
   bluefin: (w, o) => getBluefinSpotPositions(w, { forceRefreshPrices: o?.forceRefreshPrices }),
   "cetus-clmm": (w, o) => getCetusPositions(w, { forceRefreshPrices: o?.forceRefreshPrices }),
-  "cetus-dlmm": (w, o) => getCetusDlmmPositions(w, { forceRefreshPrices: o?.forceRefreshPrices }),
+  "cetus-dlmm": (w, o) => getCetusDlmmPositions2(w, { forceRefreshPrices: o?.forceRefreshPrices }),
   "cetus-vaults": (w, o) => getCetusVaultPositions(w, { forceRefreshPrices: o?.forceRefreshPrices }),
   "haedal-vaults": (w, o) => getHaedalVaultPositions(w, { forceRefreshPrices: o?.forceRefreshPrices }),
   "haedal-lending-vaults": (w, o) => getHaedalLendingVaultPositions(w, { forceRefreshPrices: o?.forceRefreshPrices }),
@@ -12432,18 +13373,27 @@ var LOADERS = {
   turbos: (w) => getTurbosPositions(w),
   aftermath: (w) => getAftermathFarmsPositions(w)
 };
+function timingEnabled() {
+  return readEnv2("VITEST") !== "true" && readEnv2("SUI_LP_ADVISOR_DEV_TIMING") === "1";
+}
 async function loadPortfolioLpSource(id, wallet, opts) {
+  const t0 = Date.now();
   try {
     const positions = await LOADERS[id](wallet, opts);
     return { id, ok: true, positions };
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
     return { id, ok: false, error, positions: [] };
+  } finally {
+    if (timingEnabled()) console.log(`[lp-source] ${id}: ${Date.now() - t0}ms`);
   }
 }
 async function loadAllPortfolioLpSources(wallet, opts) {
-  const parallelIds = PORTFOLIO_LP_SOURCE_IDS.filter((id) => id !== "current-multiply");
-  const parallelLoads = await mapPool(parallelIds, LP_SOURCE_CONCURRENCY, async (id) => {
+  const order = [
+    "current-multiply",
+    ...PORTFOLIO_LP_SOURCE_IDS.filter((id) => id !== "current-multiply")
+  ];
+  const loaded = await mapPool(order, LP_SOURCE_CONCURRENCY, async (id) => {
     try {
       return await loadPortfolioLpSource(id, wallet, opts);
     } catch (e) {
@@ -12451,17 +13401,7 @@ async function loadAllPortfolioLpSources(wallet, opts) {
       return { id, ok: false, error, positions: [] };
     }
   });
-  let multiplyLoad;
-  try {
-    multiplyLoad = await loadPortfolioLpSource("current-multiply", wallet, opts);
-  } catch (e) {
-    const error = e instanceof Error ? e.message : String(e);
-    multiplyLoad = { id: "current-multiply", ok: false, error, positions: [] };
-  }
-  const byId = new Map([
-    ...parallelLoads.map((l) => [l.id, l]),
-    [multiplyLoad.id, multiplyLoad]
-  ]);
+  const byId = new Map(loaded.map((l) => [l.id, l]));
   const loads = PORTFOLIO_LP_SOURCE_IDS.map((id) => byId.get(id));
   const statuses = loads.map((l) => ({
     id: l.id,
@@ -12493,7 +13433,7 @@ async function loadPortfolioSnapshotDetailed(rawAddress) {
   return loadPortfolioSnapshotDetailedOnce(rawAddress);
 }
 async function loadPortfolioSnapshotDetailedOnce(rawAddress) {
-  const walletAddr = normalizeSuiAddress17(rawAddress).toLowerCase();
+  const walletAddr = normalizeSuiAddress19(rawAddress).toLowerCase();
   const client = createServerSuiClient();
   const lendingSources = [];
   let balanceOk = true;
@@ -12562,7 +13502,8 @@ async function loadPortfolioSnapshotDetailedOnce(rawAddress) {
     lendingSources,
     lendingNetUSD: finiteUsd(
       finiteUsd(lend.netValueUSD) + finiteUsd(navi.netValueUSD) + finiteUsd(current.netValueUSD)
-    )
+    ),
+    current
   });
 }
 function assemblePortfolioSnapshot(input) {
@@ -12585,13 +13526,16 @@ function assemblePortfolioSnapshot(input) {
   }
   const walletUSD = finiteUsd(input.walletUSD);
   const totalUSD = finiteUsd(walletUSD + lpUSD + aftermathUSD + input.lendingNetUSD);
+  const current = input.current ?? EMPTY_CURRENT_SNAP;
   if (totalUSD <= 0 && !incomplete) {
     return {
       snapshot: null,
       incomplete: false,
       lpSources,
       lendingSources: input.lendingSources,
-      preservePreviousIfIncomplete: false
+      preservePreviousIfIncomplete: false,
+      positions: input.positions,
+      current
     };
   }
   const snapshot = {
@@ -12612,7 +13556,9 @@ function assemblePortfolioSnapshot(input) {
     incomplete,
     lpSources,
     lendingSources: input.lendingSources,
-    preservePreviousIfIncomplete: incomplete
+    preservePreviousIfIncomplete: incomplete,
+    positions: input.positions,
+    current
   };
 }
 

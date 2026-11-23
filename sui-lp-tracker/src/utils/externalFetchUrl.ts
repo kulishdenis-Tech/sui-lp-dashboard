@@ -11,6 +11,7 @@ const HOST_PREFIX: Record<string, string> = {
 	'api.dexscreener.com': '/ext/ds',
 	'api.geckoterminal.com': '/ext/gt',
 	'api.dexpaprika.com': '/ext/dp',
+	'coins.llama.fi': '/ext/llama',
 	'api.coingecko.com': '/ext/cg',
 	'web3.okx.com': '/ext/okx',
 	'dapi.api.sui-prod.bluefin.io': '/ext/bf-dapi',
