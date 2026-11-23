@@ -42,6 +42,10 @@ export type PortfolioSnapshotResult = {
 	lendingSources: LendingSourceStatus[]
 	/** Previous complete snapshot should be kept by caller when incomplete && prior exists. */
 	preservePreviousIfIncomplete: boolean
+	/** Live open positions from the same load (Home overview / risk bands). */
+	positions: import('@/types').OpenPosition[]
+	/** Current lending book from the same load (HF / liq price). */
+	current: LendingSnapshot
 }
 
 function logSnapErr(part: string, e: unknown) {
@@ -151,6 +155,7 @@ async function loadPortfolioSnapshotDetailedOnce(
 		lendingNetUSD: finiteUsd(
 			finiteUsd(lend.netValueUSD) + finiteUsd(navi.netValueUSD) + finiteUsd(current.netValueUSD),
 		),
+		current,
 	})
 }
 
@@ -164,6 +169,7 @@ export function assemblePortfolioSnapshot(input: {
 	positions: import('@/types').OpenPosition[]
 	lendingSources: LendingSourceStatus[]
 	lendingNetUSD: number
+	current?: LendingSnapshot
 }): PortfolioSnapshotResult {
 	const lpSources: PortfolioLpSourceStatus[] = input.lpLoads.map((l) => ({
 		id: l.id,
@@ -189,6 +195,7 @@ export function assemblePortfolioSnapshot(input: {
 
 	const walletUSD = finiteUsd(input.walletUSD)
 	const totalUSD = finiteUsd(walletUSD + lpUSD + aftermathUSD + input.lendingNetUSD)
+	const current = input.current ?? EMPTY_CURRENT_SNAP
 	if (totalUSD <= 0 && !incomplete) {
 		return {
 			snapshot: null,
@@ -196,6 +203,8 @@ export function assemblePortfolioSnapshot(input: {
 			lpSources,
 			lendingSources: input.lendingSources,
 			preservePreviousIfIncomplete: false,
+			positions: input.positions,
+			current,
 		}
 	}
 
@@ -219,5 +228,7 @@ export function assemblePortfolioSnapshot(input: {
 		lpSources,
 		lendingSources: input.lendingSources,
 		preservePreviousIfIncomplete: incomplete,
+		positions: input.positions,
+		current,
 	}
 }
