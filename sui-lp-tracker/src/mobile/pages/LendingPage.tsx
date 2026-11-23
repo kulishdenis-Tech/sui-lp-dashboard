@@ -214,7 +214,7 @@ function Protocol({
 
 /** Мобільний Lending: плитки, шкала ліміту, рядки supply/borrow замість таблиць. */
 export function LendingPage() {
-	const { snapshot, naviSnapshot, currentSnapshot, isLoading, error } = useLendingPositions()
+	const { snapshot, naviSnapshot, currentSnapshot, isLoading, error, lastUpdated } = useLendingPositions()
 	const [hideDust, setHideDust] = useState(true)
 
 	const books: { snap: LendingSnapshot; title: string }[] = []
@@ -227,7 +227,7 @@ export function LendingPage() {
 			!(hideDust && protocolBookUnderOneUsd(b.snap)),
 	)
 
-	if (isLoading && books.length === 0) {
+	if ((isLoading || lastUpdated == null) && books.length === 0 && !error) {
 		return (
 			<div className="flex justify-center py-16">
 				<Spinner className="h-6 w-6" />

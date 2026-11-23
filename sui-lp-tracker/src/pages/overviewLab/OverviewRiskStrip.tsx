@@ -17,10 +17,13 @@ export function OverviewRiskStrip({
 	rows,
 	suiPriceUsd,
 	summary,
+	loading = false,
 }: {
 	rows: readonly OverviewRiskRow[]
 	suiPriceUsd: number | null
 	summary: RiskSummaryLine
+	/** Lending still loading: do not claim there are no positions. */
+	loading?: boolean
 }) {
 	const lowest = lowestCurrentHealthFactor(rows)
 	const lowestText = summary.lowestText ?? (lowest ? `${formatHealthFactor(lowest.hf)} ${lowest.label}` : null)
@@ -28,7 +31,7 @@ export function OverviewRiskStrip({
 		<section aria-label="Lending risk" className="overview-lab__panel overview-lab__panel--quiet px-3 py-2.5">
 			<p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-slate-500">Risk</p>
 			{rows.length === 0 ? (
-				<p className="text-xs text-slate-500">No open lending positions.</p>
+				<p className="text-xs text-slate-500">{loading ? 'Loading lending positions…' : 'No open lending positions.'}</p>
 			) : (
 				<div className="overview-lab__risk-scroll">
 					<table className="overview-lab__risk-table">

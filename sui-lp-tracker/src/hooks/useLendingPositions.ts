@@ -9,6 +9,8 @@ export function useLendingPositions() {
 			currentSnapshot: s.currentSnapshot,
 			isLoading: s.isLoadingLending,
 			error: s.lendingError,
+			/** null until the first lending load has completed (avoids a false "no positions" flash). */
+			lastUpdated: s.lendingLastUpdated,
 		})),
 	)
 }

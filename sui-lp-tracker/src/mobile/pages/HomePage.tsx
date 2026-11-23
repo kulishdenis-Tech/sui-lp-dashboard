@@ -95,7 +95,22 @@ const sevDot: Record<AttentionItem['severity'], string> = {
 	info: 'bg-sky-400',
 }
 
-function AttentionList({ items, onOpen }: { items: AttentionItem[]; onOpen: (i: AttentionItem) => void }) {
+function AttentionList({
+	items,
+	onOpen,
+	loading = false,
+}: {
+	items: AttentionItem[]
+	onOpen: (i: AttentionItem) => void
+	loading?: boolean
+}) {
+	if (items.length === 0 && loading) {
+		return (
+			<div className={`${card} flex items-center gap-2 px-3 py-2.5 text-sm text-slate-400`}>
+				<span className="h-2 w-2 rounded-full bg-slate-500" /> Перевіряю…
+			</div>
+		)
+	}
 	if (items.length === 0) {
 		return (
 			<div className={`${card} flex items-center gap-2 px-3 py-2.5 text-sm text-emerald-300`}>
@@ -298,7 +313,7 @@ export function HomePage() {
 
 			{/* Attention */}
 			<Section title={`Attention${m.attention.length ? ` · ${m.attention.length}` : ''}`}>
-				<AttentionList items={m.attention} onOpen={openAttention} />
+				<AttentionList items={m.attention} onOpen={openAttention} loading={busy} />
 			</Section>
 
 			{/* Lending risk */}
