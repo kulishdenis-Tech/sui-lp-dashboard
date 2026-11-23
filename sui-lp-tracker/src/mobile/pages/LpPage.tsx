@@ -10,7 +10,8 @@ import { ClosedList } from '@/mobile/ui/ClosedList'
 import { useClosedPositionsLoader, useLpLiveEnrichment } from '@/components/positions/useLpModuleData'
 import { isCetusVaultPosition } from '@/utils/cetusVault'
 import { formatUSDAdaptive } from '@/utils/formatting'
-import { positionValueUsd } from '@/utils/positionDerivedMetrics'
+import { earningsAnnualizedAprPct, positionValueUsd } from '@/utils/positionDerivedMetrics'
+import { isLpPositionHistoryEnriched, lpProtocolUsesOnChainHistory } from '@/utils/lpPositionHistoryUi'
 import { CascadeManageMenu } from '@/pages/autopilot/CascadeManageMenu'
 import { groupRememberedCascades } from '@/pages/autopilot/groupRememberedCascades'
 import { classifyLpBand } from '@/pages/overviewLab/overviewMetrics'
@@ -29,6 +30,12 @@ const BAND: Record<string, { text: string; cls: string }> = {
 const card = 'rounded-2xl border border-slate-800 bg-slate-900/60'
 
 function PositionRow({ p, onOpen }: { p: OpenPosition; onOpen: () => void }) {
+	const positionEvents = useAppStore((s) => s.positionEvents)
+	// Realized APR (same as desktop table and detail page), not the pool-level estimate.
+	const apr =
+		lpProtocolUsesOnChainHistory(p.protocol) && isLpPositionHistoryEnriched(p, positionEvents)
+			? earningsAnnualizedAprPct(p)
+			: null
 	const band = BAND[classifyLpBand(p)] ?? BAND.unknown
 	const unclaimed = (p.unclaimedFeeUSD || 0) + (p.unclaimedRewardUSD || 0)
 	const pnl = p.pnlPct
@@ -52,9 +59,7 @@ function PositionRow({ p, onOpen }: { p: OpenPosition; onOpen: () => void }) {
 				<span>
 					Unclaimed <span className="text-emerald-300">{formatUSDAdaptive(unclaimed)}</span>
 				</span>
-				{Number.isFinite(p.aprEstimatePct) && p.aprEstimatePct > 0 ? (
-					<span>APR {p.aprEstimatePct.toFixed(0)}%</span>
-				) : null}
+				{apr != null && Number.isFinite(apr) && apr > 0 ? <span>APR {apr.toFixed(0)}%</span> : null}
 			</span>
 			<span
 				className={`text-right text-xs tabular-nums ${

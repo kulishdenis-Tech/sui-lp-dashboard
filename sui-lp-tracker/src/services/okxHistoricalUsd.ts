@@ -276,12 +276,45 @@ export async function okxWalletHistoricalClosestUsd(
 	return null
 }
 
-/** Поточна DEX-ціна (last resort «на зараз»). */
-export async function okxCurrentSpotUsd(coinType: string): Promise<number | null> {
-	const m = await okxPriceInfoByCoinType([coinType])
-	const n = normalizeCoinTypeForMatch(coinType)
-	for (const [k, v] of m) {
-		if (normalizeCoinTypeForMatch(k) === n && v.price > 0) return v.price
+/**
+ * Поточна DEX-ціна (last resort «на зараз»).
+ * Виклики з різних місць у межах одного тіку зливаються в один пакетний запит
+ * (раніше кожен токен давав окремий POST → сотні паралельних запитів і 429).
+ */
+const SPOT_BATCH_WINDOW_MS = 40
+const SPOT_RESULT_TTL_MS = 60_000
+type SpotWaiter = { resolve: (v: number | null) => void }
+let spotQueue = new Map<string, SpotWaiter[]>()
+let spotTimer: ReturnType<typeof setTimeout> | null = null
+const spotResults = new Map<string, { px: number | null; until: number }>()
+
+async function flushSpotQueue(): Promise<void> {
+	const queue = spotQueue
+	spotQueue = new Map()
+	spotTimer = null
+	const coinTypes = [...queue.keys()]
+	const m = await okxPriceInfoByCoinType(coinTypes).catch(() => null)
+	const byNorm = new Map<string, number>()
+	if (m) {
+		for (const [k, v] of m) {
+			if (v.price > 0) byNorm.set(normalizeCoinTypeForMatch(k), v.price)
+		}
 	}
-	return null
+	const now = Date.now()
+	for (const [ct, waiters] of queue) {
+		const px = byNorm.get(normalizeCoinTypeForMatch(ct)) ?? null
+		spotResults.set(ct, { px, until: now + SPOT_RESULT_TTL_MS })
+		for (const w of waiters) w.resolve(px)
+	}
+}
+
+export function okxCurrentSpotUsd(coinType: string): Promise<number | null> {
+	const cached = spotResults.get(coinType)
+	if (cached && cached.until > Date.now()) return Promise.resolve(cached.px)
+	return new Promise((resolve) => {
+		const list = spotQueue.get(coinType)
+		if (list) list.push({ resolve })
+		else spotQueue.set(coinType, [{ resolve }])
+		if (!spotTimer) spotTimer = setTimeout(() => void flushSpotQueue(), SPOT_BATCH_WINDOW_MS)
+	})
 }

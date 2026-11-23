@@ -25,6 +25,34 @@ export type ResolvedCoinMeta = {
 
 const resolvedMetaCache = new Map<string, ResolvedCoinMeta | null>()
 
+/** Coin metadata is effectively immutable: keep resolved (non-null) entries across page loads. */
+const META_STORE_KEY = 'suilp.coinMeta.v1'
+const META_STORE_MAX = 600
+let metaStore: Record<string, ResolvedCoinMeta> | null = null
+
+function loadMetaStore(): Record<string, ResolvedCoinMeta> {
+	if (metaStore) return metaStore
+	try {
+		const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(META_STORE_KEY) : null
+		metaStore = raw ? (JSON.parse(raw) as Record<string, ResolvedCoinMeta>) : {}
+	} catch {
+		metaStore = {}
+	}
+	return metaStore
+}
+
+function persistMeta(coinType: string, meta: ResolvedCoinMeta): void {
+	try {
+		const store = loadMetaStore()
+		store[coinType] = meta
+		const keys = Object.keys(store)
+		if (keys.length > META_STORE_MAX) for (const k of keys.slice(0, keys.length - META_STORE_MAX)) delete store[k]
+		localStorage.setItem(META_STORE_KEY, JSON.stringify(store))
+	} catch {
+		/* storage unavailable */
+	}
+}
+
 const hardcodedByType = new Map(
 	HARDCODED_VERIFIED.map((coin) => [normalizeCoinTypeForMatch(coin.type), coin]),
 )
@@ -100,6 +128,11 @@ export async function resolveCoinMetadata(
 ): Promise<ResolvedCoinMeta | null> {
 	const cached = resolvedMetaCache.get(coinType)
 	if (cached !== undefined) return cached
+	const persisted = loadMetaStore()[coinType]
+	if (persisted && Number.isFinite(persisted.decimals)) {
+		resolvedMetaCache.set(coinType, persisted)
+		return persisted
+	}
 
 	const fromClient = usableMeta(
 		await withRpcBackoff(
@@ -109,6 +142,7 @@ export async function resolveCoinMetadata(
 	)
 	if (fromClient) {
 		resolvedMetaCache.set(coinType, fromClient)
+		persistMeta(coinType, fromClient)
 		return fromClient
 	}
 
@@ -125,5 +159,6 @@ export async function resolveCoinMetadata(
 
 	const fromFallback = await fetchCoinMetadataFallback(coinType)
 	resolvedMetaCache.set(coinType, fromFallback)
+	if (fromFallback) persistMeta(coinType, fromFallback)
 	return fromFallback
 }

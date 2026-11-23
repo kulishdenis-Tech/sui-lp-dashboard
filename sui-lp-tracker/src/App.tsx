@@ -1,20 +1,32 @@
+import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { AppLayout } from '@/components/layout/AppLayout'
-import { MainContent } from '@/components/MainContent'
-import { DesignSystemPage } from '@/pages/DesignSystemPage'
-import { PositionDetailPage } from '@/pages/PositionDetailPage'
-import { BuildPage } from '@/pages/autopilot/BuildPage'
-import { MarketsRoutePage } from '@/pages/autopilot/MarketsRoutePage'
-import { OverviewLabPage } from '@/pages/overviewLab/OverviewLabPage'
-import { ActivityPage } from '@/pages/activity/ActivityPage'
-import { SettingsPage } from '@/pages/settings/SettingsPage'
-import { MobileApp } from '@/mobile/MobileApp'
 import { useIsMobile } from '@/mobile/useIsMobile'
+
+const lz = <T extends Record<string, React.ComponentType>>(load: () => Promise<T>, name: keyof T) =>
+	lazy(() => load().then((m) => ({ default: m[name] as React.ComponentType })))
+
+const AppLayout = lz(() => import('@/components/layout/AppLayout'), 'AppLayout')
+const MainContent = lz(() => import('@/components/MainContent'), 'MainContent')
+const DesignSystemPage = lz(() => import('@/pages/DesignSystemPage'), 'DesignSystemPage')
+const PositionDetailPage = lz(() => import('@/pages/PositionDetailPage'), 'PositionDetailPage')
+const BuildPage = lz(() => import('@/pages/autopilot/BuildPage'), 'BuildPage')
+const MarketsRoutePage = lz(() => import('@/pages/autopilot/MarketsRoutePage'), 'MarketsRoutePage')
+const OverviewLabPage = lz(() => import('@/pages/overviewLab/OverviewLabPage'), 'OverviewLabPage')
+const ActivityPage = lz(() => import('@/pages/activity/ActivityPage'), 'ActivityPage')
+const SettingsPage = lz(() => import('@/pages/settings/SettingsPage'), 'SettingsPage')
+const MobileApp = lz(() => import('@/mobile/MobileApp'), 'MobileApp')
 
 function App() {
 	const isMobile = useIsMobile()
-	if (isMobile) return <MobileApp />
+	if (isMobile) {
+		return (
+			<Suspense fallback={null}>
+				<MobileApp />
+			</Suspense>
+		)
+	}
 	return (
+		<Suspense fallback={null}>
 		<Routes>
 			<Route path="/" element={<AppLayout />}>
 				<Route index element={<OverviewLabPage />} />
@@ -31,6 +43,7 @@ function App() {
 				<Route path="settings" element={<SettingsPage />} />
 			</Route>
 		</Routes>
+		</Suspense>
 	)
 }
 

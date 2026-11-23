@@ -4,7 +4,8 @@
  * Run via `npm run serve:prod` (vite-node) so `@/` imports in API modules resolve.
  * There is no service worker; index.html is sent with Cache-Control: no-cache.
  */
-import { createReadStream, existsSync, statSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
+import { brotliCompressSync, gzipSync, constants as zc } from 'node:zlib'
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -246,34 +247,65 @@ function fileInsideDist(urlPath) {
 	return abs
 }
 
-function sendFile(res, file, urlPath) {
+const COMPRESSIBLE = new Set(['.js', '.mjs', '.css', '.html', '.svg', '.json', '.map', '.txt', '.xml'])
+/** file -> { mtimeMs, br, gz }: compress once, serve many (dist is immutable between builds). */
+const compressed = new Map()
+
+function pickEncoding(req) {
+	const ae = String(req?.headers?.['accept-encoding'] ?? '')
+	if (/\bbr\b/.test(ae)) return 'br'
+	if (/\bgzip\b/.test(ae)) return 'gzip'
+	return null
+}
+
+function compressedBody(file, enc) {
+	const st = statSync(file)
+	let e = compressed.get(file)
+	if (!e || e.mtimeMs !== st.mtimeMs) {
+		e = { mtimeMs: st.mtimeMs, br: null, gz: null }
+		compressed.set(file, e)
+	}
+	if (enc === 'br') {
+		e.br ??= brotliCompressSync(readFileSync(file), {
+			params: { [zc.BROTLI_PARAM_QUALITY]: 9 },
+		})
+		return e.br
+	}
+	e.gz ??= gzipSync(readFileSync(file), { level: 9 })
+	return e.gz
+}
+
+function sendFile(req, res, file, urlPath) {
 	const ext = path.extname(file).toLowerCase()
 	const isHtml = ext === '.html'
 	const hashed = urlPath.startsWith('/assets/')
-	res.writeHead(200, {
+	const headers = {
 		'Content-Type': MIME[ext] || 'application/octet-stream',
 		'Cache-Control': hashed
 			? 'public, max-age=31536000, immutable'
 			: isHtml
 				? 'no-cache'
 				: 'public, max-age=3600',
-	})
+	}
+	const enc = COMPRESSIBLE.has(ext) ? pickEncoding(req) : null
+	if (enc) {
+		const body = compressedBody(file, enc)
+		res.writeHead(200, { ...headers, 'Content-Encoding': enc, Vary: 'Accept-Encoding', 'Content-Length': body.length })
+		res.end(body)
+		return
+	}
+	res.writeHead(200, headers)
 	createReadStream(file).pipe(res)
 }
 
-function sendIndex(res) {
-	const index = path.join(dist, 'index.html')
-	res.writeHead(200, {
-		'Content-Type': 'text/html; charset=utf-8',
-		'Cache-Control': 'no-cache',
-	})
-	createReadStream(index).pipe(res)
+function sendIndex(req, res) {
+	sendFile(req, res, path.join(dist, 'index.html'), '/index.html')
 }
 
-function serveStatic(res, urlPath) {
+function serveStatic(req, res, urlPath) {
 	const file = fileInsideDist(urlPath)
 	if (file && existsSync(file) && statSync(file).isFile()) {
-		sendFile(res, file, urlPath)
+		sendFile(req, res, file, urlPath)
 		return
 	}
 	if (urlPath.startsWith('/assets/') || path.extname(urlPath)) {
@@ -281,7 +313,7 @@ function serveStatic(res, urlPath) {
 		res.end('not found')
 		return
 	}
-	sendIndex(res)
+	sendIndex(req, res)
 }
 
 async function onRequest(req, res) {
@@ -321,7 +353,7 @@ async function onRequest(req, res) {
 			json(res, 404, { error: 'not found' })
 			return
 		}
-		serveStatic(res, pathname)
+		serveStatic(req, res, pathname)
 	} catch (e) {
 		if (res.headersSent) return
 		json(res, 500, { error: e instanceof Error ? e.message : String(e) })

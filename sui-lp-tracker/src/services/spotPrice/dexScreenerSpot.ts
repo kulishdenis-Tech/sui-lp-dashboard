@@ -79,8 +79,54 @@ function packageId(coinType: string): string | null {
 	return p0?.startsWith('0x') ? p0 : null
 }
 
+/** Tokens DexScreener has no price for (spam/dust/reward tokens): don't re-ask on every load. */
+const NO_PRICE_TTL_MS = 30 * 60 * 1000
+const NO_PRICE_KEY = 'suilp.dexscreener.noPrice.v1'
+let noPrice: Record<string, number> | null = null
+
+function loadNoPrice(): Record<string, number> {
+	if (noPrice) return noPrice
+	try {
+		noPrice = JSON.parse(localStorage.getItem(NO_PRICE_KEY) ?? '{}') as Record<string, number>
+	} catch {
+		noPrice = {}
+	}
+	return noPrice
+}
+
+function isKnownNoPrice(coinType: string): boolean {
+	const t = loadNoPrice()[coinType]
+	return t != null && t > Date.now()
+}
+
+function rememberNoPrice(coinType: string): void {
+	const m = loadNoPrice()
+	const now = Date.now()
+	m[coinType] = now + NO_PRICE_TTL_MS
+	for (const k of Object.keys(m)) if (m[k]! <= now) delete m[k]
+	try {
+		localStorage.setItem(NO_PRICE_KEY, JSON.stringify(m))
+	} catch {
+		/* storage unavailable */
+	}
+}
+
+type DexScreenerQuote = {
+	price: number | null
+	change24h: number | null
+	change5m: number | null
+	change1h: number | null
+}
+
+export async function dexScreenerPrice(coinType: string): Promise<DexScreenerQuote | null> {
+	if (isKnownNoPrice(coinType)) return null
+	const q = await dexScreenerPriceUncached(coinType)
+	if (!q || q.price == null) rememberNoPrice(coinType)
+	return q
+}
+
 /** Best-effort spot from largest-liquidity pair; якщо /tokens/addr дає void — fallback на /search. */
-export async function dexScreenerPrice(coinType: string): Promise<{
+async function dexScreenerPriceUncached(coinType: string): Promise<{
 	price: number | null
 	change24h: number | null
 	change5m: number | null
