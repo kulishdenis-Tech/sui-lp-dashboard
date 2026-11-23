@@ -61,6 +61,9 @@ async function getCachedAllTokens(sdk: NonNullable<ReturnType<typeof mmtSdkMainn
 }
 const MAX_SANE_HUMAN_TOKENS = 1e18
 
+const MOMENTUM_NO_POSITIONS_TTL_MS = 10 * 60_000
+const momentumNoPositionsAt = new Map<string, number>()
+
 export type MomentumPositionsOptions = { forceRefreshPrices?: boolean; incremental?: boolean }
 
 function i32ToSigned(n: number): number {
@@ -186,7 +189,13 @@ export async function getMomentumPositions(
 		console.warn('Momentum Pool.getAllPools/getAllTokens failed', e)
 		return []
 	}
-	if (ownedIds != null && ownedIds.size === 0) return []
+	// The typed probe only knows two package ids; positions of another package version are found by the SDK /
+	// package-page fallback. So an empty probe is trusted only after that deep path confirmed "no positions" once.
+	const noPosKey = normalizedMomentumPositionKey(walletAddress)
+	if (ownedIds != null && ownedIds.size === 0) {
+		const confirmedAt = momentumNoPositionsAt.get(noPosKey)
+		if (confirmedAt != null && Date.now() - confirmedAt < MOMENTUM_NO_POSITIONS_TTL_MS) return []
+	}
 
 	// SDK positions and the owned-objects RPC fallback are independent: read them concurrently.
 	const [fromSdk, fromRpc] = await Promise.all([
@@ -222,7 +231,11 @@ export async function getMomentumPositions(
 		if (!mergedById.has(k)) mergedById.set(k, r)
 	}
 	const rawRows = [...mergedById.values()]
-	if (!rawRows.length) return []
+	if (!rawRows.length) {
+		momentumNoPositionsAt.set(noPosKey, Date.now())
+		return []
+	}
+	momentumNoPositionsAt.delete(noPosKey)
 
 	const poolIdsHint = [...new Set(rawRows.map((r) => String(r.poolId).trim()))]
 	let poolsHydrated: typeof poolsData
