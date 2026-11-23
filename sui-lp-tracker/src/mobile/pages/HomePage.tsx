@@ -38,8 +38,9 @@ function Section({ title, right, children }: { title: string; right?: ReactNode;
 	)
 }
 
-function money(n: number | null | undefined, hide: boolean): string {
+function money(n: number | null | undefined, hide: boolean, loading = false): string {
 	if (hide) return '••••'
+	if (loading) return '…'
 	if (n == null || !Number.isFinite(n)) return '—'
 	return formatUSDAdaptive(n)
 }
@@ -168,6 +169,7 @@ export function HomePage() {
 	}
 
 	const nw = m.kpis.netWorth
+	const busy = m.sources.some((x) => x.status === 'loading')
 	const c = m.filterCounts
 	const go = (tab: 'lp' | 'lending') => {
 		setActiveTab(tab)
@@ -202,7 +204,7 @@ export function HomePage() {
 					</button>
 				</div>
 				<p className="text-4xl font-semibold tabular-nums tracking-tight text-slate-50">
-					{money(nw?.totalNetUSD, hide)}
+					{money(nw?.totalNetUSD, hide, busy)}
 				</p>
 				<DeltaChip analysis={m.delta24h} hide={hide} />
 			</div>
@@ -210,10 +212,10 @@ export function HomePage() {
 			{/* Breakdown */}
 			<Section title="">
 				<div className="grid grid-cols-2 gap-2">
-					<Tile name="Wallet" value={money(nw?.walletAssetsUSD, hide)} />
-					<Tile name="LP value" value={money(nw?.openLpUSD, hide)} />
-					<Tile name="Net lending" value={money(nw?.netLendingUSD, hide)} />
-					<Tile name="Unclaimed" value={money(m.kpis.unclaimedUSD, hide)} />
+					<Tile name="Wallet" value={money(nw?.walletAssetsUSD, hide, busy)} />
+					<Tile name="LP value" value={money(nw?.openLpUSD, hide, busy)} />
+					<Tile name="Net lending" value={money(nw?.netLendingUSD, hide, busy)} />
+					<Tile name="Unclaimed" value={money(m.kpis.unclaimedUSD, hide, busy)} />
 				</div>
 			</Section>
 

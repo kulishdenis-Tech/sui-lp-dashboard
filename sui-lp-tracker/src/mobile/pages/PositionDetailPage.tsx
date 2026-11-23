@@ -117,6 +117,8 @@ export function PositionDetailPage() {
 	const days = Number.isFinite(p.daysOpen) ? `${Math.max(0, Math.round(p.daysOpen))}d` : '—'
 	const showPnl = Number.isFinite(p.pnlUSD) && p.depositedUSD > 0
 	const liq = d.liquidityLegUsd
+	const pending = d.isLoadingPositions || d.enrichmentPending
+	const usd = (n: number) => (pending && !(n > 0) ? '—' : formatUSDAdaptive(n))
 
 	return (
 		<main className="space-y-3 px-3 py-3">
@@ -160,8 +162,8 @@ export function PositionDetailPage() {
 			</div>
 
 			<div className="grid grid-cols-2 gap-2">
-				<Tile label="Value" value={formatUSDAdaptive(d.totalMarkValueUsd)} />
-				<Tile label="Unclaimed" value={formatUSDAdaptive(unclaimed)} cls={unclaimed > 0 ? 'text-emerald-300' : 'text-slate-300'} />
+				<Tile label="Value" value={usd(d.totalMarkValueUsd)} />
+				<Tile label="Unclaimed" value={usd(unclaimed)} cls={unclaimed > 0 ? 'text-emerald-300' : 'text-slate-300'} />
 				<Tile
 					label={showPnl ? `PnL ${p.pnlUSD >= 0 ? '+' : ''}${formatUSDAdaptive(p.pnlUSD)}` : 'PnL'}
 					value={showPnl ? pct(p.pnlPct, 1) : '—'}
@@ -190,8 +192,8 @@ export function PositionDetailPage() {
 
 			<section className={`${card} divide-y divide-slate-800/70`}>
 				<Row k={closed ? 'Deposited' : 'Net deposit'} v={formatUSDAdaptive(closed ? d.depositsUsd : (d.depositsUsd - d.withdrawsUsd) || p.depositedUSD)} />
-				<Row k="Claimed" v={formatUSDAdaptive(claimed)} />
-				<Row k="Total earned" v={formatUSDAdaptive(totalEarn)} cls="text-emerald-300" />
+				<Row k="Claimed" v={usd(claimed)} />
+				<Row k="Total earned" v={usd(totalEarn)} cls="text-emerald-300" />
 				{d.dailyEarningsUsd != null ? <Row k="Per day" v={formatUSDAdaptive(d.dailyEarningsUsd)} /> : null}
 				{d.ilPctVsHodl != null ? <Row k="IL vs HODL" v={pct(d.ilPctVsHodl, 2)} cls={tone(d.ilPctVsHodl)} /> : null}
 				{d.vsHodlRoiPct != null ? <Row k="vs HODL" v={pct(d.vsHodlRoiPct, 2)} cls={tone(d.vsHodlRoiPct)} /> : null}

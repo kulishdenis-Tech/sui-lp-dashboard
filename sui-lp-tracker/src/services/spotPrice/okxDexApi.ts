@@ -170,7 +170,24 @@ export type OkxPriceInfo = {
  * Підпис змінюється щоразу (timestamp) — кожен POST окремо.
  * Retries: мережа / таймаут / HTTP ≠ 2xx / code ≠ 0.
  */
-async function postPriceInfoChunk(bodyStr: string): Promise<OkxJson | null> {
+/** Tokens OKX answered "no price data" (HTTP 400 / code 51001) for — don't ask again for a while. */
+const NO_QUOTE_TTL_MS = 15 * 60_000
+const noQuoteUntil = new Map<string, number>()
+
+function isNoQuote(norm: string): boolean {
+	const until = noQuoteUntil.get(norm)
+	if (until == null) return false
+	if (until > Date.now()) return true
+	noQuoteUntil.delete(norm)
+	return false
+}
+
+/** Definitive client error (not rate limit): retrying the same request cannot succeed. */
+function isDefinitiveRejection(res: { status: number } | null): boolean {
+	return !!res && res.status >= 400 && res.status < 500 && res.status !== 429
+}
+
+async function postPriceInfoChunk(bodyStr: string): Promise<OkxJson | 'no-data' | null> {
 	const extra = okxFetchExtraRetries()
 	const maxAttempt = 1 + extra
 	let lastErr: string | null = null
@@ -185,6 +202,7 @@ async function postPriceInfoChunk(bodyStr: string): Promise<OkxJson | null> {
 			return res.json
 		}
 		lastErr = res ? `HTTP ${res.status} code=${res.json?.code}` : 'no response'
+		if (isDefinitiveRejection(res)) return 'no-data'
 		if (okxCircuitOpen()) break
 		if (attempt < maxAttempt - 1) {
 			await sleep(DEFAULT_RETRY_BACKOFF_MS * (attempt + 1))
@@ -223,7 +241,7 @@ export async function okxPriceInfoByCoinType(
 		if (!arr.includes(ct)) arr.push(ct)
 		originalsByNorm.set(norm, arr)
 	}
-	const uniqueNorms = [...originalsByNorm.keys()]
+	const uniqueNorms = [...originalsByNorm.keys()].filter((n) => !isNoQuote(n))
 
 	for (let i = 0; i < uniqueNorms.length; i += BATCH) {
 		const chunk = uniqueNorms.slice(i, i + BATCH)
@@ -234,6 +252,11 @@ export async function okxPriceInfoByCoinType(
 			})),
 		)
 		const j = await postPriceInfoChunk(bodyStr)
+		if (j === 'no-data') {
+			// A single-token request that OKX rejects as "no data" is a stable answer; remember it.
+			if (chunk.length === 1) noQuoteUntil.set(chunk[0], Date.now() + NO_QUOTE_TTL_MS)
+			continue
+		}
 		if (j == null) continue
 
 		/** Best quote per normalized type (prefer live liquidity / txs over ghost rows). */
@@ -335,7 +358,7 @@ export async function okxEthereumShortWindowForBridgedEth(
 		{ chainIndex: CHAIN_ETH, tokenContractAddress: ETHEREUM_WETH },
 	])
 	const j = await postPriceInfoChunk(bodyStr)
-	if (j == null) return out
+	if (j == null || j === 'no-data') return out
 	const row = (j.data as PriceInfoRow[])[0]
 	if (!row) return out
 	const change5m = parseChangePct(row.priceChange5M)
