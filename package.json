@@ -17,6 +17,7 @@
     "build": "npm run build -w sui-lp-tracker",
     "build:prod": "npm run build:prod -w sui-lp-tracker",
     "serve:prod": "npm run serve:prod -w sui-lp-tracker",
+    "worker": "npm run worker -w sui-lp-tracker",
     "preview": "npm run preview -w sui-lp-tracker",
     "build:autopilot": "npm run build -w @autopilot/engine && npm run build -w @autopilot/cetus && npm run build -w @autopilot/db && npm run build -w @autopilot/bot",
     "typecheck": "npm run typecheck -w sui-lp-tracker && npm run typecheck --prefix sui-lp-autopilot",

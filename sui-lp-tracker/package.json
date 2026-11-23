@@ -9,6 +9,7 @@
     "build": "node server/build-cron.mjs && tsc -b && vite build",
     "build:prod": "npm run build",
     "serve:prod": "vite-node --mode production scripts/serve-prod.mjs",
+    "worker": "vite-node --mode production scripts/worker.mjs",
     "build:cron": "node server/build-cron.mjs",
     "snapshot:once": "vite-node --mode production scripts/portfolio-snapshot-once.ts",
     "lp-history:sync": "vite-node --mode production scripts/lp-history-sync-once.ts",

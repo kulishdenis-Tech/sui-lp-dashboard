@@ -37,6 +37,8 @@ npm run serve:prod
 
 `npm run dev` лишається для розробки з HMR на 5180. Для ноутбука і телефона достатньо bat: він слухає `0.0.0.0:4173`. Бот лишається на `127.0.0.1:5191`, дашборд ходить до нього через `/api/autopilot`. Хешовані `/assets/*` кешуються на рік, `index.html` — `no-cache`. Service worker немає. Після `git pull`: `npm run build:prod` і знову bat.
 
+Окремий процес `npm run worker` раз на ~90 с рахує Home overview у `_local/overview-cache.json`. `GET /api/overview?wallet=` читає лише цей файл. Адреси: `WORKER_ADDRESSES` або ключі з `_local/wallet-nicknames.json`.
+
 ## Відновлення
 
 База трекера — вкладений коміт `8547e52` (повний UI: Overview, Activity, Build, Markets, Multiply, pool quote). Поверх нього перенесені точкові виправлення v1.2.x: gRPC failover, Current cashflow, allowlist `?wallet=`, порожні LP, версія в шапці. Тонші копії екранів з v1.1/v1.2 не замінювали ці сторінки.
