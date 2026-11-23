@@ -281,6 +281,42 @@ type NaviTx = {
 
 type NaviTxPage = { data?: NaviTx[]; cursor?: string }
 
+/** Persisted tx history (newest first): later loads fetch only pages with new rows. */
+const NAVI_TX_STORE = (addr: string) => `suilp.navi.tx.${addr.toLowerCase()}`
+const NAVI_TX_FULL_REFRESH_MS = 7 * 24 * 60 * 60 * 1000
+
+function naviTxKey(tx: NaviTx): string {
+	const ch = (tx.coinChanges ?? []).map((c) => `${c.symbol ?? ''}:${c.amount ?? ''}`).join(',')
+	return `${tx.timestamp ?? ''}|${tx.type ?? ''}|${tx.status ?? ''}|${ch}`
+}
+
+function readNaviTxStore(addr: string): { rows: NaviTx[]; ts: number } | null {
+	try {
+		const raw = localStorage.getItem(NAVI_TX_STORE(addr))
+		if (!raw) return null
+		const j = JSON.parse(raw) as { ts?: number; rows?: NaviTx[] }
+		if (!Array.isArray(j.rows) || typeof j.ts !== 'number') return null
+		if (Date.now() - j.ts > NAVI_TX_FULL_REFRESH_MS) return null
+		return { rows: j.rows, ts: j.ts }
+	} catch {
+		return null
+	}
+}
+
+function writeNaviTxStore(addr: string, rows: NaviTx[], keepTs?: number): void {
+	try {
+		const slim = rows.map((r) => ({
+			type: r.type,
+			status: r.status,
+			timestamp: r.timestamp,
+			coinChanges: (r.coinChanges ?? []).map((c) => ({ symbol: c.symbol, amount: c.amount, value: c.value })),
+		}))
+		localStorage.setItem(NAVI_TX_STORE(addr), JSON.stringify({ ts: keepTs ?? Date.now(), rows: slim }))
+	} catch {
+		/* storage full or unavailable */
+	}
+}
+
 function symKey(symbol: string): string {
 	return symbol.trim().toUpperCase()
 }
@@ -365,6 +401,9 @@ async function loadNaviCashflowUncached(
 	}
 
 	const rows: NaviTx[] = []
+	const stored = readNaviTxStore(address)
+	const storedKeys = new Set((stored?.rows ?? []).map(naviTxKey))
+	let reachedKnown = false
 	const seenCursors = new Set<string>()
 	let cursor = ''
 	for (let page = 0; page < 40; page++) {
@@ -389,11 +428,22 @@ async function loadNaviCashflowUncached(
 		}
 		const batch = json.data?.data ?? []
 		rows.push(...batch)
+		// Newest-first paging: once a page overlaps what we already have, the rest is known.
+		if (stored && batch.length > 0 && batch.some((t) => storedKeys.has(naviTxKey(t)))) {
+			reachedKnown = true
+			break
+		}
 		const next = json.data?.cursor ?? ''
 		if (!next || next.startsWith('no_more') || batch.length === 0 || seenCursors.has(next)) break
 		seenCursors.add(next)
 		cursor = next
 	}
+
+	if (reachedKnown && stored) {
+		const have = new Set(rows.map(naviTxKey))
+		for (const t of stored.rows) if (!have.has(naviTxKey(t))) rows.push(t)
+	}
+	if (rows.length > 0) writeNaviTxStore(address, rows, reachedKnown ? stored?.ts : undefined)
 
 	const deposited = new Map<string, number>()
 	const borrowed = new Map<string, number>()
