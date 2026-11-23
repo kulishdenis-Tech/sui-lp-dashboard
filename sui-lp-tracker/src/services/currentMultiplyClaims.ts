@@ -111,6 +111,9 @@ export async function readWalletRewardClaims(
 	const typed = await scanClaims({ SenderAndMoveEventType: { sender: owner, type: `${CURRENT_PROTOCOL_PKG}${CLAIM_STRUCT}` } }, wanted, bucket)
 	const useTyped = typed.ok && [...bucket.values()].some((l) => l.length > 0)
 	if (!useTyped) bucket.clear()
+	if (process.env.VITEST !== 'true' && process.env.SUI_LP_ADVISOR_DEV_TIMING === '1') {
+		console.log(`[current-multiply] claims scan path: ${useTyped ? 'typed' : 'full-sender-fallback'}`)
+	}
 	const scanned = useTyped ? typed : await scanClaims({ Sender: owner }, wanted, bucket)
 	if (!scanned.ok) {
 		console.warn('[current-multiply] reward claim history unavailable', scanned.error)

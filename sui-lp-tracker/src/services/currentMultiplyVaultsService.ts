@@ -325,7 +325,7 @@ async function buildClaimedRewards(
 		wanted.set(key, { symbol: claimCoinMeta(rows, event.coinType).symbol, coinType: event.coinType, sec })
 	}
 	// Historical quotes are independent: fetch them with bounded concurrency instead of one by one.
-	await mapPool([...wanted.entries()], 4, async ([key, w]) => {
+	await mapPool([...wanted.entries()], 2, async ([key, w]) => {
 		const cached = histQuoteCache.get(key)
 		if (cached) {
 			quoteByKey.set(key, cached)
