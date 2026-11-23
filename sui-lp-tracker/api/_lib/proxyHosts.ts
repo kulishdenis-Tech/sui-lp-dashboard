@@ -15,6 +15,9 @@ export const PROXY_HOST_TO_ORIGIN: Record<string, string> = {
 	// (avoids Chrome extension fetch interception that breaks getAllBalances)
 	// fullnode host is gRPC/GraphQL, not JSON-RPC. JSON-RPC is not proxied.
 	'fullnode.mainnet.sui.io': 'https://fullnode.mainnet.sui.io',
+	'graphql.mainnet.sui.io': 'https://graphql.mainnet.sui.io',
+	'sui-mainnet-grpc-web.blockvision.org': 'https://sui-mainnet-grpc-web.blockvision.org',
+	'sui-mainnet-graphql.blockvision.org': 'https://sui-mainnet-graphql.blockvision.org',
 	'sui-rpc.publicnode.com': 'https://sui-rpc.publicnode.com',
 	'sui.publicnode.com': 'https://sui.publicnode.com',
 	'rpc-mainnet.suiscan.xyz': 'https://rpc-mainnet.suiscan.xyz',

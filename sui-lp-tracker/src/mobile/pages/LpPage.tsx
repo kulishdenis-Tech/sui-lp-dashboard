@@ -6,13 +6,13 @@ import { useWalletAuth } from '@/hooks/useWalletAuth'
 import type { OpenPosition } from '@/types'
 import { ProtocolIcon } from '@/components/ui/ProtocolIcon'
 import { Spinner } from '@/components/ui/Spinner'
-import { CetusVaultsSection } from '@/components/positions/CetusVaultsSection'
-import { AftermathFarmsSection } from '@/components/positions/AftermathFarmsSection'
-import { ClosedPositionsTable } from '@/components/positions/ClosedPositionsTable'
+import { ClosedList } from '@/mobile/ui/ClosedList'
 import { useClosedPositionsLoader, useLpLiveEnrichment } from '@/components/positions/useLpModuleData'
 import { isCetusVaultPosition } from '@/utils/cetusVault'
 import { formatUSDAdaptive } from '@/utils/formatting'
 import { positionValueUsd } from '@/utils/positionDerivedMetrics'
+import { CascadeManageMenu } from '@/pages/autopilot/CascadeManageMenu'
+import { groupRememberedCascades } from '@/pages/autopilot/groupRememberedCascades'
 import { classifyLpBand } from '@/pages/overviewLab/overviewMetrics'
 
 type View = 'open' | 'vaults' | 'closed'
@@ -93,7 +93,7 @@ export function LpPage() {
 	const [view, setView] = useState<View>('open')
 	const [showEmpty, setShowEmpty] = useState(false)
 
-	useLpLiveEnrichment(address, open, isLoading)
+	const openDigestByPosId = useLpLiveEnrichment(address, open, isLoading)
 	useClosedPositionsLoader(view === 'closed', address, closed, isLoadingClosed)
 
 	const vaults = useMemo(() => open.filter((p) => isCetusVaultPosition(p)), [open])
@@ -119,6 +119,7 @@ export function LpPage() {
 				.sort((a, b) => positionValueUsd(b) - positionValueUsd(a)),
 		[filtered],
 	)
+	const groups = useMemo(() => groupRememberedCascades(active, openDigestByPosId), [active, openDigestByPosId])
 	const empty = useMemo(() => filtered.filter((p) => classifyLpBand(p) === 'empty'), [filtered])
 
 	const total = active.reduce((s, p) => s + positionValueUsd(p), 0)
@@ -182,9 +183,29 @@ export function LpPage() {
 						<p className="px-1 text-sm text-slate-500">Немає відкритих LP-позицій.</p>
 					) : (
 						<div className={`${card} divide-y divide-slate-800 overflow-hidden`}>
-							{active.map((p) => (
-								<PositionRow key={p.id} p={p} onOpen={() => navigate(`/lp/position/${p.id}`)} />
-							))}
+							{groups.map((g) =>
+								g.kind === 'single' ? (
+									<PositionRow key={g.id} p={g.members[0]} onOpen={() => navigate(`/lp/position/${g.members[0].id}`)} />
+								) : (
+									<div key={g.id} className="bg-slate-900/40">
+										<div className="flex items-center justify-between gap-2 px-3 py-2">
+											<span className="min-w-0 truncate text-sm text-slate-200">
+												{g.members[0].tokenA}/{g.members[0].tokenB}
+												<span className="ml-2 text-xs text-slate-400">Cascade · {g.members.length} LP</span>
+											</span>
+											<CascadeManageMenu
+												members={g.members}
+												record={g.record}
+												membershipTrusted={g.membershipTrusted}
+												suggestedMembers={g.suggestedMembers}
+											/>
+										</div>
+										{g.members.map((m) => (
+											<PositionRow key={m.id} p={m} onOpen={() => navigate(`/lp/position/${m.id}`)} />
+										))}
+									</div>
+								),
+							)}
 							{empty.length > 0 ? (
 								<>
 									<button
@@ -209,14 +230,23 @@ export function LpPage() {
 						</div>
 					)}
 					{aftermath.length > 0 && (filter === 'all' || filter === 'aftermath') ? (
-						<AftermathFarmsSection positions={aftermath} />
+						<div className={`${card} divide-y divide-slate-800/70 overflow-hidden`}>
+							{aftermath.map((p) => (
+								<PositionRow key={p.id} p={p} onOpen={() => navigate(`/lp/position/${p.id}`)} />
+							))}
+						</div>
 					) : null}
 				</>
 			) : view === 'vaults' ? (
-				<CetusVaultsSection
-					positions={vaults}
-					emptyHint="Немає підтримуваних vault-позицій для цієї адреси."
-				/>
+				vaults.length === 0 ? (
+					<p className="px-1 text-sm text-slate-500">Немає vault-позицій для цієї адреси.</p>
+				) : (
+					<div className={`${card} divide-y divide-slate-800/70 overflow-hidden`}>
+						{vaults.map((p) => (
+							<PositionRow key={p.id} p={p} onOpen={() => navigate(`/lp/position/${p.id}`)} />
+						))}
+					</div>
+				)
 			) : isLoadingClosed ? (
 				<div className="flex items-center gap-2 text-sm text-slate-400">
 					<Spinner className="h-4 w-4" /> Loading closed positions…
@@ -224,7 +254,7 @@ export function LpPage() {
 			) : closed.length === 0 ? (
 				<p className="px-1 text-sm text-slate-500">Закритих позицій не знайдено.</p>
 			) : (
-				<ClosedPositionsTable allClosed={closed} protocolFilter={filter} />
+				<ClosedList allClosed={closed} protocolFilter={filter} />
 			)}
 		</main>
 	)

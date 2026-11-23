@@ -7,6 +7,7 @@ import { PositionRangeBar } from '@/components/positions/PositionRangeBar'
 import { PositionPoolChart } from '@/components/positions/PositionPoolChart'
 import { BluefinEventHistoryCards } from '@/components/positions/BluefinEventHistoryCards'
 import { CurrentMultiplyDetailSection } from '@/components/positions/CurrentMultiplyDetailSection'
+import { ManageActions } from '@/mobile/ui/ManageSheet'
 import { isCetusVaultPosition } from '@/utils/cetusVault'
 import { isHaedalLendingVaultPosition } from '@/utils/haedalLendingVault'
 import { isCurrentMultiplyVaultPosition } from '@/utils/currentMultiplyVault'
@@ -168,6 +169,8 @@ export function PositionDetailPage() {
 				/>
 				<Tile label="APR" value={apr != null && Number.isFinite(apr) ? `${apr.toFixed(0)}%` : '—'} />
 			</div>
+
+			{d.detailFromClosed || vault ? null : <ManageActions position={p} unclaimedUsd={unclaimed} />}
 
 			<section className={`${card} divide-y divide-slate-800/70`}>
 				<div className="px-3 py-2 text-[11px] uppercase tracking-wide text-slate-500">{closed ? 'Withdrawn' : 'Liquidity'}</div>
