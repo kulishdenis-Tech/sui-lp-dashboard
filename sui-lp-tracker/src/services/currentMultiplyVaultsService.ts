@@ -404,9 +404,8 @@ async function loadCurrentMultiplyVaultPositionsOnce(
 	const marketRows = await fetchAllMarketRows().catch(() => [])
 	const marketMeta = currentMarketListMeta()
 	const claims = await claimScan
-	const out: OpenPosition[] = []
-
-	for (const row of active) {
+	// Rows are independent (own market/obligation reads): run them concurrently instead of one after another.
+	const built = await Promise.all(active.map(async (row): Promise<OpenPosition> => {
 		const obligationId = row.lendingObligationId!
 		const marketType = with0x(row.market ?? '')
 		const collateralType = with0x(row.collateralToken!)
@@ -650,7 +649,7 @@ async function loadCurrentMultiplyVaultPositionsOnce(
 		const rewardUsdKnown = claimableRewardsUsd != null && Number.isFinite(claimableRewardsUsd)
 		const unclaimedRewardUSD = rewardUsdKnown ? claimableRewardsUsd! : Number.NaN
 
-		out.push({
+		return {
 			id: obligationId,
 			protocol: 'cetus',
 			poolId: row.leverageOwnerCap ?? obligationId,
@@ -707,8 +706,8 @@ async function loadCurrentMultiplyVaultPositionsOnce(
 				rewardAprPct: undefined,
 				pendingStakeRewards,
 			},
-		})
-	}
+		}
+	}))
 
-	return out
+	return built
 }

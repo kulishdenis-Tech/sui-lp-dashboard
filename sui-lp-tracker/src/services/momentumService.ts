@@ -182,26 +182,29 @@ export async function getMomentumPositions(
 		return []
 	}
 
-	let fromSdk: MomentumUserPosRow[]
-	try {
-		fromSdk = (await sdk.Position.getAllUserPositions(
-			walletAddress,
-			poolsData,
-			tokensData,
-		)) as MomentumUserPosRow[]
-	} catch (e) {
-		 
-		console.warn('Momentum getAllUserPositions failed', e)
-		fromSdk = []
-	}
-
-	let fromRpc: MomentumUserPosRow[] = []
-	try {
-		fromRpc = await momentumUserRowsFromOwnedRpc(walletAddress, sdk, poolsData, tokensData)
-	} catch (e2) {
-		 
-		console.warn('Momentum RPC fallback (owned objects) failed', e2)
-	}
+	// SDK positions and the owned-objects RPC fallback are independent: read them concurrently.
+	const [fromSdk, fromRpc] = await Promise.all([
+		(async (): Promise<MomentumUserPosRow[]> => {
+			try {
+				return (await sdk.Position.getAllUserPositions(
+					walletAddress,
+					poolsData,
+					tokensData,
+				)) as MomentumUserPosRow[]
+			} catch (e) {
+				console.warn('Momentum getAllUserPositions failed', e)
+				return []
+			}
+		})(),
+		(async (): Promise<MomentumUserPosRow[]> => {
+			try {
+				return await momentumUserRowsFromOwnedRpc(walletAddress, sdk, poolsData, tokensData)
+			} catch (e2) {
+				console.warn('Momentum RPC fallback (owned objects) failed', e2)
+				return []
+			}
+		})(),
+	])
 
 	const mergedById = new Map<string, MomentumUserPosRow>()
 	for (const r of fromSdk) {

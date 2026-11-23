@@ -1311,11 +1311,9 @@ export async function getCurrentPositions(
 		}
 	}
 
-	let skippedObligations = 0
-	for (const ob of rows) {
+	/** Chain + mining reads for one obligation. Independent per obligation, so all run concurrently (results are consumed in order below). */
+	async function readObligationBundle(ob: (typeof rows)[number]) {
 		const marketType = ob.marketType!
-		try {
-		if (!marketTypes.includes(marketType)) marketTypes.push(marketType)
 		const listed = rowsForMarket(allListed, marketType)
 		const priceRows = listed.length > 0 ? listed : allListed
 		const marketObjectId =
@@ -1393,13 +1391,6 @@ export async function getCurrentPositions(
 			}))
 		})
 
-		claimGroups.push({
-			obligationId: ob.obligationObject!,
-			marketType,
-			marketObjectId,
-			deposits: overview.deposits.map((d) => d.asset),
-			borrows: overview.borrows.map((b) => b.asset),
-		})
 		const claimableP = currentAdvisorAccum('claimable', () =>
 			readClaimableMining(
 				marketObjectId,
@@ -1420,6 +1411,29 @@ export async function getCurrentPositions(
 		)
 		const { depositMiningResults, borrowMiningResults, mined } =
 			await parallelCurrentMiningAndClaimableFromBundle(miningP, claimableP)
+		return { marketType, listed, priceRows, marketObjectId, overview, rates, chainApr, depositMiningResults, borrowMiningResults, mined }
+	}
+
+	const bundles = rows.map((ob) => {
+		const pr = readObligationBundle(ob)
+		pr.catch(() => {}) // avoid unhandled rejection; the loop below awaits and handles it per obligation
+		return pr
+	})
+
+	let skippedObligations = 0
+	for (let obIdx = 0; obIdx < rows.length; obIdx++) {
+		const ob = rows[obIdx]!
+		const marketType = ob.marketType!
+		try {
+		if (!marketTypes.includes(marketType)) marketTypes.push(marketType)
+		const { listed, priceRows, marketObjectId, overview, rates, chainApr, depositMiningResults, borrowMiningResults, mined } = await bundles[obIdx]!
+		claimGroups.push({
+			obligationId: ob.obligationObject!,
+			marketType,
+			marketObjectId,
+			deposits: overview.deposits.map((d) => d.asset),
+			borrows: overview.borrows.map((b) => b.asset),
+		})
 
 		for (let i = 0; i < overview.deposits.length; i++) {
 			const dep = overview.deposits[i]!
