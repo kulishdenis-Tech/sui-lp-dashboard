@@ -9,6 +9,7 @@ import {
 import { countLpFilters } from '@/pages/overviewLab/overviewMetrics'
 import { buildOverviewRiskRows } from '@/pages/overviewLab/overviewRisk'
 import { aggregateOpenMetrics } from '@/utils/aggregateOpenMetrics'
+import { isCetusVaultPosition } from '@/utils/cetusVault'
 import { finiteUsd } from '@/utils/finiteUsd'
 
 function riskLite(
@@ -50,7 +51,8 @@ export async function buildWalletOverview(
 
 	const snap = full.snapshot
 	const counts = countLpFilters(full.positions)
-	const openMetrics = aggregateOpenMetrics(full.positions)
+	// Same filter as client buildOverviewKpis: Cetus vaults are not part of the Home "Unclaimed" tile.
+	const openMetrics = aggregateOpenMetrics(full.positions.filter((p) => !isCetusVaultPosition(p)))
 	const riskRows = riskLite(buildOverviewRiskRows(full.current, full.positions))
 
 	const lpUSD = snap
