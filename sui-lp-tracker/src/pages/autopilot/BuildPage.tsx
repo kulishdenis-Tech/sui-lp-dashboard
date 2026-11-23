@@ -22,17 +22,19 @@ function WizardHeader({ step, onStep }: { step: WizardStep; onStep: (n: WizardSt
 				<h2 className="text-base font-semibold tracking-tight text-slate-100">
 					Build · {WIZARD_STEPS[step - 1]!.label}
 				</h2>
-				<span className="text-xs text-slate-500">Крок {step} з 4</span>
+				<span className="whitespace-nowrap text-xs text-slate-500">{`Крок ${step} з 4`}</span>
 			</div>
 			<ol className="mt-2 grid grid-cols-4 gap-1.5" aria-label="Кроки">
 				{WIZARD_STEPS.map((s) => (
 					<li key={s.n}>
-						<button
-							type="button"
-							disabled={s.n > step}
-							onClick={() => onStep(s.n)}
+						<span
+							role="button"
+							tabIndex={s.n < step ? 0 : -1}
+							aria-disabled={s.n >= step}
 							aria-current={s.n === step ? 'step' : undefined}
-							className={`h-1.5 w-full rounded-full border-0 p-0 ${
+							onClick={() => s.n < step && onStep(s.n)}
+							onKeyDown={(e) => e.key === 'Enter' && s.n < step && onStep(s.n)}
+							className={`block h-2 w-full rounded-full ${
 								s.n <= step ? 'bg-sky-500' : 'bg-slate-700'
 							}`}
 							title={s.label}
@@ -186,7 +188,7 @@ export function BuildPage({ wizard = false }: { wizard?: boolean } = {}) {
 						</button>
 					) : (
 						<span className="text-xs text-slate-500">
-							{status.canPreview ? 'Готово до Preview' : (status.blockReason ?? 'Є помилки')}
+							{status.canPreview ? 'Готово до Preview' : 'Preview заблоковано'}
 						</span>
 					)}
 				</div>
