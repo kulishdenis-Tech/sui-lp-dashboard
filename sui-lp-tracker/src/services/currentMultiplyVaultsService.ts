@@ -378,12 +378,24 @@ export async function getCurrentMultiplyVaultPositions(
 	return work
 }
 
+const multiplyTiming = () =>
+	process.env.VITEST !== 'true' && process.env.SUI_LP_ADVISOR_DEV_TIMING === '1'
+async function mt<T>(label: string, fn: () => Promise<T>): Promise<T> {
+	if (!multiplyTiming()) return fn()
+	const t0 = Date.now()
+	try {
+		return await fn()
+	} finally {
+		console.log(`[current-multiply] ${label}: ${Date.now() - t0}ms`)
+	}
+}
+
 async function loadCurrentMultiplyVaultPositionsOnce(
 	walletAddress: string,
 	_opts?: { forceRefreshPrices?: boolean },
 ): Promise<OpenPosition[]> {
-	const rows = await getJson<LeverageObligationRow[]>(
-		`/multiply/getLeverageObligationByAddress/${walletAddress}`,
+	const rows = await mt('api-obligations', () =>
+		getJson<LeverageObligationRow[]>(`/multiply/getLeverageObligationByAddress/${walletAddress}`),
 	)
 	const apiReceivedAtMs = Date.now()
 	const active = (rows ?? []).filter(
@@ -391,17 +403,19 @@ async function loadCurrentMultiplyVaultPositionsOnce(
 	)
 	if (active.length === 0) return []
 
-	const claimScan = readWalletRewardClaims(
-		walletAddress,
-		active.map((r) => r.lendingObligationId!),
+	const claimScan = mt('claim-events-scan', () =>
+		readWalletRewardClaims(
+			walletAddress,
+			active.map((r) => r.lendingObligationId!),
+		),
 	)
-	const vaultMeta = await fetchMultiplyList().catch(() => ({
+	const vaultMeta = await mt('multiply-list', () => fetchMultiplyList()).catch(() => ({
 		rows: [] as MultiplyVaultRow[],
 		receivedAtMs: Date.now(),
 		cacheAgeMs: 0,
 	}))
 	const vaultList = vaultMeta.rows
-	const marketRows = await fetchAllMarketRows().catch(() => [])
+	const marketRows = await mt('market-rows', () => fetchAllMarketRows()).catch(() => [])
 	const marketMeta = currentMarketListMeta()
 	const claims = await claimScan
 	// Rows are independent (own market/obligation reads): run them concurrently instead of one after another.
@@ -431,15 +445,15 @@ async function loadCurrentMultiplyVaultPositionsOnce(
 		let rewardsReadAtMs: number | null = null
 		const completenessFlags: Array<CurrentMultiplyPosition['completeness'] | null> = []
 
-		const marketId = await resolveMarketObjectId(marketType, obligationId).catch(() => null)
+		const marketId = await mt('resolve-market', () => resolveMarketObjectId(marketType, obligationId)).catch(() => null)
 		if (marketId) {
 			try {
-				const overview = await inspectOverview(marketType, marketId, obligationId, walletAddress)
+				const overview = await mt('inspect-overview', () => inspectOverview(marketType, marketId, obligationId, walletAddress))
 				const assets = [
 					...overview.deposits.map((d) => d.asset),
 					...overview.borrows.map((b) => b.asset),
 				]
-				const rates = await inspectRates(marketType, marketId, assets, walletAddress)
+				const rates = await mt('inspect-rates', () => inspectRates(marketType, marketId, assets, walletAddress))
 				const dep = overview.deposits.find((d) => typeKey(d.asset) === typeKey(collateralType))
 				const bor = overview.borrows.find((b) => typeKey(b.asset) === typeKey(debtType))
 				if (dep) {
@@ -492,11 +506,11 @@ async function loadCurrentMultiplyVaultPositionsOnce(
 		let pendingStakeRewards: NonNullable<OpenPosition['cetusVault']>['pendingStakeRewards']
 
 		if (marketId && supplyDec != null && borrowDec != null && pxSupply != null && pxBorrow != null) {
-			const [depMining, borMining, mined] = await Promise.all([
+			const [depMining, borMining, mined] = await mt('mining+claimable', () => Promise.all([
 				readMiningRewardApr(marketId, 'deposit', collateralType, depositExchange, supplyDec, pxSupply, marketRows),
 				readMiningRewardApr(marketId, 'borrow', debtType, DECIMAL_SCALE, borrowDec, pxBorrow, marketRows),
 				readClaimableMining(marketId, obligationId, [collateralType], [debtType], marketRows),
-			])
+			]))
 			rewardsReadAtMs = Math.max(depMining.readAtMs, borMining.readAtMs, mined.readAtMs)
 			const knownApr = (read: { status: string; apr: number | null }) =>
 				read.status === 'complete' || read.status === 'empty' ? (read.apr ?? 0) : null
@@ -543,10 +557,8 @@ async function loadCurrentMultiplyVaultPositionsOnce(
 		} catch {
 			/* keep the id the API returned */
 		}
-		const claimed = await buildClaimedRewards(
-			claims.byObligation.get(claimKey),
-			claims.status,
-			marketRows,
+		const claimed = await mt('claimed-rewards', () =>
+			buildClaimedRewards(claims.byObligation.get(claimKey), claims.status, marketRows),
 		)
 
 		const apr = multiplyNetAprBreakdown({
