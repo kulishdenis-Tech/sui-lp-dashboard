@@ -109,10 +109,13 @@ async function dexCandlesFetch(
 const DEX_BAR_STORE_TTL_MS = 10 * 60_000
 const dexBarStore = new Map<string, { at: number; candles: Map<number, OkxDexCandle> }>()
 const dexBarInflight = new Map<string, Promise<void>>()
+const dexBarEmpty = new Map<string, number>()
+const DEX_BAR_EMPTY_TTL_MS = 2 * 60_000
 
 export function __resetOkxDexBarStoreForTests(): void {
 	dexBarStore.clear()
 	dexBarInflight.clear()
+	dexBarEmpty.clear()
 }
 
 async function dexBarCandlesAround(coinType: string, bar: string, targetMs: number): Promise<OkxDexCandle[]> {
@@ -131,6 +134,9 @@ async function dexBarCandlesAround(coinType: string, bar: string, targetMs: numb
 	}
 	const hit = covered()
 	if (hit) return hit
+	// Token has no candles for this bar (or the API was rate-limited): do not repeat per event.
+	const emptyAt = dexBarEmpty.get(key)
+	if (emptyAt != null && now - emptyAt < DEX_BAR_EMPTY_TTL_MS) return []
 	// Coalesce concurrent lookups for the same coin/bar, then re-check coverage.
 	const pending = dexBarInflight.get(key)
 	if (pending) {
@@ -143,6 +149,7 @@ async function dexBarCandlesAround(coinType: string, bar: string, targetMs: numb
 			dexCandlesFetch(coinType, bar, { afterMs: targetMs }),
 			dexCandlesFetch(coinType, bar, { beforeMs: targetMs }),
 		])
+		if (afterBranch.length + beforeBranch.length === 0) dexBarEmpty.set(key, Date.now())
 		const prev = dexBarStore.get(key)
 		const fresh = prev && Date.now() - prev.at <= DEX_BAR_STORE_TTL_MS
 		const candles = fresh ? prev.candles : new Map<number, OkxDexCandle>()
