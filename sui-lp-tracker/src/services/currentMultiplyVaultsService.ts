@@ -41,6 +41,7 @@ import { advisorWalletCacheKey } from '@/services/server/advisorWalletCacheKey'
 import { historicalClaimUsd, readWalletRewardClaims, type ObligationClaims } from '@/services/currentMultiplyClaims'
 import { getUsdPerTokenAtTimestamp } from '@/services/priceService'
 import type { CurrentMarketRow } from '@/services/currentService'
+import { mapPool } from '@/utils/concurrency'
 import { normalizeSuiAddress } from '@mysten/sui/utils'
 import { Transaction } from '@mysten/sui/transactions'
 import { bcs } from '@mysten/sui/bcs'
@@ -315,15 +316,25 @@ async function buildClaimedRewards(
 			: { events: [], usd: 0, status: 'empty' }
 	}
 	const quoteByKey = new Map<string, { usdPerToken: number | null; approximate: boolean } | null>()
+	const wanted = new Map<string, { symbol: string; coinType: string; sec: number }>()
 	for (const event of rawEvents) {
 		if (event.timestampMs == null) continue
-		const meta = claimCoinMeta(rows, event.coinType)
 		const sec = Math.floor(event.timestampMs / 1000)
 		const key = `${typeKey(event.coinType)}:${sec}`
-		if (quoteByKey.has(key)) continue
-		const quote = await getUsdPerTokenAtTimestamp(meta.symbol, event.coinType, sec).catch(() => null)
-		quoteByKey.set(key, quote)
+		if (wanted.has(key)) continue
+		wanted.set(key, { symbol: claimCoinMeta(rows, event.coinType).symbol, coinType: event.coinType, sec })
 	}
+	// Historical quotes are independent: fetch them with bounded concurrency instead of one by one.
+	await mapPool([...wanted.entries()], 4, async ([key, w]) => {
+		const cached = histQuoteCache.get(key)
+		if (cached) {
+			quoteByKey.set(key, cached)
+			return
+		}
+		const quote = await getUsdPerTokenAtTimestamp(w.symbol, w.coinType, w.sec).catch(() => null)
+		if (quote && quote.usdPerToken != null) histQuoteCache.set(key, quote)
+		quoteByKey.set(key, quote)
+	})
 	const events: CurrentMultiplyClaimEvent[] = rawEvents.map((event) => {
 		const meta = claimCoinMeta(rows, event.coinType)
 		const amount = meta.decimals != null ? humanFromRawBigint(BigInt(event.amountRaw), meta.decimals) : null
@@ -378,6 +389,34 @@ export async function getCurrentMultiplyVaultPositions(
 	return work
 }
 
+/**
+ * Claim history is append-only and the sender scan pages through up to 12 pages of events (~16 s),
+ * so reuse a recent result. A forced refresh (e.g. right after claiming) bypasses it.
+ */
+const CLAIMS_TTL_MS = 10 * 60_000
+type ClaimScan = Awaited<ReturnType<typeof readWalletRewardClaims>>
+const claimsCache = new Map<string, { at: number; value: ClaimScan }>()
+const claimsInFlight = new Map<string, Promise<ClaimScan>>()
+function readClaimsCached(wallet: string, obligationIds: string[], force: boolean): Promise<ClaimScan> {
+	const key = `${advisorWalletCacheKey(wallet)}:${[...obligationIds].sort().join(',')}`
+	const hit = claimsCache.get(key)
+	if (!force && hit && Date.now() - hit.at < CLAIMS_TTL_MS) return Promise.resolve(hit.value)
+	const running = claimsInFlight.get(key)
+	if (running) return running
+	const p = readWalletRewardClaims(wallet, obligationIds)
+		.then((value) => {
+			if (value.status !== 'unavailable') claimsCache.set(key, { at: Date.now(), value })
+			return value
+		})
+		.finally(() => claimsInFlight.delete(key))
+	claimsInFlight.set(key, p)
+	return p
+}
+
+/** Historical USD quote per (coin, second): immutable, so cache successes for the process lifetime. */
+type HistQuote = Awaited<ReturnType<typeof getUsdPerTokenAtTimestamp>>
+const histQuoteCache = new Map<string, HistQuote>()
+
 const multiplyTiming = () =>
 	process.env.VITEST !== 'true' && process.env.SUI_LP_ADVISOR_DEV_TIMING === '1'
 async function mt<T>(label: string, fn: () => Promise<T>): Promise<T> {
@@ -404,9 +443,10 @@ async function loadCurrentMultiplyVaultPositionsOnce(
 	if (active.length === 0) return []
 
 	const claimScan = mt('claim-events-scan', () =>
-		readWalletRewardClaims(
+		readClaimsCached(
 			walletAddress,
 			active.map((r) => r.lendingObligationId!),
+			_opts?.forceRefreshPrices === true,
 		),
 	)
 	const vaultMeta = await mt('multiply-list', () => fetchMultiplyList()).catch(() => ({
