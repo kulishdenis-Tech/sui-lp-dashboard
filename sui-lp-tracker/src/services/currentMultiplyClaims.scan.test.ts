@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const queryEvents = vi.fn()
 vi.mock('@/services/suiClient', () => ({ suiClient: { queryEvents: (a: unknown) => queryEvents(a) } }))
-vi.mock('@/services/currentService', () => ({ CURRENT_PROTOCOL_PKG: '0xpkg' }))
 
 import { readWalletRewardClaims } from '@/services/currentMultiplyClaims'
 
@@ -20,7 +19,9 @@ describe('readWalletRewardClaims', () => {
 		queryEvents.mockResolvedValueOnce({ data: [ev], hasNextPage: false, nextCursor: null })
 		const r = await readWalletRewardClaims('0xowner', [OB])
 		expect(queryEvents).toHaveBeenCalledTimes(1)
-		expect(queryEvents.mock.calls[0]![0].query).toHaveProperty('SenderAndMoveEventType')
+		expect(queryEvents.mock.calls[0]![0].query.SenderAndMoveEventType.type).toBe(
+			'0xfe1d8929d13b00aaecd7642dec1c6d41cab82882a1b139efa46bf61dfd6380bf::liquidity_mining::RewardClaimedEvent',
+		)
 		expect(r.status).toBe('complete')
 		expect(r.byObligation.get(OB)!.events).toHaveLength(1)
 	})

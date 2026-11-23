@@ -9,7 +9,12 @@
  */
 import { normalizeSuiAddress } from '@mysten/sui/utils'
 import { suiClient } from '@/services/suiClient'
-import { CURRENT_PROTOCOL_PKG } from '@/services/currentService'
+
+/**
+ * Package that DEFINES the claim event type. Event types keep the original package id, not the latest
+ * upgrade (`CURRENT_PROTOCOL_PKG` is the upgraded one, so a typed filter with it matches nothing).
+ */
+export const CURRENT_EVENT_PKG = '0xfe1d8929d13b00aaecd7642dec1c6d41cab82882a1b139efa46bf61dfd6380bf'
 
 const CLAIM_STRUCT = '::liquidity_mining::RewardClaimedEvent'
 const MAX_PAGES = 12
@@ -108,7 +113,7 @@ export async function readWalletRewardClaims(
 	// Fast path: sender + claim event type filters server-side, so only claim events are paged.
 	// If the package id is not the event's defining package the typed query returns nothing:
 	// then fall back to the full sender scan below (never trust an empty typed result as "no claims").
-	const typed = await scanClaims({ SenderAndMoveEventType: { sender: owner, type: `${CURRENT_PROTOCOL_PKG}${CLAIM_STRUCT}` } }, wanted, bucket)
+	const typed = await scanClaims({ SenderAndMoveEventType: { sender: owner, type: `${CURRENT_EVENT_PKG}${CLAIM_STRUCT}` } }, wanted, bucket)
 	const useTyped = typed.ok && [...bucket.values()].some((l) => l.length > 0)
 	if (!useTyped) bucket.clear()
 	if (process.env.VITEST !== 'true' && process.env.SUI_LP_ADVISOR_DEV_TIMING === '1') {
