@@ -69,7 +69,7 @@ describe('Current claim call', () => {
 			},
 		})
 		const data = tx.getData()
-		const [call, transfer] = data.commands as Array<Record<string, any>>
+		const [call, transfer] = data.commands as Array<{ MoveCall: { module: string; function: string; typeArguments: string[]; arguments: unknown[] } } & Record<string, unknown>>
 		expect(call!.MoveCall.module).toBe('liquidity_mining')
 		expect(call!.MoveCall.function).toBe('claim_reward_as_coin')
 		expect(call!.MoveCall.typeArguments).toHaveLength(3)

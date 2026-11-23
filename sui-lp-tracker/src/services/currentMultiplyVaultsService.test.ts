@@ -8,7 +8,8 @@ describe('getCurrentMultiplyVaultPositions', () => {
 	it(
 		'loads USDSUI/USDC Multiply without LP-share leakage',
 		async () => {
-			if (process.env.CI && process.env.CURRENT_MULTIPLY_LIVE !== '1') {
+			if (process.env.CURRENT_MULTIPLY_LIVE !== '1') {
+				// Live network test: opt-in only (CURRENT_MULTIPLY_LIVE=1).
 				return
 			}
 			const rows = await getCurrentMultiplyVaultPositions(WALLET)

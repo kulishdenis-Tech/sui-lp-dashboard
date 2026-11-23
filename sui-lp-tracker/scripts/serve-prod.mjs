@@ -376,7 +376,7 @@ server.listen(port, host, () => {
 	// Warm the advisor snapshot right after boot so the first real request is not a cold 30 s build.
 	if (process.env.SUI_LP_PREWARM !== '0') {
 		setTimeout(() => {
-			fetch(`http://127.0.0.1:${port}/api/advisor/state`)
+			fetch(`http://${!host || host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host}:${port}/api/advisor/state`)
 				.then(() => console.log('[prewarm] advisor/state requested'))
 				.catch(() => {})
 		}, 2000).unref?.()
