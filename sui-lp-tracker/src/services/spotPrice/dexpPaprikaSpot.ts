@@ -7,14 +7,38 @@ const DEXP = 'https://api.dexpaprika.com'
 const PAPRIKA_OFF_MS = 30 * 60_000
 let paprikaOffUntil = 0
 
+/** First request is a probe: concurrent callers wait for it so a paid-plan 402 is seen once, not N times in parallel. */
+let paprikaProbe: Promise<void> | null = null
+let paprikaVerifiedAt = 0
+const PAPRIKA_VERIFIED_MS = 5 * 60_000
+
 async function paprikaFetch(url: string): Promise<Response | null> {
 	if (Date.now() < paprikaOffUntil) return null
-	const r = await fetch(url)
-	if (r.status === 401 || r.status === 402 || r.status === 403 || r.status === 429) {
-		paprikaOffUntil = Date.now() + PAPRIKA_OFF_MS
-		return null
+	let release: (() => void) | undefined
+	if (Date.now() - paprikaVerifiedAt > PAPRIKA_VERIFIED_MS) {
+		if (paprikaProbe) {
+			await paprikaProbe
+			if (Date.now() < paprikaOffUntil) return null
+		} else {
+			paprikaProbe = new Promise<void>((resolve) => {
+				release = resolve
+			})
+		}
 	}
-	return r
+	try {
+		const r = await fetch(url)
+		if (r.status === 401 || r.status === 402 || r.status === 403 || r.status === 429) {
+			paprikaOffUntil = Date.now() + PAPRIKA_OFF_MS
+			return null
+		}
+		if (r.ok) paprikaVerifiedAt = Date.now()
+		return r
+	} finally {
+		if (release) {
+			paprikaProbe = null
+			release()
+		}
+	}
 }
 
 type DpSearchToken = {
