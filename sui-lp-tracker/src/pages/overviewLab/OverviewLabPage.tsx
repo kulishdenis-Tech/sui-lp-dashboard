@@ -336,6 +336,7 @@ export function OverviewLabPage() {
 		naviSnapshot,
 		currentSnapshot,
 		isLoadingLending,
+		isLoadingPositions,
 		lastLoadError,
 		lendingError,
 		walletBalancesStatus,
@@ -351,6 +352,7 @@ export function OverviewLabPage() {
 			naviSnapshot: s.naviSnapshot,
 			currentSnapshot: s.currentSnapshot,
 			isLoadingLending: s.isLoadingLending,
+			isLoadingPositions: s.isLoadingPositions,
 			lastLoadError: s.lastLoadError,
 			lendingError: s.lendingError,
 			walletBalancesStatus: s.walletBalancesStatus,
@@ -542,6 +544,9 @@ export function OverviewLabPage() {
 		return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) : null
 	}
 
+	// Headline total must not show a half-loaded figure (e.g. $6k before lending arrives) as if it were final.
+	const netWorthPending =
+		(isLoadingLending && !anyLendingLoaded) || (isLoadingPositions && openPositions.length === 0)
 	const lendingNet = sumLendingField((s) => s?.netValueUSD)
 	const lendingSupplied = sumLendingField((s) => s?.totalSuppliedUSD)
 	const lendingDebt = sumLendingField((s) => s?.totalBorrowedUSD)
@@ -640,6 +645,7 @@ export function OverviewLabPage() {
 			) : null}
 
 			<OverviewRiskStrip
+				loading={isLoadingLending && !anyLendingLoaded}
 				rows={riskRows}
 				suiPriceUsd={suiPriceUsd}
 				summary={{
@@ -661,7 +667,7 @@ export function OverviewLabPage() {
 							</p>
 							<p className="overview-lab__net overview-lab__money mt-1 text-3xl font-semibold text-white sm:text-[2.65rem]">
 								<MetricValueWithPartial
-									value={money(kpis.netWorth?.totalNetUSD, hideAmounts)}
+									value={netWorthPending ? '…' : money(kpis.netWorth?.totalNetUSD, hideAmounts)}
 									partial={
 										coverageIsPartial(kpis.lpValueCoverage) ||
 										!!lendingError ||
