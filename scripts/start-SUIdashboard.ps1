@@ -144,8 +144,11 @@ if (-not (Test-Path (Join-Path $Root 'node_modules'))) {
 
 $ourDev = Get-OurNode 'vite.js'
 $ourProd = Get-OurNode 'serve-prod.mjs'
+$ourWorker = Get-OurNode 'worker.mjs'
 $ourBot = Get-OurNode 'dist\main.js'
 $botUrl = "http://127.0.0.1:${ApiPort}/api/auto-withdraw/status"
+$node = (Get-Command node).Source
+$viteNode = Join-Path $Root 'node_modules\vite-node\vite-node.mjs'
 
 if ($ourDev) {
 	Write-Host "Зупиняю dev Vite (PID $($ourDev.ProcessId)). Дашборд переходить на порт $Port."
@@ -158,9 +161,13 @@ if (-not $ourBot -and (Test-HttpUp $botUrl)) {
 	Fail "Порт $ApiPort уже відповідає, але це не бот цієї папки. Другий бот не запущено."
 }
 
+# Bat must never inherit a one-shot worker flag from a previous shell.
+Remove-Item Env:WORKER_ONCE -ErrorAction SilentlyContinue
+$env:WORKER_ONCE = $null
 $env:DATABASE_URL = "file:$DbFile"
 $env:AUTOPILOT_MODE = 'MONITOR_ONLY'
 $env:API_PORT = "$ApiPort"
+$env:PORT = "$Port"
 
 if (-not $ourBot) {
 	if (Test-AutopilotDistStale) {
@@ -174,7 +181,6 @@ if (-not $ourBot) {
 		Write-Host 'dist бота новіший за source — перезбірка не потрібна.'
 	}
 
-	$node = (Get-Command node).Source
 	$botMain = Join-Path $BotDir 'dist\main.js'
 	$botOut = Join-Path $LogDir 'bot-5191.log'
 	$botErr = Join-Path $LogDir 'bot-5191.err.log'
@@ -193,6 +199,8 @@ if (-not $ourBot) {
 	}
 }
 
+if (-not (Test-Path $viteNode)) { Fail "Не знайдено vite-node. Запустіть npm install у $Root" }
+
 if (-not $ourProd) {
 	if (Test-TrackerDistStale) {
 		Write-Host 'Збираю продакшн-білд трекера (npm run build:prod).'
@@ -201,15 +209,11 @@ if (-not $ourProd) {
 	} else {
 		Write-Host 'dist трекера новіший за source — перезбірка не потрібна.'
 	}
-	$node = (Get-Command node).Source
-	$viteNode = Join-Path $Root 'node_modules\vite-node\vite-node.mjs'
 	$serve = Join-Path $Tracker 'scripts\serve-prod.mjs'
-	if (-not (Test-Path $viteNode)) { Fail "Не знайдено vite-node. Запустіть npm install у $Root" }
 	if (-not (Test-Path $serve)) { Fail "Не знайдено scripts\serve-prod.mjs" }
 	if (-not (Test-Path (Join-Path $Tracker 'dist\index.html'))) { Fail 'Немає dist\index.html після збірки.' }
 	$prodOut = Join-Path $LogDir 'prod-4173.log'
 	$prodErr = Join-Path $LogDir 'prod-4173.err.log'
-	$env:PORT = "$Port"
 	Write-Host "Запускаю продакшн-збірку на $Url (без вікна, без HMR)."
 	Start-HiddenNode -NodeExe $node -ArgumentList @($viteNode, '--mode', 'production', $serve) -WorkingDirectory $Tracker -StdoutPath $prodOut -StderrPath $prodErr
 	if (-not (Wait-Http $Url 60)) {
@@ -225,9 +229,30 @@ if (-not $ourProd) {
 	}
 }
 
+$workerScript = Join-Path $Tracker 'scripts\worker.mjs'
+if (-not (Test-Path $workerScript)) {
+	Write-Host 'scripts\worker.mjs немає — overview worker не запускаю.'
+} elseif (-not $ourWorker) {
+	$workerOut = Join-Path $LogDir 'worker-overview.log'
+	$workerErr = Join-Path $LogDir 'worker-overview.err.log'
+	Write-Host 'Запускаю overview worker (кеш Home у _local\overview-cache.json, без вікна).'
+	Start-HiddenNode -NodeExe $node -ArgumentList @($viteNode, '--mode', 'production', $workerScript) -WorkingDirectory $Tracker -StdoutPath $workerOut -StderrPath $workerErr
+	Start-Sleep -Seconds 2
+	$startedWorker = Get-OurNode 'worker.mjs'
+	if (-not $startedWorker) {
+		$tail = ''
+		if (Test-Path $workerErr) { $tail = (Get-Content $workerErr -Tail 40) -join "`n" }
+		Fail "Overview worker не лишився в процесах після старту.`n$tail"
+	}
+	Write-Host "Overview worker готовий (PID $($startedWorker.ProcessId))."
+} else {
+	Write-Host "Overview worker уже працює (PID $($ourWorker.ProcessId)) — другий екземпляр не запускаю."
+}
+
 Start-Process $Url
 Write-Host ""
 Write-Host "SUI Dashboard 2.2.0 відкрито: $Url"
 Write-Host "Бот: http://127.0.0.1:$ApiPort/  режим MONITOR_ONLY"
+Write-Host "Worker: _local\overview-cache.json  (логи _local\logs\worker-overview*.log)"
 Write-Host "База: $DbFile"
 exit 0

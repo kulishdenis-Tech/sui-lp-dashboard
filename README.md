@@ -18,7 +18,8 @@ start-SUIdashboard.bat
 - збирає продакшн-білд трекера, якщо `sui-lp-tracker/dist` старіший за `src`;
 - зупиняє dev Vite цієї папки, якщо він ще слухає 5180, і піднімає `serve:prod` на **4173**;
 - піднімає бота з `AUTOPILOT_MODE=MONITOR_ONLY` і абсолютною `DATABASE_URL` на файл `sui-lp-autopilot/packages/bot/data/autopilot.db.json` (не на порожній stub у `sui-lp-autopilot/data/`);
-- не стартує другий бот і не чіпає чужий процес, якщо порт зайнятий іншою програмою;
+- піднімає overview `worker` (кеш Home у `_local/overview-cache.json`), якщо його ще немає; `WORKER_ONCE` скидає;
+- не стартує другий бот / другий worker і не чіпає чужий процес, якщо порт зайнятий іншою програмою;
 - відкриває браузер після відповіді дашборда і бота.
 
 Логи: `_local/logs/` (не комітяться).
@@ -37,7 +38,7 @@ npm run serve:prod
 
 `npm run dev` лишається для розробки з HMR на 5180. Для ноутбука і телефона достатньо bat: він слухає `0.0.0.0:4173`. Бот лишається на `127.0.0.1:5191`, дашборд ходить до нього через `/api/autopilot`. Хешовані `/assets/*` кешуються на рік, `index.html` — `no-cache`. Service worker немає. Після `git pull`: `npm run build:prod` і знову bat.
 
-Окремий процес `npm run worker` раз на ~90 с рахує Home overview у `_local/overview-cache.json`. `GET /api/overview?wallet=` читає лише цей файл. Адреси: `WORKER_ADDRESSES` або ключі з `_local/wallet-nicknames.json`.
+Bat сам піднімає `npm run worker` (раз на ~90 с пише `_local/overview-cache.json`). `GET /api/overview?wallet=` читає лише цей файл. Адреси: `WORKER_ADDRESSES` або ключі з `_local/wallet-nicknames.json`. Вручну: `npm run worker`.
 
 ## Відновлення
 
