@@ -24,3 +24,20 @@ describe('advisor state SWR', () => {
 		await expect(getAdvisorStateSwr('0x2')).resolves.toEqual({ wallet: '0x2' })
 	})
 })
+
+describe('advisor state SWR degraded', () => {
+	it('refreshes on every call while the cached state is deadline-degraded', async () => {
+		_resetAdvisorStateSwrForTests()
+		build.mockReset()
+		build
+			.mockResolvedValueOnce({ wallet: '0x3', errors: ['advisor: deadline 28000ms exceeded'] })
+			.mockResolvedValue({ wallet: '0x3', errors: [] })
+		await getAdvisorStateSwr('0x3')
+		const second = await getAdvisorStateSwr('0x3')
+		expect(second.errors?.length).toBe(1)
+		await new Promise((r) => setTimeout(r, 5))
+		const third = await getAdvisorStateSwr('0x3')
+		expect(third.errors).toEqual([])
+		expect(build).toHaveBeenCalledTimes(2)
+	})
+})

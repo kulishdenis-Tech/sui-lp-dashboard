@@ -1,5 +1,9 @@
 import { useState, type ReactNode } from 'react'
 import { useLendingPositions } from '@/hooks/useLendingPositions'
+import { useWalletAuth } from '@/hooks/useWalletAuth'
+import { useAppStore } from '@/store/appStore'
+import { ClaimSheet } from '@/mobile/ui/ClaimSheet'
+import { supportsClaim } from '@/services/lendingClaim'
 import { formatHealthFactor } from '@/config/lendingHealthFactorThresholds'
 import { formatUSD, formatUSDAdaptive, formatPct } from '@/utils/formatting'
 import { SkeletonCard } from '@/components/ui/SkeletonCard'
@@ -553,8 +557,18 @@ function StatCard({
 }
 
 // ── Rewards to Claim stat card ─────────────────────────────────────────────
-function RewardsStatCard({ rewards }: { rewards: LendingRewardToClaim[] }) {
+function RewardsStatCard({
+	rewards,
+	protocol,
+}: {
+	rewards: LendingRewardToClaim[]
+	protocol: string
+}) {
+	const { address: viewAddress } = useWalletAuth()
+	const loadAll = useAppStore((st) => st.loadAll)
+	const [claimOpen, setClaimOpen] = useState(false)
 	if (rewards.length === 0) return null
+	const claimable = supportsClaim(protocol) && !!viewAddress
 
 	const totalUSD = rewards.reduce((s, r) => s + r.valueUSD, 0)
 	const displayValue = formatUSD(totalUSD)
@@ -582,7 +596,27 @@ function RewardsStatCard({ rewards }: { rewards: LendingRewardToClaim[] }) {
 				<span className="leading-snug">Rewards to Claim</span>
 				<TipIcon tip={tipContent} label="Rewards breakdown" />
 			</div>
-			<p className="mt-0.5 font-mono tabular-money text-lg text-sky-400">{displayValue}</p>
+			<div className="mt-0.5 flex items-center justify-between gap-2">
+				<p className="font-mono tabular-money text-lg text-sky-400">{displayValue}</p>
+				{claimable ? (
+					<button
+						type="button"
+						className="rounded-md bg-sky-500 px-2.5 py-1 text-xs font-medium text-slate-950 hover:bg-sky-400"
+						onClick={() => setClaimOpen(true)}
+					>
+						Claim
+					</button>
+				) : null}
+			</div>
+			{claimable && viewAddress ? (
+				<ClaimSheet
+					open={claimOpen}
+					onClose={() => setClaimOpen(false)}
+					protocol={protocol as Parameters<typeof ClaimSheet>[0]['protocol']}
+					owner={viewAddress}
+					onClaimed={() => void loadAll(viewAddress, { forceRefreshPrices: true })}
+				/>
+			) : null}
 		</AppCard>
 	)
 }
@@ -712,7 +746,7 @@ function ProtocolSection({
 					}
 				/>
 				{hasRewards && (
-					<RewardsStatCard rewards={snapshot.rewardsToClaim} />
+					<RewardsStatCard rewards={snapshot.rewardsToClaim} protocol={snapshot.protocol} />
 				)}
 			</div>
 

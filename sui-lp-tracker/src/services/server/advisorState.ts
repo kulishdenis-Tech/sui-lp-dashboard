@@ -401,7 +401,7 @@ async function softUsdPrice(
 
 const lastKnownPx: { SUI?: number; DEEP?: number } = {}
 
-export async function buildAdvisorState(options?: { wallet?: string }): Promise<AdvisorState> {
+export async function buildAdvisorState(options?: { wallet?: string; deadlineMs?: number }): Promise<AdvisorState> {
 	return advisorTimed('total', async () => {
 	resetPortfolioReadRpcSource()
 	if (isSuiReadProfilingEnabled()) resetSuiReadProfile()
@@ -410,7 +410,7 @@ export async function buildAdvisorState(options?: { wallet?: string }): Promise<
 	const errors: string[] = []
 	const nowMs = Date.now()
 	const nowSec = Math.floor(nowMs / 1000)
-	const deadlineMs = resolveAdvisorStateDeadlineMs()
+	const deadlineMs = options?.deadlineMs ?? resolveAdvisorStateDeadlineMs()
 	const deadlineAt = nowMs + deadlineMs
 
 	const pricesPromise = Promise.all([
