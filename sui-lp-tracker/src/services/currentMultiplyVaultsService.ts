@@ -316,25 +316,33 @@ async function buildClaimedRewards(
 			: { events: [], usd: 0, status: 'empty' }
 	}
 	const quoteByKey = new Map<string, { usdPerToken: number | null; approximate: boolean } | null>()
+	// One quote per (coin, hour): the price cache is hour-bucketed anyway, so every event in the same
+	// hour shares the result. A wallet with dozens of claims then needs a handful of lookups, not one per event.
+	const bucketOf = (coinType: string, sec: number) => `${typeKey(coinType)}:${Math.floor(sec / 3600)}`
 	const wanted = new Map<string, { symbol: string; coinType: string; sec: number }>()
 	for (const event of rawEvents) {
 		if (event.timestampMs == null) continue
 		const sec = Math.floor(event.timestampMs / 1000)
-		const key = `${typeKey(event.coinType)}:${sec}`
-		if (wanted.has(key)) continue
-		wanted.set(key, { symbol: claimCoinMeta(rows, event.coinType).symbol, coinType: event.coinType, sec })
+		const b = bucketOf(event.coinType, sec)
+		if (wanted.has(b)) continue
+		wanted.set(b, { symbol: claimCoinMeta(rows, event.coinType).symbol, coinType: event.coinType, sec })
 	}
-	// Historical quotes are independent: fetch them with bounded concurrency instead of one by one.
-	await mapPool([...wanted.entries()], 2, async ([key, w]) => {
-		const cached = histQuoteCache.get(key)
+	const bucketQuotes = new Map<string, { usdPerToken: number | null; approximate: boolean } | null>()
+	await mapPool([...wanted.entries()], 2, async ([b, w]) => {
+		const cached = histQuoteCache.get(b)
 		if (cached) {
-			quoteByKey.set(key, cached)
+			bucketQuotes.set(b, cached)
 			return
 		}
 		const quote = await getUsdPerTokenAtTimestamp(w.symbol, w.coinType, w.sec).catch(() => null)
-		if (quote && quote.usdPerToken != null) histQuoteCache.set(key, quote)
-		quoteByKey.set(key, quote)
+		if (quote && quote.usdPerToken != null) histQuoteCache.set(b, quote)
+		bucketQuotes.set(b, quote)
 	})
+	for (const event of rawEvents) {
+		if (event.timestampMs == null) continue
+		const sec = Math.floor(event.timestampMs / 1000)
+		quoteByKey.set(`${typeKey(event.coinType)}:${sec}`, bucketQuotes.get(bucketOf(event.coinType, sec)) ?? null)
+	}
 	const events: CurrentMultiplyClaimEvent[] = rawEvents.map((event) => {
 		const meta = claimCoinMeta(rows, event.coinType)
 		const amount = meta.decimals != null ? humanFromRawBigint(BigInt(event.amountRaw), meta.decimals) : null
