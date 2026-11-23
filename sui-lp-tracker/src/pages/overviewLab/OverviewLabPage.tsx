@@ -545,8 +545,9 @@ export function OverviewLabPage() {
 	}
 
 	// Headline total must not show a half-loaded figure (e.g. $6k before lending arrives) as if it were final.
-	const netWorthPending =
-		(isLoadingLending && !anyLendingLoaded) || (isLoadingPositions && openPositions.length === 0)
+	// (AlphaLend answers first with an empty snapshot while Current is still loading, so "any loaded" is not enough.)
+	const lendingStillLoading = isLoadingLending && lendingSnaps.some((s) => s == null)
+	const netWorthPending = lendingStillLoading || (isLoadingPositions && openPositions.length === 0)
 	const lendingNet = sumLendingField((s) => s?.netValueUSD)
 	const lendingSupplied = sumLendingField((s) => s?.totalSuppliedUSD)
 	const lendingDebt = sumLendingField((s) => s?.totalBorrowedUSD)
@@ -645,7 +646,7 @@ export function OverviewLabPage() {
 			) : null}
 
 			<OverviewRiskStrip
-				loading={isLoadingLending && !anyLendingLoaded}
+				loading={lendingStillLoading}
 				rows={riskRows}
 				suiPriceUsd={suiPriceUsd}
 				summary={{
