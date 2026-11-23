@@ -1,4 +1,8 @@
 import { useState } from 'react'
+import { useWalletAuth } from '@/hooks/useWalletAuth'
+import { useAppStore } from '@/store/appStore'
+import { ClaimSheet } from '@/mobile/ui/ClaimSheet'
+import { supportsClaim } from '@/services/lendingClaim'
 import { useLendingPositions } from '@/hooks/useLendingPositions'
 import type { BorrowPosition, LendingSnapshot, SupplyPosition } from '@/types'
 import { formatHealthFactor } from '@/config/lendingHealthFactorThresholds'
@@ -129,6 +133,10 @@ function Protocol({
 	const limitUsedPct = liquidationUSD > 0 ? (borrowedForLimit / liquidationUSD) * 100 : 0
 	const hfText = hf == null ? '—' : Number.isFinite(hf) ? formatHealthFactor(hf) : '∞'
 	const rewards = snapshot.rewardsToClaim.reduce((s, r) => s + r.valueUSD, 0)
+	const { address: viewAddress } = useWalletAuth()
+	const loadAll = useAppStore((st) => st.loadAll)
+	const [claimOpen, setClaimOpen] = useState(false)
+	const canClaim = supportsClaim(title) && !!viewAddress
 
 	return (
 		<section className="space-y-2">
@@ -161,8 +169,29 @@ function Protocol({
 			{rewards > 0 ? (
 				<div className={`${card} flex items-center justify-between px-3 py-2.5 text-sm`}>
 					<span className="text-slate-400">Rewards to claim</span>
-					<span className="font-semibold tabular-nums text-emerald-300">{formatUSD(rewards)}</span>
+					<span className="flex items-center gap-3">
+						<span className="font-semibold tabular-nums text-emerald-300">{formatUSD(rewards)}</span>
+						{canClaim ? (
+							<button
+								type="button"
+								className="h-8 rounded-lg bg-sky-500 px-3 text-xs font-medium text-slate-950"
+								onClick={() => setClaimOpen(true)}
+							>
+								Claim
+							</button>
+						) : null}
+					</span>
 				</div>
+			) : null}
+
+			{canClaim && supportsClaim(title) && viewAddress ? (
+				<ClaimSheet
+					open={claimOpen}
+					onClose={() => setClaimOpen(false)}
+					protocol={title}
+					owner={viewAddress}
+					onClaimed={() => void loadAll(viewAddress, { forceRefreshPrices: true })}
+				/>
 			) : null}
 
 			{supplies.length > 0 ? (

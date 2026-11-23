@@ -25,6 +25,8 @@ async function getClient() {
 	return _client
 }
 
+export { getClient as getAlphaLendClient }
+
 /** Market metadata + APR. stSUI APR is an extra HTTP call inside the SDK. */
 const MARKET_DATA_TTL_MS = 5 * 60 * 1000
 let marketDataCache: { ts: number; rows: SdkMarketData[] } | null = null
