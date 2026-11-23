@@ -110,6 +110,7 @@ async function appendMomentumPositionIdsFromPackagePages(
 export async function scanMomentumOwnedPositionIds(
 	walletAddress: string,
 	rpc: MomentumOwnedObjectsRpc = defaultMomentumOwnedRpc(),
+	opts: { deep?: boolean } = {},
 ): Promise<Set<string>> {
 	const seen = new Set<string>()
 	for (const structType of POSITION_STRUCTS) {
@@ -135,7 +136,7 @@ export async function scanMomentumOwnedPositionIds(
 			if (cursor == null) break
 		}
 	}
-	if (seen.size === 0) {
+	if (seen.size === 0 && opts.deep !== false) {
 		await appendMomentumPositionIdsFromPackagePages(walletAddress, seen, rpc)
 	}
 	return seen
