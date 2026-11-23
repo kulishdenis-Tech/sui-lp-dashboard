@@ -219,6 +219,8 @@ export const PortfolioChart = forwardRef<PortfolioChartHandle, Props>(function P
 			return
 		}
 		beginSuppressRangeNotify()
+		// Period change: drop any manual price-axis drag and rescale Y to the visible window.
+		chart.priceScale('right').applyOptions({ autoScale: true })
 		if (range === 'all' || RANGE_MS[range] <= 0) {
 			chart.timeScale().fitContent()
 		} else {
@@ -231,6 +233,7 @@ export const PortfolioChart = forwardRef<PortfolioChartHandle, Props>(function P
 			}
 		}
 		endSuppressRangeNotify()
+		chart.priceScale('right').applyOptions({ autoScale: true })
 		fitKeyRef.current = nextKey
 		setModified(false)
 	}

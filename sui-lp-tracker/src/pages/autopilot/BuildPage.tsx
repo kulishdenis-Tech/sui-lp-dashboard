@@ -16,7 +16,7 @@ export function BuildPage() {
 	const refreshDrafts = useCallback(() => setDrafts(loadConfigs()), [])
 
 	return (
-		<div className="autopilot-root mx-auto min-w-0 max-w-6xl px-4 py-8">
+		<div className="autopilot-root mx-auto min-w-0 max-w-6xl px-3 py-4 md:px-4 md:py-8">
 			<div className="mb-3">
 				<h2 className="text-lg font-semibold tracking-tight text-slate-100">Build · LP Constructor</h2>
 			</div>

@@ -7,23 +7,16 @@ import { Button } from '@/components/ui/Button'
 import { TooltipIconButton } from '@/components/ui/Tooltip'
 import { isEmptyLpPosition } from '@/utils/lpLifecycle'
 import { PreviewDrawer } from './PreviewDrawer'
+import { manageActionsForPosition, type ManageActionId } from './manageProtocol'
 import {
-	manageActionsForPosition,
-	type ManageActionId,
-	type ManageProtocol,
-} from './manageProtocol'
+	autopilotProtocol,
+	buildManagePreviewBody,
+	manageActionToRun,
+	manageProtocolLabel,
+	shortPosId,
+} from './manageBodies'
 import { AutoWithdrawManageSection } from './AutoWithdrawManageSection'
 import './autopilot.css'
-
-function autopilotProtocol(p: OpenPosition): ManageProtocol {
-	if (p.protocol === 'bluefin') return 'bluefin'
-	return p.cetusDlmm ? 'dlmm' : 'clmm'
-}
-
-function shortPosId(id: string): string {
-	if (id.length < 12) return id
-	return `${id.slice(0, 6)}…${id.slice(-4)}`
-}
 
 /** Manage actions for Cetus / Bluefin LP rows — opens PreviewDrawer. */
 export function CetusManageMenu({ position }: { position: OpenPosition }) {
@@ -47,8 +40,7 @@ export function CetusManageMenu({ position }: { position: OpenPosition }) {
 	const protocol = autopilotProtocol(position)
 	const empty = isEmptyLpPosition(position)
 	const actions = manageActionsForPosition(protocol, position)
-	const protocolLabel =
-		protocol === 'bluefin' ? 'Bluefin' : protocol === 'dlmm' ? 'Cetus DLMM' : 'Cetus'
+	const protocolLabel = manageProtocolLabel(protocol)
 
 	useLayoutEffect(() => {
 		if (!open || !btnRef.current) {
@@ -113,75 +105,14 @@ export function CetusManageMenu({ position }: { position: OpenPosition }) {
 	function run(kind: string, extra?: Record<string, unknown>) {
 		if (!owner) return
 		setOpen(false)
-		setPreviewBodies([
-			{
-				kind,
-				protocol,
-				owner,
-				poolId: position.poolId,
-				positionId: position.id,
-				liquidity: position.liquidity,
-				lifecycleStatus: empty ? 'empty' : 'active',
-				positionHint: {
-					tokenA: position.tokenA,
-					tokenB: position.tokenB,
-					tokenAAddress: position.tokenAAddress,
-					tokenBAddress: position.tokenBAddress,
-					tokenADecimals: position.tokenADecimals,
-					tokenBDecimals: position.tokenBDecimals,
-					tokenAAmount: position.tokenAAmount,
-					tokenBAmount: position.tokenBAmount,
-					currentPriceA_USD: position.currentPriceA_USD,
-					currentPriceB_USD: position.currentPriceB_USD,
-					unclaimedFeeA: position.unclaimedFeeA,
-					unclaimedFeeB: position.unclaimedFeeB,
-					unclaimedFeeUSD: position.unclaimedFeeUSD,
-					unclaimedRewardUSD: position.unclaimedRewardUSD,
-					unclaimedRewardRows: position.unclaimedRewardRows,
-					tickLower: position.tickLower,
-					tickUpper: position.tickUpper,
-					currentTick: position.currentTick,
-					currentSqrtPrice: position.currentSqrtPrice,
-					status: position.status,
-				},
-				/** Cetus may swap display to crypto/stable; builder needs pool-native A/B. */
-				cetusSwapped: position.cetusSwapped === true,
-				tokenAAddress: position.tokenAAddress,
-				tokenBAddress: position.tokenBAddress,
-				positionLabel: `${position.tokenA}/${position.tokenB}`,
-				protocolLabel,
-				positionShortId: shortPosId(position.id),
-				...extra,
-			},
-		])
+		setPreviewBodies([buildManagePreviewBody(position, owner, kind, extra)])
 	}
 
 	function onAction(id: ManageActionId) {
 		const def = actions.find((a) => a.id === id)
 		if (!def || def.disabledReason) return
-		if (id === 'add_liquidity') {
-			run('add', {
-				showAddControls: true,
-				fixCoin: 'A',
-				amountHuman: null,
-				/** Refill/top-up must not sweep fees — Collect is a separate action. */
-				collectFee: false,
-			})
-			return
-		}
-		if (id === 'remove_partial') {
-			if (protocol === 'dlmm') {
-				run('remove_converted', {
-					slot: 'BUY',
-					percent: 0.5,
-					showPercentControls: true,
-				})
-				return
-			}
-			run('remove', { removePercent: 0.5, showPercentControls: true })
-			return
-		}
-		run(def.kind, def.defaultExtra)
+		const r = manageActionToRun(protocol, def, id)
+		run(r.kind, r.extra)
 	}
 
 	const menu = open && menuStyle ? (
