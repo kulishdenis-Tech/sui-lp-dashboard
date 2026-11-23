@@ -139,6 +139,22 @@ async function positionListedInSnapshot(
 }
 
 /**
+ * The compensation snapshot is a fixed historical table: its id per pool and a position's membership do not
+ * change within a session, but every dashboard refresh used to repeat dozens of throttled gRPC reads for them.
+ */
+const SNAPSHOT_TABLE_TTL_MS = 60 * 60_000
+const SNAPSHOT_MISS_TTL_MS = 5 * 60_000
+const SNAPSHOT_MEMBER_TTL_MS = 10 * 60_000
+// "Not listed" is also what a failed read returns (fail-open), so keep that answer short-lived.
+const SNAPSHOT_NOT_LISTED_TTL_MS = 60_000
+const snapshotTableCache = new Map<string, { id: string | null; at: number }>()
+const snapshotMemberCache = new Map<string, { listed: boolean; at: number }>()
+export function _resetCetusCloseLockedCachesForTests(): void {
+	snapshotTableCache.clear()
+	snapshotMemberCache.clear()
+}
+
+/**
  * Returns position object ids that cannot be closed (compensation snapshot lock).
  * Failures are treated as unlocked so Manage stays usable — but callers that
  * hide locked rows should log when the set is empty despite Empty Cetus NFTs.
@@ -162,7 +178,14 @@ export async function fetchCetusCloseLockedIds(
 	const poolIds = [...byPool.keys()]
 	const tableByPool = new Map<string, string | null>()
 	await mapPool(poolIds, Math.min(RPC_CONCURRENCY, 4), async (poolId) => {
-		tableByPool.set(poolId, await resolveSnapshotsTableId(client, poolId))
+		const hit = snapshotTableCache.get(poolId)
+		if (hit && Date.now() - hit.at < (hit.id ? SNAPSHOT_TABLE_TTL_MS : SNAPSHOT_MISS_TTL_MS)) {
+			tableByPool.set(poolId, hit.id)
+			return
+		}
+		const id = await resolveSnapshotsTableId(client, poolId)
+		snapshotTableCache.set(poolId, { id, at: Date.now() })
+		tableByPool.set(poolId, id)
 	})
 
 	const checks: Array<{ tableId: string; positionId: string }> = []
@@ -173,9 +196,16 @@ export async function fetchCetusCloseLockedIds(
 	}
 
 	await mapPool(checks, RPC_CONCURRENCY, async ({ tableId, positionId }) => {
-		if (await positionListedInSnapshot(client, tableId, positionId)) {
-			locked.add(positionId)
+		const key = `${tableId}|${positionId}`
+		const hit = snapshotMemberCache.get(key)
+		let listed: boolean
+		if (hit && Date.now() - hit.at < (hit.listed ? SNAPSHOT_MEMBER_TTL_MS : SNAPSHOT_NOT_LISTED_TTL_MS)) {
+			listed = hit.listed
+		} else {
+			listed = await positionListedInSnapshot(client, tableId, positionId)
+			snapshotMemberCache.set(key, { listed, at: Date.now() })
 		}
+		if (listed) locked.add(positionId)
 	})
 
 	return locked
