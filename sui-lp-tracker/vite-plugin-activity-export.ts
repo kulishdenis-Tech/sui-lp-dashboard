@@ -63,37 +63,42 @@ async function writeActivityExport(body: { coverage: unknown; transactions: unkn
 	return { bytes: Buffer.byteLength(payload, 'utf8'), count: body.transactions.length }
 }
 
+/** Same POST handler the Vite dev/preview plugin mounts on `/api/activity/export`. */
+export async function handleActivityExport(req: ExportReq, res: ExportRes): Promise<boolean> {
+	if (!isActivityExportPath(req)) return false
+	if ((req.method ?? 'GET').toUpperCase() !== 'POST') {
+		json(res, 405, { error: 'method not allowed' })
+		return true
+	}
+	try {
+		const parsed = await readJsonBody(req)
+		if (
+			parsed == null ||
+			typeof parsed !== 'object' ||
+			Array.isArray(parsed) ||
+			!('coverage' in parsed) ||
+			!('transactions' in parsed) ||
+			!Array.isArray((parsed as { transactions: unknown }).transactions)
+		) {
+			json(res, 400, { error: 'expected { coverage, transactions[] }' })
+			return true
+		}
+		const body = parsed as { coverage: unknown; transactions: unknown[] }
+		const { bytes, count } = await writeActivityExport(body)
+		json(res, 200, { ok: true, path: EXPORT_PATH, bytes, count })
+	} catch (e) {
+		json(res, 500, { error: String((e as Error).message || e) })
+	}
+	return true
+}
+
 function attach(middlewares: { use: (fn: (req: ExportReq, res: ExportRes, next: () => void) => void) => void }) {
 	middlewares.use((req, res, next) => {
 		if (!isActivityExportPath(req)) {
 			next()
 			return
 		}
-		void (async () => {
-			if ((req.method ?? 'GET').toUpperCase() !== 'POST') {
-				json(res, 405, { error: 'method not allowed' })
-				return
-			}
-			try {
-				const parsed = await readJsonBody(req)
-				if (
-					parsed == null ||
-					typeof parsed !== 'object' ||
-					Array.isArray(parsed) ||
-					!('coverage' in parsed) ||
-					!('transactions' in parsed) ||
-					!Array.isArray((parsed as { transactions: unknown }).transactions)
-				) {
-					json(res, 400, { error: 'expected { coverage, transactions[] }' })
-					return
-				}
-				const body = parsed as { coverage: unknown; transactions: unknown[] }
-				const { bytes, count } = await writeActivityExport(body)
-				json(res, 200, { ok: true, path: EXPORT_PATH, bytes, count })
-			} catch (e) {
-				json(res, 500, { error: String((e as Error).message || e) })
-			}
-		})()
+		void handleActivityExport(req, res)
 	})
 }
 

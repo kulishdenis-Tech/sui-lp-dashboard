@@ -33,6 +33,16 @@ npm run dev
 
 `npm run dev` показує обидва процеси у вікні. Для щоденного запуску достатньо bat.
 
+Продакшн-збірка (один білд, телефон і десктоп, без HMR):
+
+```bat
+npm run build:prod
+set PORT=5180
+npm run serve:prod
+```
+
+Спочатку зупиніть dev-сервер на 5180, інакше порт зайнятий. Без `PORT` сервер слухає **4173** на `0.0.0.0`. Це інший origin, тож IndexedDB телефона лишається на `:5180`. Бот не чіпати: він лишається на `127.0.0.1:5191`, дашборд ходить до нього через `/api/autopilot`. Хешовані `/assets/*` кешуються на рік, `index.html` — `no-cache`. Service worker немає. Після `git pull` достатньо `npm run build:prod` і перезапуск `serve:prod`.
+
 ## Відновлення
 
 База трекера — вкладений коміт `8547e52` (повний UI: Overview, Activity, Build, Markets, Multiply, pool quote). Поверх нього перенесені точкові виправлення v1.2.x: gRPC failover, Current cashflow, allowlist `?wallet=`, порожні LP, версія в шапці. Тонші копії екранів з v1.1/v1.2 не замінювали ці сторінки.
