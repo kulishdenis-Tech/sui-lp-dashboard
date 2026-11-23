@@ -227,7 +227,7 @@ export function LendingPage() {
 			!(hideDust && protocolBookUnderOneUsd(b.snap)),
 	)
 
-	if ((isLoading || lastUpdated == null) && books.length === 0 && !error) {
+	if ((isLoading || lastUpdated == null) && visible.length === 0 && !error) {
 		return (
 			<div className="flex justify-center py-16">
 				<Spinner className="h-6 w-6" />
