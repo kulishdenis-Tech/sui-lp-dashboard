@@ -10,6 +10,7 @@ import { countLpFilters } from '@/pages/overviewLab/overviewMetrics'
 import { buildOverviewRiskRows } from '@/pages/overviewLab/overviewRisk'
 import { aggregateOpenMetrics } from '@/utils/aggregateOpenMetrics'
 import { isCetusVaultPosition } from '@/utils/cetusVault'
+import { hydrateBluefinUnclaimedBatch } from '@/services/bluefinService'
 import { finiteUsd } from '@/utils/finiteUsd'
 
 function riskLite(
@@ -49,11 +50,27 @@ export async function buildWalletOverview(
 	}
 	if (full.incomplete && partial.length === 0) partial.push('incomplete')
 
+	// Bluefin lists positions without unclaimed (lazy mode); the client hydrates it right after.
+	// Do the same here, otherwise Home "Unclaimed" is null → 0 on the server.
+	let positions = full.positions
+	try {
+		const patches = await hydrateBluefinUnclaimedBatch(wallet, positions)
+		if (patches.length > 0) {
+			const byId = new Map(patches.map((x) => [x.id, x.merged]))
+			positions = positions.map((p) => (byId.has(p.id) ? { ...p, ...byId.get(p.id)! } : p))
+		}
+		if (positions.some((p) => p.protocol === 'bluefin' && p.bluefinUnclaimed?.source === 'unavailable')) {
+			partial.push('bluefin-unclaimed')
+		}
+	} catch {
+		partial.push('bluefin-unclaimed')
+	}
+
 	const snap = full.snapshot
-	const counts = countLpFilters(full.positions)
+	const counts = countLpFilters(positions)
 	// Same filter as client buildOverviewKpis: Cetus vaults are not part of the Home "Unclaimed" tile.
-	const openMetrics = aggregateOpenMetrics(full.positions.filter((p) => !isCetusVaultPosition(p)))
-	const riskRows = riskLite(buildOverviewRiskRows(full.current, full.positions))
+	const openMetrics = aggregateOpenMetrics(positions.filter((p) => !isCetusVaultPosition(p)))
+	const riskRows = riskLite(buildOverviewRiskRows(full.current, positions))
 
 	const lpUSD = snap
 		? finiteUsd(snap.lpUSD + snap.aftermathUSD)
