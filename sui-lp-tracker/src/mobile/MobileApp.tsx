@@ -8,8 +8,8 @@ const lz = <T extends Record<string, React.ComponentType>>(load: () => Promise<T
 	lazy(() => load().then((m) => ({ default: m[name] as React.ComponentType })))
 
 const PositionDetailPage = lz(() => import('@/mobile/pages/PositionDetailPage'), 'PositionDetailPage')
-const BuildPage = lz(() => import('@/pages/autopilot/BuildPage'), 'BuildPage')
-const MarketsRoutePage = lz(() => import('@/pages/autopilot/MarketsRoutePage'), 'MarketsRoutePage')
+const BuildPage = lz(() => import('@/mobile/pages/BuildWizardPage'), 'BuildWizardPage')
+const MarketsPage = lz(() => import('@/mobile/pages/MarketsPage'), 'MarketsPage')
 const ActivityPage = lz(() => import('@/pages/activity/ActivityPage'), 'ActivityPage')
 const SettingsPage = lz(() => import('@/pages/settings/SettingsPage'), 'SettingsPage')
 
@@ -29,7 +29,7 @@ export function MobileApp() {
 				<Route path="home/analytics" element={<Navigate to="/" replace />} />
 				<Route path="lp/position/:positionId" element={<PositionDetailPage />} />
 				<Route path="lp/build" element={<BuildPage />} />
-				<Route path="lp/markets" element={<MarketsRoutePage />} />
+				<Route path="lp/markets" element={<MarketsPage />} />
 				<Route path="activity" element={<ActivityPage />} />
 				<Route path="settings" element={<SettingsPage />} />
 			</Route>

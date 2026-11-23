@@ -244,7 +244,12 @@ export function ConstructorPage({
 	openConfig,
 	onOpenConfigConsumed,
 	onDraftSaved,
+	wizardStep,
+	onWizardStatus,
 }: {
+	/** Mobile wizard: 1 setup · 2 parameters · 3 ranges · 4 review. Undefined = desktop (everything visible). */
+	wizardStep?: 1 | 2 | 3 | 4
+	onWizardStatus?: (s: { hasPool: boolean; canPreview: boolean; blockReason: string | null }) => void
 	pools?: PoolRow[]
 	onDraftSaved?: () => void
 	onOpenPreview: (draft: {
@@ -956,9 +961,18 @@ export function ConstructorPage({
 			? (pool.fees24hUsd / pool.tvlUsd) * 100
 			: null
 
+	const hasPoolNow = pool != null
+	const blockReasonNow = previewBlockReason ?? null
+	useEffect(() => {
+		onWizardStatus?.({ hasPool: hasPoolNow, canPreview, blockReason: blockReasonNow })
+	}, [onWizardStatus, hasPoolNow, canPreview, blockReasonNow])
+	/** Hidden (not unmounted) outside its step, so state and validation keep running. */
+	const wz = (n: 1 | 2 | 3 | 4) => (wizardStep != null && wizardStep !== n ? ' wiz-hidden' : '')
+	const inStep = (n: 1 | 2 | 3 | 4) => wizardStep == null || wizardStep === n
+
 	return (
 		<div className="constructor v3">
-			<section className="panel compact">
+			<section className={`panel compact${wz(1)}`}>
 				<div className="ctor-top">
 					<div className="seg">
 						<span className="label">Protocol</span>
@@ -1177,7 +1191,7 @@ export function ConstructorPage({
 			</section>
 
 			<div className="ctor-grid">
-				<section className="panel params">
+				<section className={`panel params${wz(2)}`}>
 					<h2>Parameters</h2>
 					<NumericStepper
 						label={`Investment (${slot === 'BUY' ? 'USDC' : 'SUI'})`}
@@ -1529,6 +1543,7 @@ export function ConstructorPage({
 					) : null}
 				</section>
 
+				{inStep(3) ? (
 				<section className={`panel grow chart-panel ${layout === 'single' ? 'chart-single' : 'chart-cascade'}`}>
 					{protocol === 'dlmm' ? (
 						<div className="chart-toolbar">
@@ -1568,9 +1583,10 @@ export function ConstructorPage({
 						<p className="mode">Chart appears after LP parameters are set.</p>
 					)}
 				</section>
+				) : null}
 			</div>
 
-			{selectedLp && estimates && chartPool && protocol === 'dlmm' ? (
+			{inStep(3) && selectedLp && estimates && chartPool && protocol === 'dlmm' ? (
 				<LpEditor
 					lp={selectedLp}
 					slot={slot}
@@ -1581,7 +1597,7 @@ export function ConstructorPage({
 				/>
 			) : null}
 
-			<section className={`panel kpi-panel ${canPreview ? '' : 'is-conditional'}`}>
+			<section className={`panel kpi-panel ${canPreview ? '' : 'is-conditional'}${wz(4)}`}>
 				<div className="kpi-head">
 					<h2>
 						Summary{' '}
@@ -1651,7 +1667,7 @@ export function ConstructorPage({
 			</section>
 
 			{layout === 'cascade' ? (
-			<section className="panel">
+			<section className={`panel${wz(4)}`}>
 				<h2>
 					LP table {cascade?.mode === 'custom' ? <span className="badge">CUSTOM CASCADE</span> : null}
 				</h2>
@@ -1739,7 +1755,7 @@ export function ConstructorPage({
 			</section>
 			) : null}
 
-			<div className="actions ctor-actions">
+			<div className={`actions ctor-actions${wz(4)}`}>
 				<button
 					type="button"
 					disabled={!pool || !cascade}
