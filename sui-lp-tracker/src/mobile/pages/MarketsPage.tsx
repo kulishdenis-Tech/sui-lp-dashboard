@@ -3,12 +3,10 @@ import { ProtocolIcon } from '@/components/ui/ProtocolIcon'
 import {
 	dexMeta,
 	feesToTvlPct,
-	poolBalances,
 	poolTickValue,
 	useMarketPools,
 } from '@/pages/autopilot/marketsData'
 import { filterPoolsForPicker, flags, liquidMedianPrice } from '@/pages/autopilot/marketFlags'
-import { RewardIcons } from '@/pages/autopilot/RewardIcons'
 import { formatFeePct, formatPct, formatPrice, formatUsdCompact } from '@/pages/autopilot/format'
 import { poolFeePercent, type PoolRow, type ProtocolId } from '@/pages/autopilot/types'
 
@@ -48,7 +46,6 @@ function PoolCard({ p, refPrice }: { p: PoolRow; refPrice: number | null }) {
 	const fee = poolFeePercent(p)
 	const tick = poolTickValue(p)
 	const feesTvl = feesToTvlPct(p)
-	const bal = poolBalances(p)
 	const notes = flags(p, refPrice)
 	const apr = num(p.aprPercent)
 	return (
@@ -77,11 +74,21 @@ function PoolCard({ p, refPrice }: { p: PoolRow; refPrice: number | null }) {
 				<Stat label="Fees 24h" value={formatUsdCompact(p.fees24hUsd)} />
 				<Stat label="Price" value={p.priceUsdcPerSui != null ? formatPrice(p.priceUsdcPerSui) : '—'} />
 				<Stat label="Fees/TVL" value={feesTvl == null ? '—' : formatPct(feesTvl, 2)} />
-				<Stat label="SUI / USDC" value={`${bal.sui} / ${bal.usdc}`} />
+				<Stat label={protocol === 'dlmm' ? 'Bin step' : 'Tick'} value={tick != null ? String(tick) : '—'} />
 			</div>
 			{(p.rewarders ?? []).length > 0 || notes.length > 0 ? (
 				<div className="mt-2 flex flex-wrap items-center gap-2">
-					<RewardIcons rewarders={p.rewarders} showApr />
+					{(p.rewarders ?? []).map((rw) => (
+						<span
+							key={`${rw.coinType}-${rw.symbol}`}
+							className="rounded-full border border-slate-700 px-2 py-0.5 text-[11px] text-slate-300"
+						>
+							{(rw.symbol || '?').toUpperCase()}
+							{rw.aprPercent != null && Number.isFinite(rw.aprPercent)
+								? ` ${rw.aprPercent.toFixed(1)}%`
+								: ''}
+						</span>
+					))}
 					{notes.map((n) => (
 						<span key={n} className={`status-chip ${n.includes('price') ? 'warn' : ''}`}>
 							{n}

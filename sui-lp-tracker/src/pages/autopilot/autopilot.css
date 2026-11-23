@@ -1326,3 +1326,27 @@ html[data-theme="light"] .autopilot-root .step-btn:hover:not(:disabled) { backgr
     height: 100dvh;
   }
 }
+
+/* Mobile wizard: step-hidden blocks stay mounted so state and validation keep running. */
+.autopilot-root .wiz-hidden { display: none !important; }
+
+/* Wizard footer: sits above the bottom tab bar. At step 4 the Save/Preview bar sits just above it. */
+.autopilot-root .wiz-nav {
+  position: sticky;
+  bottom: calc(3.5rem + env(safe-area-inset-bottom));
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  padding: 0.6rem 0.35rem;
+  margin-top: 0.5rem;
+  background: color-mix(in srgb, var(--panel, #0f172a) 94%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--line, #334155) 80%, transparent);
+  backdrop-filter: blur(8px);
+}
+.autopilot-root .wiz-nav button { min-height: 2.75rem; padding: 0 1.1rem; }
+@media (max-width: 767px) {
+  /* Step 4: lift the Save/Preview bar above the wizard footer. */
+  .autopilot-root .ctor-actions { bottom: calc(3.5rem + 3.9rem + env(safe-area-inset-bottom)); }
+}
