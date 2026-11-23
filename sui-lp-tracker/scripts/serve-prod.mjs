@@ -365,6 +365,14 @@ if (!existsSync(path.join(dist, 'index.html'))) {
 	process.exit(1)
 }
 
+// Background reads (SWR refresh, SDK internals) must never take the whole server down.
+process.on('unhandledRejection', (reason) => {
+	console.error('[unhandledRejection]', reason instanceof Error ? reason.message : reason)
+})
+process.on('uncaughtException', (err) => {
+	console.error('[uncaughtException]', err instanceof Error ? err.stack ?? err.message : err)
+})
+
 const server = http.createServer((req, res) => {
 	void onRequest(req, res)
 })
