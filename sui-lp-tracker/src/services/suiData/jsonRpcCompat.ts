@@ -5,6 +5,8 @@
  */
 
 import type { SuiGrpcClient } from '@mysten/sui/grpc'
+import { TypeTagSerializer } from '@mysten/sui/bcs'
+import { deriveDynamicFieldID } from '@mysten/sui/utils'
 import { getDashboardGrpcClient } from '@/services/suiData/createGrpcClient'
 import { suiGraphqlRequest } from '@/services/suiData/graphqlClient'
 import { encodeLegacyDfName } from '@/services/suiData/encodeDfName'
@@ -56,6 +58,20 @@ const DF_CACHE_TTL_MS = 30_000
 const dfObjectCache = new Map<string, { until: number; promise: Promise<unknown> }>()
 /** Parents known to hold plain DynamicField entries (getDynamicObjectField always fails there). */
 const plainDfParents = new Set<string>()
+/**
+ * Parents for which a locally derived field id was seen to equal the chain's own `fieldId`. For those a lookup is
+ * ONE getObject (hit or miss) instead of getDynamicObjectField + getDynamicField + getObject, which is what
+ * dominated the throttled gRPC budget for Current reward-pool reads.
+ */
+const derivedVerifiedParents = new Set<string>()
+
+function deriveFieldId(parentId: string, name: { type: string; bcs: Uint8Array }): string | null {
+	try {
+		return deriveDynamicFieldID(parentId, TypeTagSerializer.parseFromStr(name.type), name.bcs)
+	} catch {
+		return null
+	}
+}
 
 type AnyRecord = Record<string, unknown>
 
@@ -506,6 +522,20 @@ export function createJsonRpcCompatClient(grpc: SuiGrpcClient = getDashboardGrpc
 			const promise = (async () => {
 				const name = encodeLegacyDfName(input.name)
 				const include = { json: true, type: true as const }
+				if (derivedVerifiedParents.has(input.parentId)) {
+					const derivedId = deriveFieldId(input.parentId, name as { type: string; bcs: Uint8Array })
+					if (derivedId) {
+						try {
+							const { object } = await withSuiDataThrottle(() => grpc.getObject({ objectId: derivedId, include }))
+							return legacyObjectResponse(object)
+						} catch (e) {
+							return {
+								data: null,
+								error: { code: 'dynamicFieldNotFound', message: e instanceof Error ? e.message : String(e) },
+							}
+						}
+					}
+				}
 				// Parents whose fields are plain DynamicField (not DynamicObject) always fail the
 				// first call; skip straight to the fallback path for them.
 				if (!plainDfParents.has(input.parentId)) {
@@ -527,6 +557,8 @@ export function createJsonRpcCompatClient(grpc: SuiGrpcClient = getDashboardGrpc
 						return { data: null, error: { code: 'dynamicFieldNotFound', message: 'missing fieldId' } }
 					}
 					plainDfParents.add(input.parentId)
+					const derived = deriveFieldId(input.parentId, name as { type: string; bcs: Uint8Array })
+					if (derived && derived.toLowerCase() === fieldId.toLowerCase()) derivedVerifiedParents.add(input.parentId)
 					// Load Field<Name,Value> object so callers can read `.content.fields.value`
 					// (Current mining APR, Cetus ticks, etc.).
 					const { object } = await withSuiDataThrottle(() =>
