@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 cd /d "%~dp0"
 echo.
-echo SUI Dashboard 2.1.0
+echo SUI Dashboard 2.2.0
 echo Production: http://localhost:4173/
 echo Root: "%CD%"
 echo.
