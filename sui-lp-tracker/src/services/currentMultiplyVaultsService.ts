@@ -334,10 +334,23 @@ async function buildClaimedRewards(
 			bucketQuotes.set(b, cached)
 			return
 		}
+		// A coin with no historical source (cascade of OKX/Gecko misses) would otherwise redo the whole cascade on
+		// every refresh; remember the miss for a few minutes.
+		const missAt = histQuoteMiss.get(b)
+		if (missAt != null && Date.now() - missAt < HIST_MISS_TTL_MS) {
+			bucketQuotes.set(b, null)
+			return
+		}
+		const t0 = Date.now()
 		const quote = await getUsdPerTokenAtTimestamp(w.symbol, w.coinType, w.sec).catch(() => null)
+		if (multiplyTiming()) {
+			console.log(`[current-multiply] quote ${w.symbol} @${w.sec}: ${quote?.source ?? 'none'} ${Date.now() - t0}ms`)
+		}
 		if (quote && quote.usdPerToken != null) histQuoteCache.set(b, quote)
+		else histQuoteMiss.set(b, Date.now())
 		bucketQuotes.set(b, quote)
 	})
+	if (multiplyTiming()) console.log(`[current-multiply] quote buckets: ${wanted.size} for ${rawEvents.length} events`)
 	for (const event of rawEvents) {
 		if (event.timestampMs == null) continue
 		const sec = Math.floor(event.timestampMs / 1000)
@@ -424,6 +437,8 @@ function readClaimsCached(wallet: string, obligationIds: string[], force: boolea
 /** Historical USD quote per (coin, second): immutable, so cache successes for the process lifetime. */
 type HistQuote = Awaited<ReturnType<typeof getUsdPerTokenAtTimestamp>>
 const histQuoteCache = new Map<string, HistQuote>()
+const histQuoteMiss = new Map<string, number>()
+const HIST_MISS_TTL_MS = 5 * 60_000
 
 const multiplyTiming = () =>
 	process.env.VITEST !== 'true' && process.env.SUI_LP_ADVISOR_DEV_TIMING === '1'
