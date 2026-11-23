@@ -373,6 +373,14 @@ server.listen(port, host, () => {
 	console.log(`sui-lp-tracker production http://${host}:${port}/`)
 	console.log(`local  http://localhost:${port}/`)
 	logTailscale()
+	// Warm the advisor snapshot right after boot so the first real request is not a cold 30 s build.
+	if (process.env.SUI_LP_PREWARM !== '0') {
+		setTimeout(() => {
+			fetch(`http://127.0.0.1:${port}/api/advisor/state`)
+				.then(() => console.log('[prewarm] advisor/state requested'))
+				.catch(() => {})
+		}, 2000).unref?.()
+	}
 })
 
 function logTailscale() {

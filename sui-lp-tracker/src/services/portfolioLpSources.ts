@@ -98,17 +98,24 @@ export function registryIncludesDlmm(): boolean {
 	return PORTFOLIO_LP_SOURCE_IDS.includes('cetus-dlmm')
 }
 
+function timingEnabled(): boolean {
+	return readEnv('VITEST') !== 'true' && readEnv('SUI_LP_ADVISOR_DEV_TIMING') === '1'
+}
+
 export async function loadPortfolioLpSource(
 	id: PortfolioLpSourceId,
 	wallet: string,
 	opts?: SnapshotLpLoadOpts,
 ): Promise<PortfolioLpSourceLoad> {
+	const t0 = Date.now()
 	try {
 		const positions = await LOADERS[id](wallet, opts)
 		return { id, ok: true, positions }
 	} catch (e) {
 		const error = e instanceof Error ? e.message : String(e)
 		return { id, ok: false, error, positions: [] }
+	} finally {
+		if (timingEnabled()) console.log(`[lp-source] ${id}: ${Date.now() - t0}ms`)
 	}
 }
 
@@ -121,9 +128,13 @@ export async function loadAllPortfolioLpSources(
 	positions: OpenPosition[]
 	incomplete: boolean
 }> {
-	// Parallelize RPC-heavy sources; Current Multiply runs after (devInspect + hedge winner).
-	const parallelIds = PORTFOLIO_LP_SOURCE_IDS.filter((id) => id !== 'current-multiply')
-	const parallelLoads = await mapPool(parallelIds, LP_SOURCE_CONCURRENCY, async (id) => {
+	// One pool for all sources. Current Multiply (devInspect + hedge) is the slowest, so it goes first
+	// instead of waiting for every other source to finish (was a serial tail after the pool).
+	const order = [
+		'current-multiply',
+		...PORTFOLIO_LP_SOURCE_IDS.filter((id) => id !== 'current-multiply'),
+	] as PortfolioLpSourceId[]
+	const loaded = await mapPool(order, LP_SOURCE_CONCURRENCY, async (id) => {
 		try {
 			return await loadPortfolioLpSource(id, wallet, opts)
 		} catch (e) {
@@ -131,17 +142,7 @@ export async function loadAllPortfolioLpSources(
 			return { id, ok: false, error, positions: [] } as PortfolioLpSourceLoad
 		}
 	})
-	let multiplyLoad: PortfolioLpSourceLoad
-	try {
-		multiplyLoad = await loadPortfolioLpSource('current-multiply', wallet, opts)
-	} catch (e) {
-		const error = e instanceof Error ? e.message : String(e)
-		multiplyLoad = { id: 'current-multiply', ok: false, error, positions: [] }
-	}
-	const byId = new Map<PortfolioLpSourceId, PortfolioLpSourceLoad>([
-		...parallelLoads.map((l) => [l.id, l] as const),
-		[multiplyLoad.id, multiplyLoad],
-	])
+	const byId = new Map<PortfolioLpSourceId, PortfolioLpSourceLoad>(loaded.map((l) => [l.id, l] as const))
 	const loads = PORTFOLIO_LP_SOURCE_IDS.map((id) => byId.get(id)!)
 
 	const statuses: PortfolioLpSourceStatus[] = loads.map((l) => ({
