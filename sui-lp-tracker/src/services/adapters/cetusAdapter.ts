@@ -5,7 +5,7 @@
 import type { DexAdapter } from './types'
 import type { ClosedPosition, OpenPosition, PositionEvent } from '@/types'
 import { getCetusPositions } from '@/services/cetusService'
-import { getCetusDlmmPositions } from '@/services/cetusDlmmService'
+import { getCetusDlmmPositions } from '@/services/cetusDlmmLazy'
 import { getCetusClosedPositions } from '@/services/cetusClosedPositions'
 import { scanCetusPositionEvents, invalidateCetusEventCache } from '@/services/cetusLpEvents'
 

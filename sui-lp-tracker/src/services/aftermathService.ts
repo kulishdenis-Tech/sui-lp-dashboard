@@ -13,7 +13,7 @@
  *  • For APR: use actual coin decimals and fixedOneB = 1e18.
  */
 
-import { Aftermath } from 'aftermath-ts-sdk'
+import type { Aftermath } from 'aftermath-ts-sdk'
 import { mapPool } from '@/utils/concurrency'
 import { RPC_CONCURRENCY } from '@/utils/constants'
 import { suiClient } from '@/services/suiClient'
@@ -34,7 +34,9 @@ async function getAftermathSdk(): Promise<Aftermath | null> {
 		try {
 			// Aftermath.create builds a SuiGrpcClient from fullnodeUrl. The SDK also
 			// constructs an unused JSON-RPC client; Farms() does not call it.
-			const a = await Aftermath.create({
+			// Lazy: the SDK is ~250 kB and only needed once a farm/price call runs.
+			const { Aftermath: AftermathSdk } = await import('aftermath-ts-sdk')
+			const a = await AftermathSdk.create({
 				network: 'MAINNET',
 				fullnodeUrl: MYSTEN_PUBLIC_GRPC_URL,
 			})

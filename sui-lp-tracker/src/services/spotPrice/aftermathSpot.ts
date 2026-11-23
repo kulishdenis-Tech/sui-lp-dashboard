@@ -1,4 +1,4 @@
-import { Aftermath } from 'aftermath-ts-sdk'
+import type { Aftermath } from 'aftermath-ts-sdk'
 import { MYSTEN_PUBLIC_GRPC_URL } from '@/services/suiData/config'
 
 let sdk: Aftermath | null = null
@@ -11,7 +11,9 @@ async function getSdk(): Promise<Aftermath | null> {
 	if (inFlight) return inFlight
 	inFlight = (async () => {
 		try {
-			const a = await Aftermath.create({
+			// Lazy: the SDK is ~250 kB and only needed once a farm/price call runs.
+			const { Aftermath: AftermathSdk } = await import('aftermath-ts-sdk')
+			const a = await AftermathSdk.create({
 				network: 'MAINNET',
 				fullnodeUrl: MYSTEN_PUBLIC_GRPC_URL,
 			})
