@@ -12,6 +12,12 @@ import { legacyObjectResponse, optionsToInclude } from '@/services/suiData/mapOb
 import { withSuiDataThrottle } from '@/services/suiData/throttle'
 import { recordSuiRead } from '@/services/suiReadProfiler'
 
+/** Short-lived cache + in-flight dedupe for dynamic-field reads (ticks/pools repeat across protocols). */
+const DF_CACHE_TTL_MS = 30_000
+const dfObjectCache = new Map<string, { until: number; promise: Promise<unknown> }>()
+/** Parents known to hold plain DynamicField entries (getDynamicObjectField always fails there). */
+const plainDfParents = new Set<string>()
+
 type AnyRecord = Record<string, unknown>
 
 function asOwner(input: { owner: string } | string): string {
@@ -431,14 +437,24 @@ export function createJsonRpcCompatClient(grpc: SuiGrpcClient = getDashboardGrpc
 			parentId: string
 			name: { type: string; value: unknown }
 		}) {
-			const name = encodeLegacyDfName(input.name)
-			const include = { json: true, type: true as const }
-			try {
-				const { object } = await withSuiDataThrottle(() =>
-					grpc.getDynamicObjectField({ parentId: input.parentId, name, include }),
-				)
-				return legacyObjectResponse(object)
-			} catch {
+			const cacheKey = `${input.parentId}|${input.name.type}|${JSON.stringify(input.name.value)}`
+			const hit = dfObjectCache.get(cacheKey)
+			if (hit && hit.until > Date.now()) return hit.promise
+			const promise = (async () => {
+				const name = encodeLegacyDfName(input.name)
+				const include = { json: true, type: true as const }
+				// Parents whose fields are plain DynamicField (not DynamicObject) always fail the
+				// first call; skip straight to the fallback path for them.
+				if (!plainDfParents.has(input.parentId)) {
+					try {
+						const { object } = await withSuiDataThrottle(() =>
+							grpc.getDynamicObjectField({ parentId: input.parentId, name, include }),
+						)
+						return legacyObjectResponse(object)
+					} catch {
+						/* fall through to plain DynamicField */
+					}
+				}
 				try {
 					const { dynamicField } = await withSuiDataThrottle(() =>
 						grpc.getDynamicField({ parentId: input.parentId, name }),
@@ -447,6 +463,7 @@ export function createJsonRpcCompatClient(grpc: SuiGrpcClient = getDashboardGrpc
 					if (!fieldId) {
 						return { data: null, error: { code: 'dynamicFieldNotFound', message: 'missing fieldId' } }
 					}
+					plainDfParents.add(input.parentId)
 					// Load Field<Name,Value> object so callers can read `.content.fields.value`
 					// (Current mining APR, Cetus ticks, etc.).
 					const { object } = await withSuiDataThrottle(() =>
@@ -459,7 +476,10 @@ export function createJsonRpcCompatClient(grpc: SuiGrpcClient = getDashboardGrpc
 						error: { code: 'dynamicFieldNotFound', message: e instanceof Error ? e.message : String(e) },
 					}
 				}
-			}
+			})()
+			dfObjectCache.set(cacheKey, { until: Date.now() + DF_CACHE_TTL_MS, promise })
+			if (dfObjectCache.size > 2000) dfObjectCache.delete(dfObjectCache.keys().next().value as string)
+			return promise
 		},
 
 		async queryEvents(input: {
