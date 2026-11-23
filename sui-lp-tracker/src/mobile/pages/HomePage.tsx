@@ -8,6 +8,7 @@ import { riskRowFigures, type OverviewRiskRow } from '@/pages/overviewLab/overvi
 import type { AttentionItem } from '@/pages/overviewLab/overviewAttention'
 import type { ValueChangeAnalysis } from '@/pages/overviewLab/overviewMetrics'
 import { useMobileOverview } from '@/mobile/model/useMobileOverview'
+import { formatOverviewAge, useServerOverview } from '@/mobile/model/useServerOverview'
 import {
 	PortfolioChart,
 	type PortfolioChartHandle,
@@ -183,7 +184,19 @@ export function HomePage() {
 	const busy = busyWallet || busyLp || busyLending
 	const nwNow = m.kpis.netWorth
 	const addrKey = m.walletAddr
-	const cached = useMemo(() => readTotals(addrKey), [addrKey])
+	const localCached = useMemo(() => readTotals(addrKey), [addrKey])
+	const server = useServerOverview(addrKey)
+	const serverOverview = server.status === 'ready' && !server.stale ? server.overview : null
+	const cached: HomeTotals | null = serverOverview
+		? {
+				net: serverOverview.net,
+				wallet: serverOverview.walletUSD,
+				lp: serverOverview.lpUSD,
+				lending: serverOverview.lendingNetUSD,
+				unclaimed: serverOverview.unclaimedUSD ?? 0,
+			}
+		: localCached
+	const overviewAge = formatOverviewAge(serverOverview ? server.computedAt : null)
 	const unclaimedNow = m.kpis.unclaimedUSD
 	useEffect(() => {
 		if (busy || !addrKey || !nwNow) return
@@ -217,7 +230,19 @@ export function HomePage() {
 	}
 
 	const nw = m.kpis.netWorth
-	const c = m.filterCounts
+	const liveCounts = m.filterCounts
+	const serverRanges = serverOverview?.ranges
+	const serverRangeAll = serverRanges
+		? serverRanges.in + serverRanges.near + serverRanges.above + serverRanges.below
+		: 0
+	const c =
+		busyLp && liveCounts.all === 0 && serverRanges && serverRangeAll > 0
+			? {
+					...liveCounts,
+					...serverRanges,
+					all: serverRangeAll,
+				}
+			: liveCounts
 	const go = (tab: 'lp' | 'lending') => {
 		setActiveTab(tab)
 		navigate('/home')
@@ -255,6 +280,9 @@ export function HomePage() {
 				>
 					{money(nw?.totalNetUSD, hide, busy, cached?.net ?? null)}
 				</p>
+				{overviewAge && busy ? (
+					<p className="text-[11px] text-slate-500">{overviewAge}</p>
+				) : null}
 				<DeltaChip analysis={m.delta24h} hide={hide} />
 			</div>
 
