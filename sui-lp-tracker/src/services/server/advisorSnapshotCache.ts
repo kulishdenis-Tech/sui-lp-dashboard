@@ -18,6 +18,22 @@ const cacheByWallet = new Map<string, AdvisorSnapshotCache>()
 const diskEnabled = () => typeof process !== 'undefined' && !process.env.VITEST && process.env.SUI_LP_ADVISOR_DISK_CACHE !== '0'
 let diskLoaded = false
 
+/** JSON turns NaN/Infinity into null; positions use NaN for "unknown", so tag and restore them. */
+export function encodeSnapshotJson(v: unknown): string {
+	return JSON.stringify(v, (_k, x) =>
+		typeof x === 'number' && !Number.isFinite(x) ? { __num: String(x) } : x,
+	)
+}
+export function decodeSnapshotJson<T>(text: string): T {
+	return JSON.parse(text, (_k, x) => {
+		if (x && typeof x === 'object' && typeof (x as { __num?: unknown }).__num === 'string') {
+			const n = (x as { __num: string }).__num
+			return n === 'NaN' ? Number.NaN : n === 'Infinity' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY
+		}
+		return x
+	}) as T
+}
+
 function diskPath(): string {
 	return path.join(path.dirname(overviewCachePath()), 'advisor-snapshot-cache.json')
 }
@@ -26,7 +42,7 @@ function loadDiskOnce(): void {
 	if (diskLoaded || !diskEnabled()) return
 	diskLoaded = true
 	try {
-		const raw = JSON.parse(fs.readFileSync(diskPath(), 'utf8')) as Record<string, AdvisorSnapshotCache>
+		const raw = decodeSnapshotJson<Record<string, AdvisorSnapshotCache>>(fs.readFileSync(diskPath(), 'utf8'))
 		for (const [k, v] of Object.entries(raw)) if (!cacheByWallet.has(k)) cacheByWallet.set(k, v)
 	} catch {
 		/* no cache yet */
@@ -39,7 +55,7 @@ function saveDisk(): void {
 		const f = diskPath()
 		fs.mkdirSync(path.dirname(f), { recursive: true })
 		const tmp = `${f}.tmp`
-		fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(cacheByWallet)))
+		fs.writeFileSync(tmp, encodeSnapshotJson(Object.fromEntries(cacheByWallet)))
 		fs.renameSync(tmp, f)
 	} catch {
 		/* best effort */
