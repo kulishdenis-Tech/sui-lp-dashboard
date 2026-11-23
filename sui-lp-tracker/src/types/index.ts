@@ -269,6 +269,7 @@ export type HistoricalEventPriceSource =
 	| 'okx_wallet_hist'
 	| 'okx_dex_candles'
 	| 'pyth'
+	| 'defillama'
 	| 'geckoterminal'
 	| 'okx_dex_spot_current'
 	| 'cache'

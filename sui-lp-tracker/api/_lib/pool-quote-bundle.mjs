@@ -562,6 +562,7 @@ var HOST_PREFIX = {
   "api.dexscreener.com": "/ext/ds",
   "api.geckoterminal.com": "/ext/gt",
   "api.dexpaprika.com": "/ext/dp",
+  "coins.llama.fi": "/ext/llama",
   "api.coingecko.com": "/ext/cg",
   "web3.okx.com": "/ext/okx",
   "dapi.api.sui-prod.bluefin.io": "/ext/bf-dapi",
@@ -863,6 +864,35 @@ function optionsToInclude(options) {
 }
 
 // src/services/suiData/jsonRpcCompat.ts
+var COIN_META_KEY = "suilp.rpcCoinMeta.v1";
+var coinMetaInflight = /* @__PURE__ */ new Map();
+var coinMetaStore = null;
+function loadCoinMetaStore() {
+  if (coinMetaStore) return coinMetaStore;
+  try {
+    coinMetaStore = JSON.parse(localStorage.getItem(COIN_META_KEY) ?? "{}");
+  } catch {
+    coinMetaStore = {};
+  }
+  return coinMetaStore;
+}
+function readStoredCoinMeta(coinType) {
+  const m = loadCoinMetaStore()[coinType];
+  return m && Number.isFinite(m.decimals) ? m : null;
+}
+function writeStoredCoinMeta(coinType, meta) {
+  try {
+    const store = loadCoinMetaStore();
+    store[coinType] = meta;
+    const keys = Object.keys(store);
+    if (keys.length > 600) for (const k of keys.slice(0, keys.length - 600)) delete store[k];
+    localStorage.setItem(COIN_META_KEY, JSON.stringify(store));
+  } catch {
+  }
+}
+var DF_CACHE_TTL_MS = 3e4;
+var dfObjectCache = /* @__PURE__ */ new Map();
+var plainDfParents = /* @__PURE__ */ new Set();
 function asOwner(input) {
   return typeof input === "string" ? input : input.owner;
 }
@@ -889,6 +919,12 @@ async function paginateBalances(client, owner) {
 }
 function mapEventFilter(query) {
   if (!query || typeof query !== "object") return {};
+  if ("SenderAndMoveEventType" in query && query.SenderAndMoveEventType != null && typeof query.SenderAndMoveEventType === "object") {
+    const q = query.SenderAndMoveEventType;
+    if (typeof q.sender === "string" && typeof q.type === "string") {
+      return { gql: { sender: q.sender, type: q.type } };
+    }
+  }
   if ("Sender" in query && typeof query.Sender === "string") {
     return { grpc: { sender: query.Sender }, gql: { sender: query.Sender } };
   }
@@ -1084,17 +1120,30 @@ function createJsonRpcCompatClient(grpc = getDashboardGrpcClient()) {
       };
     },
     async getCoinMetadata(input) {
-      const res = await withSuiDataThrottle(() => grpc.getCoinMetadata({ coinType: input.coinType }));
-      const m = res.coinMetadata;
-      if (!m) return null;
-      return {
-        id: m.id,
-        decimals: m.decimals,
-        name: m.name,
-        symbol: m.symbol,
-        description: m.description,
-        iconUrl: m.iconUrl || null
-      };
+      const key = input.coinType;
+      const inflight = coinMetaInflight.get(key);
+      if (inflight) return inflight;
+      const stored = readStoredCoinMeta(key);
+      if (stored) return stored;
+      const p = (async () => {
+        const res = await withSuiDataThrottle(() => grpc.getCoinMetadata({ coinType: key }));
+        const m = res.coinMetadata;
+        if (!m) return null;
+        const out = {
+          id: m.id,
+          decimals: m.decimals,
+          name: m.name,
+          symbol: m.symbol,
+          description: m.description,
+          iconUrl: m.iconUrl || null
+        };
+        writeStoredCoinMeta(key, out);
+        return out;
+      })();
+      coinMetaInflight.set(key, p);
+      void p.finally(() => coinMetaInflight.delete(key)).catch(() => {
+      });
+      return p;
     },
     async getObject(input) {
       recordSuiRead("getObject");
@@ -1158,14 +1207,21 @@ function createJsonRpcCompatClient(grpc = getDashboardGrpcClient()) {
       };
     },
     async getDynamicFieldObject(input) {
-      const name = encodeLegacyDfName(input.name);
-      const include = { json: true, type: true };
-      try {
-        const { object } = await withSuiDataThrottle(
-          () => grpc.getDynamicObjectField({ parentId: input.parentId, name, include })
-        );
-        return legacyObjectResponse(object);
-      } catch {
+      const cacheKey = `${input.parentId}|${input.name.type}|${JSON.stringify(input.name.value)}`;
+      const hit = dfObjectCache.get(cacheKey);
+      if (hit && hit.until > Date.now()) return hit.promise;
+      const promise = (async () => {
+        const name = encodeLegacyDfName(input.name);
+        const include = { json: true, type: true };
+        if (!plainDfParents.has(input.parentId)) {
+          try {
+            const { object } = await withSuiDataThrottle(
+              () => grpc.getDynamicObjectField({ parentId: input.parentId, name, include })
+            );
+            return legacyObjectResponse(object);
+          } catch {
+          }
+        }
         try {
           const { dynamicField } = await withSuiDataThrottle(
             () => grpc.getDynamicField({ parentId: input.parentId, name })
@@ -1174,6 +1230,7 @@ function createJsonRpcCompatClient(grpc = getDashboardGrpcClient()) {
           if (!fieldId) {
             return { data: null, error: { code: "dynamicFieldNotFound", message: "missing fieldId" } };
           }
+          plainDfParents.add(input.parentId);
           const { object } = await withSuiDataThrottle(
             () => grpc.getObject({ objectId: fieldId, include })
           );
@@ -1184,7 +1241,10 @@ function createJsonRpcCompatClient(grpc = getDashboardGrpcClient()) {
             error: { code: "dynamicFieldNotFound", message: e instanceof Error ? e.message : String(e) }
           };
         }
-      }
+      })();
+      dfObjectCache.set(cacheKey, { until: Date.now() + DF_CACHE_TTL_MS, promise });
+      if (dfObjectCache.size > 2e3) dfObjectCache.delete(dfObjectCache.keys().next().value);
+      return promise;
     },
     async queryEvents(input) {
       recordSuiRead("queryEvents");

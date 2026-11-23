@@ -10,7 +10,7 @@ import { HARDCODED_VERIFIED } from '@/config/hardcodedVerifiedCoins'
 import { SUISCAN_TX } from '@/utils/constants'
 import { shortAddress } from '@/utils/formatting'
 import { normalizeCoinTypeForMatch } from '@/utils/suiCoinType'
-import { getPythBenchmarkQuote } from '@/services/pythBenchmark'
+import { getLlamaHistoricalQuote } from '@/services/llamaHistorical'
 import { fetchActivityDigest, fetchActivityPage, fetchNextActivitySlice } from '@/services/activity/activityGraphql'
 import {
 	ACTIVITY_LABEL,
@@ -397,14 +397,13 @@ export function ActivityPage() {
 		if (ts == null) return
 		let cancelled = false
 		for (const coin of coins) {
-			const meta = coinLabel(coin)
 			if (!HARDCODED_VERIFIED.some((c) => normalizeCoinTypeForMatch(c.type) === normalizeCoinTypeForMatch(coin))) continue
 			const key = `${coin}|${Math.floor(ts / 1000)}`
-			void getPythBenchmarkQuote(meta.symbol, Math.floor(ts / 1000)).then((quote) => {
+			void getLlamaHistoricalQuote(coin, Math.floor(ts / 1000)).then((quote) => {
 				if (cancelled || !quote) return
 				setPrices((prev) => ({
 					...prev,
-					[key]: historicalPriceNote(quote.usd, new Date(quote.publishTimeSec * 1000).toISOString()),
+					[key]: historicalPriceNote(quote.usd, new Date(quote.quoteAsOfSec * 1000).toISOString()),
 				}))
 			})
 		}

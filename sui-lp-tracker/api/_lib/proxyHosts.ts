@@ -5,6 +5,7 @@ export const PROXY_HOST_TO_ORIGIN: Record<string, string> = {
 	'api.dexscreener.com': 'https://api.dexscreener.com',
 	'api.geckoterminal.com': 'https://api.geckoterminal.com',
 	'api.dexpaprika.com': 'https://api.dexpaprika.com',
+	'coins.llama.fi': 'https://coins.llama.fi',
 	'api.coingecko.com': 'https://api.coingecko.com',
 	'web3.okx.com': 'https://web3.okx.com',
 	'dapi.api.sui-prod.bluefin.io': 'https://dapi.api.sui-prod.bluefin.io',

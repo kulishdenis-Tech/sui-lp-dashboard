@@ -7,7 +7,7 @@ import {
 	okxWalletHistoricalClosestUsd,
 } from '@/services/okxHistoricalUsd'
 import { isOkxDexConfigured, isOkxCircuitOpen } from '@/services/spotPrice/okxDexApi'
-import { getPythBenchmarkUsd } from './pythBenchmark'
+import { getLlamaHistoricalQuote } from './llamaHistorical'
 import { poolAddressCache } from './poolAddressCache'
 import { priceCache } from './priceCache'
 
@@ -41,7 +41,7 @@ export type HistoricalUsdQuote = {
 	usdPerToken: number | null
 	source: HistoricalEventPriceSource
 	approximate: boolean
-	/** Unix sec: мить відповідної історичної ціни (відкриття OKX-свічки, зразок wallet, Pyth~tx, spot=зараз). */
+	/** Unix sec: мить відповідної історичної ціни (відкриття OKX-свічки, зразок wallet, spot=зараз). */
 	quoteAsOfUnixSec: number | null
 }
 
@@ -51,7 +51,7 @@ function asPositive(px: number | null | undefined): number | null {
 }
 
 /**
- * USD за 1 токен на момент `timestampSec`: Pyth → OKX DEX OHLC (after/before + каскад bar) → wallet hist → Gecko (різні aggregate)
+ * USD за 1 токен на момент `timestampSec`: DefiLlama → OKX DEX OHLC (after/before + каскад bar) → wallet hist → Gecko (різні aggregate)
  * → OKX spot (~). Кожен крок ізольований; кеш зберігає ціну й quoteAsOf.
  */
 export async function getUsdPerTokenAtTimestamp(
@@ -103,14 +103,14 @@ export async function getUsdPerTokenAtTimestamp(
 		return { usdPerToken, source, approximate, quoteAsOfUnixSec }
 	}
 
-	/* 1) Pyth benchmarks (ціна на обрану секунду). */
-	let pythPx: number | null
+	/* 1) DefiLlama historical price (keyless, takes the Sui coin type, no rate-limit storm). */
 	try {
-		pythPx = asPositive(await getPythBenchmarkUsd(tokenSymbol, tsSec))
+		const ll = await getLlamaHistoricalQuote(coinType, tsSec)
+		const px = ll != null ? asPositive(ll.usd) : null
+		if (px != null) return finalize(px, 'defillama', false, ll!.quoteAsOfSec)
 	} catch {
-		pythPx = null
+		/* continue */
 	}
-	if (pythPx != null) return finalize(pythPx, 'pyth', false, tsSec)
 
 	/* 2) OKX DEX історичні свічки — парсинг tuple + after/before навколо події (оф. формат). */
 	if (isOkxDexConfigured() && !isOkxCircuitOpen()) {
