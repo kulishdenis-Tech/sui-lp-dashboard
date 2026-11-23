@@ -22,6 +22,10 @@ type PoolBody = {
 	}
 }
 
+/** After a 429 from GeckoTerminal, pause token-detail calls (they are optional enrichment). */
+const GT_COOLDOWN_MS = 60_000
+let gtCooldownUntil = 0
+
 function poolIdToAddress(relationshipId: string): string | null {
 	/* e.g. sui-network_0x0df4f... → 0x0df4f... */
 	const prefix = `${GECKO_NETWORK}_`
@@ -38,7 +42,9 @@ async function change24hFromTopPool(tokenJson: TokenBody): Promise<number | null
 		`https://api.geckoterminal.com/api/v2/networks/${GECKO_NETWORK}/pools/${encodeURIComponent(poolAddr)}`,
 	)
 	try {
+		if (Date.now() < gtCooldownUntil) return null
 		const r = await fetch(u, { headers: GT_HEADER, signal: AbortSignal.timeout(8_000) })
+		if (r.status === 429) gtCooldownUntil = Date.now() + GT_COOLDOWN_MS
 		if (!r.ok) return null
 		const j = (await r.json()) as PoolBody
 		const h = j.data?.attributes?.price_change_percentage?.h24
@@ -74,7 +80,9 @@ export async function geckoTokenDetail(
 		const u = extFetchUrl(
 			`https://api.geckoterminal.com/api/v2/networks/${GECKO_NETWORK}/tokens/${encodeURIComponent(ct)}`,
 		)
+		if (Date.now() < gtCooldownUntil) return null
 		const r = await fetch(u, { headers: GT_HEADER, signal: AbortSignal.timeout(8_000) })
+		if (r.status === 429) gtCooldownUntil = Date.now() + GT_COOLDOWN_MS
 		if (!r.ok) return null
 		const j = (await r.json()) as TokenBody
 		const base = parseTokenAttributes(j)

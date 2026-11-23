@@ -3,6 +3,20 @@ import { normalizeCoinTypeForMatch } from '@/utils/suiCoinType'
 
 const DEXP = 'https://api.dexpaprika.com'
 
+/** DexPaprika now answers 402 (paid plan) — stop calling it for a while instead of one POST per token. */
+const PAPRIKA_OFF_MS = 30 * 60_000
+let paprikaOffUntil = 0
+
+async function paprikaFetch(url: string): Promise<Response | null> {
+	if (Date.now() < paprikaOffUntil) return null
+	const r = await fetch(url)
+	if (r.status === 401 || r.status === 402 || r.status === 403 || r.status === 429) {
+		paprikaOffUntil = Date.now() + PAPRIKA_OFF_MS
+		return null
+	}
+	return r
+}
+
 type DpSearchToken = {
 	id?: string
 	chain?: string
@@ -32,8 +46,8 @@ async function dexpPaprikaPriceInner(
 	const want = normalizeCoinTypeForMatch(coinType)
 	const tryDetail = async (idPath: string) => {
 		const u = extFetchUrl(`${DEXP}/networks/sui/tokens/${idPath}`)
-		const r = await fetch(u)
-		if (!r.ok) return null
+		const r = await paprikaFetch(u)
+		if (!r?.ok) return null
 		const j = (await r.json()) as { summary?: Record<string, unknown> }
 		const s = j.summary as
 			| { price_usd?: number; '24h'?: { last_price_usd_change?: number } }
@@ -55,8 +69,8 @@ async function dexpPaprikaPriceInner(
 	const su = extFetchUrl(
 		`${DEXP}/search?query=${encodeURIComponent(symbol)}&networks=${encodeURIComponent('sui')}`,
 	)
-	const sr = await fetch(su)
-	if (sr.ok) {
+	const sr = await paprikaFetch(su)
+	if (sr?.ok) {
 		const j = (await sr.json()) as { tokens?: DpSearchToken[] }
 		const tok = (j.tokens ?? []).find(
 			(t) => t.chain === 'sui' && t.id && normalizeCoinTypeForMatch(t.id) === want,
@@ -68,10 +82,10 @@ async function dexpPaprikaPriceInner(
 			}
 		}
 	}
-	const s2 = await fetch(
+	const s2 = await paprikaFetch(
 		extFetchUrl(`${DEXP}/search?query=${encodeURIComponent(coinType)}&networks=sui`),
 	)
-	if (s2.ok) {
+	if (s2?.ok) {
 		const j2 = (await s2.json()) as { tokens?: DpSearchToken[] }
 		const tok2 = (j2.tokens ?? []).find(
 			(t) => t.chain === 'sui' && t.id && normalizeCoinTypeForMatch(t.id) === want,
