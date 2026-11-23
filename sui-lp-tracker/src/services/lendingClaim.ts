@@ -69,8 +69,9 @@ export async function buildLendingClaimTx(protocol: ClaimProtocol, rawAddress: s
 	const rewards = await getUserAvailableLendingRewards(address, { client, env: 'prod' })
 	const claimable = (rewards ?? []).filter((r) => Number(r.userClaimableReward) > 0)
 	if (claimable.length === 0) throw new Error('Navi: немає нагород до клейму')
-	await claimLendingRewardsPTB(tx, claimable, {
-		client,
+	// Navi resolves @mysten/sui via the root pin (bot 2.31); tracker uses 2.36 — same runtime shape.
+	// claimLendingRewardsPTB options are Env/AccountCap/Market (+ customCoinReceive); client is only for reads.
+	await claimLendingRewardsPTB(tx as never, claimable, {
 		env: 'prod',
 		customCoinReceive: { type: 'transfer', transfer: address },
 	})
