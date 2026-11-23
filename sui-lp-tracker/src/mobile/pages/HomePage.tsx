@@ -169,7 +169,11 @@ export function HomePage() {
 	}
 
 	const nw = m.kpis.netWorth
-	const busy = m.sources.some((x) => x.status === 'loading')
+	const loadingOf = (id: string) => m.sources.some((x) => x.id === id && x.status === 'loading')
+	const busyWallet = loadingOf('wallet')
+	const busyLp = loadingOf('lp')
+	const busyLending = loadingOf('lending')
+	const busy = busyWallet || busyLp || busyLending
 	const c = m.filterCounts
 	const go = (tab: 'lp' | 'lending') => {
 		setActiveTab(tab)
@@ -212,10 +216,10 @@ export function HomePage() {
 			{/* Breakdown */}
 			<Section title="">
 				<div className="grid grid-cols-2 gap-2">
-					<Tile name="Wallet" value={money(nw?.walletAssetsUSD, hide, busy)} />
-					<Tile name="LP value" value={money(nw?.openLpUSD, hide, busy)} />
-					<Tile name="Net lending" value={money(nw?.netLendingUSD, hide, busy)} />
-					<Tile name="Unclaimed" value={money(m.kpis.unclaimedUSD, hide, busy)} />
+					<Tile name="Wallet" value={money(nw?.walletAssetsUSD, hide, busyWallet)} />
+					<Tile name="LP value" value={money(nw?.openLpUSD, hide, busyLp)} />
+					<Tile name="Net lending" value={money(nw?.netLendingUSD, hide, busyLending)} />
+					<Tile name="Unclaimed" value={money(m.kpis.unclaimedUSD, hide, busyLp || busyLending)} />
 				</div>
 			</Section>
 
@@ -264,7 +268,7 @@ export function HomePage() {
 							</div>
 						</>
 					) : (
-						<p className="text-sm text-slate-500">{busy ? 'Завантаження…' : 'Немає відкритих LP-позицій.'}</p>
+						<p className="text-sm text-slate-500">{busyLp ? 'Завантаження…' : 'Немає відкритих LP-позицій.'}</p>
 					)}
 				</div>
 			</Section>
