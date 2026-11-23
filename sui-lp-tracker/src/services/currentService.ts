@@ -27,6 +27,9 @@ import { bcs } from '@mysten/sui/bcs'
 
 const API = 'https://api.current.finance'
 const PROTOCOL_PKG = '0x45bae0425e9098ce5cba3d3fa2836220ad24c9f88aa0dffffb5a52b49319fc70'
+/** Current SDK mainnet `protocolAppId` (current-sdk `config/networks.ts`). */
+export const CURRENT_PROTOCOL_PKG = PROTOCOL_PKG
+export const CURRENT_PROTOCOL_APP_ID = '0xd4395f77a48f6d64af2008280c8dc06ee0fe69953a141e683935f6086d849177'
 /** SDK `NetworkConfig.coinDecimalsRegistryId` for `get_asset_market_overview`. */
 const COIN_DECIMALS_REGISTRY = '0x53785858526d8ed3826cfc245b0fd53f16179036f38fc024c3851ef07b1538d7'
 const DECIMAL_SCALE = 10n ** 18n
@@ -538,9 +541,20 @@ export type ClaimableMiningRow = {
 	valueUSD: number | null
 }
 
+/** One `claim_reward_as_coin` call: pool side (0 deposit, 1 borrow), reserve, reward coin and its index in the pool. */
+export type ClaimTarget = {
+	rewardType: 0 | 1
+	reserveCoin: string
+	rewardCoin: string
+	rewardIndex: number
+	raw: string
+}
+
 export type ClaimableMiningRead = {
 	status: CurrentReadStatus
 	rows: ClaimableMiningRow[]
+	/** Per-pool claim calls behind `rows` (same read, same moment). */
+	targets?: ClaimTarget[]
 	reason?: string
 	readAtMs: number
 }
@@ -834,7 +848,7 @@ function claimableRows(
 	pool: Record<string, unknown>,
 	ob: Record<string, unknown>,
 	now: bigint,
-): { coin: string; raw: bigint }[] {
+): { coin: string; raw: bigint; idx: number }[] {
 	const share = BigInt(String(ob.share ?? '0'))
 	const totalShares = BigInt(String(pool.total_shares ?? '0'))
 	if (share <= 0n || totalShares <= 0n) return []
@@ -843,7 +857,7 @@ function claimableRows(
 	const rewards = Array.isArray(pool.pool_rewards) ? pool.pool_rewards : []
 	const slots = Array.isArray(ob.rewards) ? ob.rewards : []
 	const totalSharesDec = totalShares * DECIMAL_SCALE
-	const out: { coin: string; raw: bigint }[] = []
+	const out: { coin: string; raw: bigint; idx: number }[] = []
 	for (let i = 0; i < rewards.length; i++) {
 		const f = fieldsOf(rewards[i]) ?? {}
 		const start = BigInt(String(f.start_time_ms ?? '0'))
@@ -879,7 +893,7 @@ function claimableRows(
 		if (claim <= 0n) continue
 		const coin = typeNameString(f.coin_type)
 		if (!coin) continue
-		out.push({ coin, raw: claim })
+		out.push({ coin, raw: claim, idx: i })
 	}
 	return out
 }
@@ -919,6 +933,7 @@ export async function readClaimableMining(
 	if (!miner) return { status: 'unavailable', rows: [], reason: 'malformed liquidity miner', readAtMs }
 	const now = BigInt(Date.now())
 	const rawByCoin = new Map<string, bigint>()
+	const targets: ClaimTarget[] = []
 	let sawError = false
 	let errorReason = ''
 	let sawPool = false
@@ -986,6 +1001,13 @@ export async function readClaimableMining(
 			}
 			for (const row of claimableRows(pool, ob, now)) {
 				rawByCoin.set(row.coin, (rawByCoin.get(row.coin) ?? 0n) + row.raw)
+				targets.push({
+					rewardType: side === 'deposit' ? 0 : 1,
+					reserveCoin: coin,
+					rewardCoin: row.coin,
+					rewardIndex: row.idx,
+					raw: row.raw.toString(),
+				})
 			}
 		}
 	}
@@ -1010,9 +1032,9 @@ export async function readClaimableMining(
 	}
 	if (rows.length === 0 && !sawError) return { status: 'empty', rows: [], readAtMs }
 	if (sawError || missingMeta) {
-		return { status: 'partial', rows, reason: errorReason || 'reward metadata incomplete', readAtMs }
+		return { status: 'partial', rows, targets, reason: errorReason || 'reward metadata incomplete', readAtMs }
 	}
-	return { status: 'complete', rows, readAtMs }
+	return { status: 'complete', rows, targets, readAtMs }
 }
 
 /** Adapter for Current Lend. Throws on unavailable so an empty list is not a failed read. */
@@ -1234,6 +1256,19 @@ async function currentAdvisorTimed<T>(step: string, fn: () => Promise<T>): Promi
 	}
 }
 
+/** What a claim needs to rebuild a fresh read: filled by `getCurrentPositions`. */
+export type CurrentClaimGroup = {
+	obligationId: string
+	marketType: string
+	marketObjectId: string
+	deposits: string[]
+	borrows: string[]
+}
+const claimGroupsByWallet = new Map<string, CurrentClaimGroup[]>()
+export function getCurrentClaimGroups(walletAddress: string): CurrentClaimGroup[] {
+	return claimGroupsByWallet.get(walletAddress.toLowerCase()) ?? []
+}
+
 export async function getCurrentPositions(
 	walletAddress: string,
 	options?: { skipCashflow?: boolean },
@@ -1242,6 +1277,8 @@ export async function getCurrentPositions(
 		getJson<ObligationRow[]>(`/user/getObligationList/${walletAddress}`),
 	)
 	const rows = (obligations ?? []).filter((o) => o.obligationObject && o.marketType)
+	const claimGroups: CurrentClaimGroup[] = []
+	claimGroupsByWallet.set(walletAddress.toLowerCase(), claimGroups)
 	if (rows.length === 0) return EMPTY_CURRENT_SNAP
 
 	const supplies: SupplyPosition[] = []
@@ -1356,6 +1393,13 @@ export async function getCurrentPositions(
 			}))
 		})
 
+		claimGroups.push({
+			obligationId: ob.obligationObject!,
+			marketType,
+			marketObjectId,
+			deposits: overview.deposits.map((d) => d.asset),
+			borrows: overview.borrows.map((b) => b.asset),
+		})
 		const claimableP = currentAdvisorAccum('claimable', () =>
 			readClaimableMining(
 				marketObjectId,

@@ -6,11 +6,19 @@
  * blocks anything that would spend a non-SUI coin of the owner.
  */
 import { Transaction } from '@mysten/sui/transactions'
-import { normalizeSuiAddress } from '@mysten/sui/utils'
+import { normalizeStructTag, normalizeSuiAddress } from '@mysten/sui/utils'
 import { getAlphaLendClient } from '@/services/lendingService'
+import {
+	CURRENT_PROTOCOL_APP_ID,
+	CURRENT_PROTOCOL_PKG,
+	getCurrentClaimGroups,
+	readClaimableMining,
+	type ClaimTarget,
+} from '@/services/currentService'
+import { suiClient } from '@/services/suiClient'
 import { getDashboardGrpcClient } from '@/services/suiData/createGrpcClient'
 
-export type ClaimProtocol = 'AlphaLend' | 'Navi'
+export type ClaimProtocol = 'AlphaLend' | 'Navi' | 'Current'
 
 export interface ClaimBalanceChange {
 	coinType: string
@@ -40,13 +48,18 @@ export function isSuiCoin(t: string): boolean {
 }
 
 export function supportsClaim(protocol: string): protocol is ClaimProtocol {
-	return protocol === 'AlphaLend' || protocol === 'Navi'
+	return protocol === 'AlphaLend' || protocol === 'Navi' || protocol === 'Current'
 }
 
 export async function buildLendingClaimTx(protocol: ClaimProtocol, rawAddress: string): Promise<Transaction> {
 	const address = normalizeSuiAddress(rawAddress)
 	const tx = new Transaction()
 	tx.setSender(address)
+
+	if (protocol === 'Current') {
+		await addCurrentClaims(tx, address)
+		return tx
+	}
 
 	if (protocol === 'AlphaLend') {
 		const client = await getAlphaLendClient()
@@ -115,4 +128,103 @@ export function assertClaimIsSafe(sim: ClaimSimulation): string | null {
 	const gainsSui = sim.changes.some((c) => c.amount > 0n && isSuiCoin(c.coinType))
 	if (!gainsNonSui && !gainsSui) return 'Нічого не надходить на гаманець — клейм не потрібен'
 	return null
+}
+
+
+// ── Current Finance ──────────────────────────────────────────────────────────
+
+function with0x(t: string): string {
+	const s = t.trim()
+	return s.startsWith('0x') || s.startsWith('0X') ? s : `0x${s}`
+}
+
+type OwnedLike = {
+	data?: {
+		objectId?: string
+		type?: string | null
+		content?: { fields?: Record<string, unknown> } | null
+	} | null
+}
+
+/** Owner cap of one obligation: an owned `ObligationOwnerCap` whose `obligation_id` matches. */
+export async function findObligationOwnerCap(owner: string, obligationId: string): Promise<string | null> {
+	const want = normalizeSuiAddress(obligationId)
+	let cursor: string | null | undefined = undefined
+	const unread: string[] = []
+	for (let page = 0; page < 20; page++) {
+		const res = (await suiClient.getOwnedObjects({
+			owner,
+			options: { showType: true, showContent: true },
+			cursor,
+			limit: 50,
+		})) as { data: OwnedLike[]; hasNextPage?: boolean; nextCursor?: string | null }
+		for (const row of res.data ?? []) {
+			const d = row.data
+			if (!d?.objectId || !d.type || !/ObligationOwnerCap/.test(d.type)) continue
+			const id = d.content?.fields?.obligation_id
+			if (typeof id === 'string') {
+				if (normalizeSuiAddress(id) === want) return d.objectId
+			} else {
+				unread.push(d.objectId)
+			}
+		}
+		if (!res.hasNextPage || !res.nextCursor) break
+		cursor = res.nextCursor
+	}
+	for (const capId of unread) {
+		const obj = (await suiClient.getObject({ id: capId, options: { showContent: true } })) as OwnedLike
+		const id = obj.data?.content?.fields?.obligation_id
+		if (typeof id === 'string' && normalizeSuiAddress(id) === want) return capId
+	}
+	return null
+}
+
+/** Same call the official SDK makes (`liquidity_mining::claim_reward_as_coin`), coin goes to the owner. */
+export function pushCurrentClaimCall(
+	tx: Transaction,
+	args: { marketObjectId: string; marketType: string; ownerCapId: string; recipient: string; target: ClaimTarget },
+): void {
+	const coin = tx.moveCall({
+		target: `${CURRENT_PROTOCOL_PKG}::liquidity_mining::claim_reward_as_coin`,
+		arguments: [
+			tx.object(CURRENT_PROTOCOL_APP_ID),
+			tx.object(args.marketObjectId),
+			tx.object(args.ownerCapId),
+			tx.pure.u8(args.target.rewardType),
+			tx.pure.u64(args.target.rewardIndex),
+			tx.object('0x6'),
+		],
+		typeArguments: [
+			normalizeStructTag(with0x(args.marketType)),
+			normalizeStructTag(with0x(args.target.reserveCoin)),
+			normalizeStructTag(with0x(args.target.rewardCoin)),
+		],
+	})
+	tx.transferObjects([coin], tx.pure.address(args.recipient))
+}
+
+async function addCurrentClaims(tx: Transaction, address: string): Promise<void> {
+	const groups = getCurrentClaimGroups(address)
+	if (groups.length === 0) throw new Error('Current: позицій не знайдено (оновіть дані)')
+	let calls = 0
+	for (const g of groups) {
+		// Fresh read right before building: claim only what is claimable now.
+		const read = await readClaimableMining(g.marketObjectId, g.obligationId, g.deposits, g.borrows, [])
+		if (read.status === 'unavailable') throw new Error(read.reason ?? 'Current: нагороди недоступні')
+		const targets = (read.targets ?? []).filter((t) => BigInt(t.raw) > 0n)
+		if (targets.length === 0) continue
+		const ownerCapId = await findObligationOwnerCap(address, g.obligationId)
+		if (!ownerCapId) throw new Error('Current: ObligationOwnerCap не знайдено на цьому гаманці')
+		for (const target of targets) {
+			pushCurrentClaimCall(tx, {
+				marketObjectId: g.marketObjectId,
+				marketType: g.marketType,
+				ownerCapId,
+				recipient: address,
+				target,
+			})
+			calls++
+		}
+	}
+	if (calls === 0) throw new Error('Current: немає нагород до клейму')
 }
