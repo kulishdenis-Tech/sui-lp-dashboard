@@ -12,6 +12,45 @@ import { legacyObjectResponse, optionsToInclude } from '@/services/suiData/mapOb
 import { withSuiDataThrottle } from '@/services/suiData/throttle'
 import { recordSuiRead } from '@/services/suiReadProfiler'
 
+type StoredCoinMeta = {
+	id: string | null | undefined
+	decimals: number
+	name: string
+	symbol: string
+	description: string
+	iconUrl: string | null
+}
+const COIN_META_KEY = 'suilp.rpcCoinMeta.v1'
+const coinMetaInflight = new Map<string, Promise<StoredCoinMeta | null>>()
+let coinMetaStore: Record<string, StoredCoinMeta> | null = null
+
+function loadCoinMetaStore(): Record<string, StoredCoinMeta> {
+	if (coinMetaStore) return coinMetaStore
+	try {
+		coinMetaStore = JSON.parse(localStorage.getItem(COIN_META_KEY) ?? '{}') as Record<string, StoredCoinMeta>
+	} catch {
+		coinMetaStore = {}
+	}
+	return coinMetaStore
+}
+
+function readStoredCoinMeta(coinType: string): StoredCoinMeta | null {
+	const m = loadCoinMetaStore()[coinType]
+	return m && Number.isFinite(m.decimals) ? m : null
+}
+
+function writeStoredCoinMeta(coinType: string, meta: StoredCoinMeta): void {
+	try {
+		const store = loadCoinMetaStore()
+		store[coinType] = meta
+		const keys = Object.keys(store)
+		if (keys.length > 600) for (const k of keys.slice(0, keys.length - 600)) delete store[k]
+		localStorage.setItem(COIN_META_KEY, JSON.stringify(store))
+	} catch {
+		/* storage unavailable */
+	}
+}
+
 /** Short-lived cache + in-flight dedupe for dynamic-field reads (ticks/pools repeat across protocols). */
 const DF_CACHE_TTL_MS = 30_000
 const dfObjectCache = new Map<string, { until: number; promise: Promise<unknown> }>()
@@ -342,17 +381,30 @@ export function createJsonRpcCompatClient(grpc: SuiGrpcClient = getDashboardGrpc
 		},
 
 		async getCoinMetadata(input: { coinType: string }) {
-			const res = await withSuiDataThrottle(() => grpc.getCoinMetadata({ coinType: input.coinType }))
-			const m = res.coinMetadata
-			if (!m) return null
-			return {
-				id: m.id,
-				decimals: m.decimals,
-				name: m.name,
-				symbol: m.symbol,
-				description: m.description,
-				iconUrl: m.iconUrl || null,
-			}
+			// Coin metadata is effectively immutable: share in-flight calls and persist hits.
+			const key = input.coinType
+			const inflight = coinMetaInflight.get(key)
+			if (inflight) return inflight
+			const stored = readStoredCoinMeta(key)
+			if (stored) return stored
+			const p = (async () => {
+				const res = await withSuiDataThrottle(() => grpc.getCoinMetadata({ coinType: key }))
+				const m = res.coinMetadata
+				if (!m) return null
+				const out = {
+					id: m.id,
+					decimals: m.decimals,
+					name: m.name,
+					symbol: m.symbol,
+					description: m.description,
+					iconUrl: m.iconUrl || null,
+				}
+				writeStoredCoinMeta(key, out)
+				return out
+			})()
+			coinMetaInflight.set(key, p)
+			void p.finally(() => coinMetaInflight.delete(key)).catch(() => {})
+			return p
 		},
 
 		async getObject(input: { id: string; options?: AnyRecord }) {

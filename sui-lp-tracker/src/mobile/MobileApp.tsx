@@ -1,12 +1,17 @@
+import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { MobileLayout } from '@/mobile/MobileLayout'
 import { HomePage } from '@/mobile/pages/HomePage'
 import { DashboardTabs } from '@/mobile/pages/DashboardTabs'
-import { PositionDetailPage } from '@/mobile/pages/PositionDetailPage'
-import { BuildPage } from '@/pages/autopilot/BuildPage'
-import { MarketsRoutePage } from '@/pages/autopilot/MarketsRoutePage'
-import { ActivityPage } from '@/pages/activity/ActivityPage'
-import { SettingsPage } from '@/pages/settings/SettingsPage'
+
+const lz = <T extends Record<string, React.ComponentType>>(load: () => Promise<T>, name: keyof T) =>
+	lazy(() => load().then((m) => ({ default: m[name] as React.ComponentType })))
+
+const PositionDetailPage = lz(() => import('@/mobile/pages/PositionDetailPage'), 'PositionDetailPage')
+const BuildPage = lz(() => import('@/pages/autopilot/BuildPage'), 'BuildPage')
+const MarketsRoutePage = lz(() => import('@/pages/autopilot/MarketsRoutePage'), 'MarketsRoutePage')
+const ActivityPage = lz(() => import('@/pages/activity/ActivityPage'), 'ActivityPage')
+const SettingsPage = lz(() => import('@/pages/settings/SettingsPage'), 'SettingsPage')
 
 /**
  * Мобільна оболонка. Екрани переносяться поетапно: Головна вже нова,
@@ -14,6 +19,7 @@ import { SettingsPage } from '@/pages/settings/SettingsPage'
  */
 export function MobileApp() {
 	return (
+		<Suspense fallback={null}>
 		<Routes>
 			<Route path="/" element={<MobileLayout />}>
 				<Route index element={<HomePage />} />
@@ -28,5 +34,6 @@ export function MobileApp() {
 				<Route path="settings" element={<SettingsPage />} />
 			</Route>
 		</Routes>
+		</Suspense>
 	)
 }
