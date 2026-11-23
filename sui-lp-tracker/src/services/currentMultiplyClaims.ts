@@ -9,6 +9,7 @@
  */
 import { normalizeSuiAddress } from '@mysten/sui/utils'
 import { suiClient } from '@/services/suiClient'
+import { CURRENT_PROTOCOL_PKG } from '@/services/currentService'
 
 const CLAIM_STRUCT = '::liquidity_mining::RewardClaimedEvent'
 const MAX_PAGES = 12
@@ -104,13 +105,36 @@ export async function readWalletRewardClaims(
 	const byObligation = new Map<string, ObligationClaims>()
 	if (wanted.size === 0) return { status: 'complete', byObligation }
 	const bucket = new Map<string, EventLike[]>()
+	// Fast path: sender + claim event type filters server-side, so only claim events are paged.
+	// If the package id is not the event's defining package the typed query returns nothing:
+	// then fall back to the full sender scan below (never trust an empty typed result as "no claims").
+	const typed = await scanClaims({ SenderAndMoveEventType: { sender: owner, type: `${CURRENT_PROTOCOL_PKG}${CLAIM_STRUCT}` } }, wanted, bucket)
+	const useTyped = typed.ok && [...bucket.values()].some((l) => l.length > 0)
+	if (!useTyped) bucket.clear()
+	const scanned = useTyped ? typed : await scanClaims({ Sender: owner }, wanted, bucket)
+	if (!scanned.ok) {
+		console.warn('[current-multiply] reward claim history unavailable', scanned.error)
+		return { status: 'unavailable', byObligation }
+	}
+	for (const id of obligationIds) {
+		const key = normId(id)
+		byObligation.set(key, claimsForObligation(bucket.get(key) ?? [], id))
+	}
+	return { status: scanned.partial ? 'partial' : 'complete', byObligation }
+}
+
+async function scanClaims(
+	query: Record<string, unknown>,
+	wanted: Set<string>,
+	bucket: Map<string, EventLike[]>,
+): Promise<{ ok: true; partial: boolean } | { ok: false; error: unknown; partial: boolean }> {
 	// GraphQL pages use an opaque string. The client type still says EventId.
 	let cursor: string | undefined
 	let partial = false
 	try {
 		for (let page = 0; page < MAX_PAGES; page++) {
 			const res = await suiClient.queryEvents({
-				query: { Sender: owner },
+				query: query as never,
 				cursor: cursor as unknown as { txDigest: string; eventSeq: string } | undefined,
 				limit: PAGE_SIZE,
 				order: 'descending',
@@ -135,13 +159,8 @@ export async function readWalletRewardClaims(
 			cursor = next
 			partial = page === MAX_PAGES - 1
 		}
-	} catch (err) {
-		console.warn('[current-multiply] reward claim history unavailable', err)
-		return { status: 'unavailable', byObligation }
+	} catch (error) {
+		return { ok: false, error, partial }
 	}
-	for (const id of obligationIds) {
-		const key = normId(id)
-		byObligation.set(key, claimsForObligation(bucket.get(key) ?? [], id))
-	}
-	return { status: partial ? 'partial' : 'complete', byObligation }
+	return { ok: true, partial }
 }

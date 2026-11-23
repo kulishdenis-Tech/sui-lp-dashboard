@@ -1,6 +1,7 @@
 import { normalizeSuiAddress } from '@mysten/sui/utils'
 import { loadPortfolioSnapshotDetailed } from '@/services/server/loadPortfolioSnapshot'
 import { mergePartialOverview } from '@/services/server/overviewCache'
+import { installPriceCacheDisk } from '@/services/server/priceCacheDisk'
 import {
 	OVERVIEW_VERSION,
 	type OverviewRiskLite,
@@ -19,6 +20,8 @@ import { isCurrentMultiplyVaultPosition } from '@/utils/currentMultiplyVault'
 import type { OverviewWalletBook } from '@/pages/overviewLab/overviewRisk'
 import type { LendingSnapshot, OpenPosition } from '@/types'
 import { finiteUsd } from '@/utils/finiteUsd'
+
+installPriceCacheDisk()
 
 function riskLite(
 	rows: ReturnType<typeof buildOverviewRiskRows>,
