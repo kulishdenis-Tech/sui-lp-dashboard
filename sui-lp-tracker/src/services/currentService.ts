@@ -657,6 +657,28 @@ export function currentRewardCoinMeta(
 	}
 }
 
+/**
+ * Short-TTL coalescing memo for shared on-chain reads. The same Current market object and reward-pool
+ * dynamic fields are read by every obligation, every asset and by both Current and Current Multiply;
+ * the public gRPC is throttled (3 in flight), so repeated reads dominate wall time. Failures are not cached.
+ */
+const SHARED_READ_TTL_MS = 20_000
+const sharedReads = new Map<string, { at: number; p: Promise<unknown> }>()
+function memoRead<T>(key: string, fn: () => Promise<T>): Promise<T> {
+	const hit = sharedReads.get(key)
+	if (hit && Date.now() - hit.at < SHARED_READ_TTL_MS) return hit.p as Promise<T>
+	const p = fn()
+	sharedReads.set(key, { at: Date.now(), p })
+	p.catch(() => {
+		if (sharedReads.get(key)?.p === p) sharedReads.delete(key)
+	})
+	return p
+}
+export function _resetCurrentSharedReadsForTests(): void {
+	sharedReads.clear()
+}
+
+
 /** Liquidity-mining APR. Confirmed empty (no pool) is apr 0. RPC/metadata failures stay unavailable. */
 export async function readMiningRewardApr(
 	marketId: string,
@@ -675,7 +697,7 @@ export async function readMiningRewardApr(
 	}
 	let market: Awaited<ReturnType<typeof suiClient.getObject>>
 	try {
-		market = await suiClient.getObject({ id: marketId, options: { showContent: true } })
+		market = await memoRead(`obj:${marketId}`, () => suiClient.getObject({ id: marketId, options: { showContent: true } }))
 	} catch (err) {
 		return { status: 'unavailable', apr: null, parts: [], reason: err instanceof Error ? err.message : String(err), readAtMs }
 	}
@@ -694,10 +716,13 @@ export async function readMiningRewardApr(
 	}
 	let df: Awaited<ReturnType<typeof suiClient.getDynamicFieldObject>>
 	try {
-		df = await suiClient.getDynamicFieldObject({
-			parentId: tableId,
-			name: { type: '0x1::type_name::TypeName', value: { name: normTypeName(reserveCoin) } },
-		})
+		const dfName = normTypeName(reserveCoin)
+		df = await memoRead(`df:${tableId}:${dfName}`, () =>
+			suiClient.getDynamicFieldObject({
+				parentId: tableId,
+				name: { type: '0x1::type_name::TypeName', value: { name: dfName } },
+			}),
+		)
 	} catch (err) {
 		const classified = classifySuiObjectRead(null, err)
 		if (classified.kind === 'not_found') return { status: 'empty', apr: 0, parts: [], readAtMs }
@@ -916,7 +941,7 @@ export async function readClaimableMining(
 	}
 	let market: Awaited<ReturnType<typeof suiClient.getObject>>
 	try {
-		market = await suiClient.getObject({ id: marketId, options: { showContent: true } })
+		market = await memoRead(`obj:${marketId}`, () => suiClient.getObject({ id: marketId, options: { showContent: true } }))
 	} catch (err) {
 		return {
 			status: 'unavailable',
@@ -946,10 +971,12 @@ export async function readClaimableMining(
 		for (const coin of coins) {
 			let poolDf: Awaited<ReturnType<typeof suiClient.getDynamicFieldObject>>
 			try {
-				poolDf = await suiClient.getDynamicFieldObject({
-					parentId,
-					name: { type: '0x1::type_name::TypeName', value: { name: coin } },
-				})
+				poolDf = await memoRead(`df:${parentId}:${coin}`, () =>
+					suiClient.getDynamicFieldObject({
+						parentId,
+						name: { type: '0x1::type_name::TypeName', value: { name: coin } },
+					}),
+				)
 			} catch (err) {
 				const classified = classifySuiObjectRead(null, err)
 				if (classified.kind === 'not_found') continue
