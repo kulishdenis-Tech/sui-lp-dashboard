@@ -174,7 +174,7 @@ export async function getMomentumPositions(
 
 	// Cheap typed owned-objects probe first (runs alongside the pool/token catalogue load). A wallet with no
 	// Momentum position NFT would otherwise pay for the SDK scan + the deep package-page fallback (~13 s of gRPC budget).
-	let ownedIds: Set<string> | null = null
+	let ownedIds: Set<string> | null
 	try {
 		;[[poolsData, tokensData], ownedIds] = await Promise.all([
 			Promise.all([getCachedAllPools(sdk), getCachedAllTokens(sdk)]),
