@@ -1,5 +1,5 @@
 import type { VercelReq, VercelRes } from '../_lib/vercelRequest.js'
-import { buildAdvisorState } from '@/services/server/advisorState'
+import { getAdvisorStateSwr } from '@/services/server/advisorStateSwr'
 import {
 	pickQueryWalletParam,
 	resolveAdvisorQueryWallet,
@@ -17,8 +17,8 @@ export default async function handler(req: VercelReq, res: VercelRes) {
 		return
 	}
 	try {
-		const state = await buildAdvisorState({ wallet: resolved.wallet })
-		res.setHeader('Cache-Control', 'private, max-age=15')
+		const state = await getAdvisorStateSwr(resolved.wallet)
+		res.setHeader('Cache-Control', 'private, max-age=10')
 		res.status(200).json(state)
 	} catch (e) {
 		res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
