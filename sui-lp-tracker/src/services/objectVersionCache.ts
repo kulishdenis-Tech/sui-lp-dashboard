@@ -101,18 +101,27 @@ export function _resetObjectVersionCacheForTests(): void {
 	shared = null
 }
 
+/** Max chunks in flight at once (keeps public RPC from rate-limiting us). */
+const CHUNK_CONCURRENCY = 4
+
 async function multiGetChunked(
 	client: RpcObjectClient,
 	ids: string[],
 	options: { showContent?: boolean; showType?: boolean },
 ): Promise<RpcObjectResponse[]> {
-	const out: RpcObjectResponse[] = []
-	for (let i = 0; i < ids.length; i += CHUNK) {
-		const part = ids.slice(i, i + CHUNK)
-		const res = await client.multiGetObjects({ ids: part, options })
-		out.push(...res)
+	const parts: string[][] = []
+	for (let i = 0; i < ids.length; i += CHUNK) parts.push(ids.slice(i, i + CHUNK))
+	const results: RpcObjectResponse[][] = new Array(parts.length)
+	let next = 0
+	const worker = async () => {
+		for (;;) {
+			const idx = next++
+			if (idx >= parts.length) return
+			results[idx] = await client.multiGetObjects({ ids: parts[idx], options })
+		}
 	}
-	return out
+	await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, parts.length) }, worker))
+	return results.flat()
 }
 
 /**
