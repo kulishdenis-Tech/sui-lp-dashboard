@@ -1,6 +1,6 @@
 # SUI Dashboard 2.1.0
 
-Монорепозиторій: трекер на порту **5180** і бот Autopilot на **127.0.0.1:5191**. Браузер відкривається на `http://localhost:5180/` — це окремий origin від `http://127.0.0.1:5180/`. Кеш Activity і історія портфеля в IndexedDB прив’язані до origin, який уже використовувався (`localhost`).
+Монорепозиторій: продакшн-збірка трекера на порту **4173** і бот Autopilot на **127.0.0.1:5191**. Браузер відкривається на `http://localhost:4173/`. Кеш Activity і графік в IndexedDB прив’язані до цього origin. Історія LP лежить у Supabase і підхоплюється на новому порту.
 
 ## Запуск
 
@@ -15,9 +15,11 @@ start-SUIdashboard.bat
 - працює від власної папки (`%~dp0`), шляхи з пробілами в лапках;
 - ставить залежності, якщо немає `node_modules`;
 - збирає `@autopilot/engine` → `cetus` → `db` → `bot`, якщо `dist` відсутній або старіший за source;
+- збирає продакшн-білд трекера, якщо `sui-lp-tracker/dist` старіший за `src`;
+- зупиняє dev Vite цієї папки, якщо він ще слухає 5180, і піднімає `serve:prod` на **4173**;
 - піднімає бота з `AUTOPILOT_MODE=MONITOR_ONLY` і абсолютною `DATABASE_URL` на файл `sui-lp-autopilot/packages/bot/data/autopilot.db.json` (не на порожній stub у `sui-lp-autopilot/data/`);
 - не стартує другий бот і не чіпає чужий процес, якщо порт зайнятий іншою програмою;
-- відкриває браузер після відповіді tracker і бота.
+- відкриває браузер після відповіді дашборда і бота.
 
 Логи: `_local/logs/` (не комітяться).
 
@@ -26,12 +28,14 @@ start-SUIdashboard.bat
 ```bat
 npm install
 npm run build:autopilot
+npm run build:prod
 set AUTOPILOT_MODE=MONITOR_ONLY
 set DATABASE_URL=file:%CD%\sui-lp-autopilot\packages\bot\data\autopilot.db.json
-npm run dev
+set PORT=4173
+npm run serve:prod
 ```
 
-`npm run dev` показує обидва процеси у вікні. Для щоденного запуску достатньо bat.
+`npm run dev` лишається для розробки з HMR на 5180. Для ноутбука і телефона достатньо bat: він слухає `0.0.0.0:4173`. Бот лишається на `127.0.0.1:5191`, дашборд ходить до нього через `/api/autopilot`. Хешовані `/assets/*` кешуються на рік, `index.html` — `no-cache`. Service worker немає. Після `git pull`: `npm run build:prod` і знову bat.
 
 ## Відновлення
 
@@ -45,13 +49,13 @@ Autopilot зібраний з актуальних файлів на диску,
 | --- | --- | --- |
 | Watching, правила, спроби | `sui-lp-autopilot/packages/bot/data/autopilot.db.json` | лише бот |
 | Знімки портфеля, історія LP, візити | Supabase | cron / сервер |
-| Activity і графік | IndexedDB браузера | лише вкладка на `localhost:5180` |
+| Activity і графік | IndexedDB браузера | лише вкладка на `localhost:4173` |
 
 Порожній `sui-lp-autopilot/data/autopilot.db.json` — не сховище. Бот завершується, якщо `DATABASE_URL` вказує на нього. SQL у `packages/db/migrations` не є базою бота, поки один користувач і режим `MONITOR_ONLY`.
 
 Фронт і бот не ділять конфліктні пакети. npm workspaces і далі піднімає спільні залежності в корінь, тож `postinstall` кладе копію React у `sui-lp-tracker/node_modules`, а `@mysten/sui` 2.31.2 — у `packages/bot/node_modules`. Трекер лишає власний `@mysten/sui` 2.36.0. Перевірка: `node scripts/check-dep-boundaries.mjs`.
 
-Бот слухає `127.0.0.1:5191`. Телефон у Tailscale відкриває `http://<ім'я>.ts.net:5180/`. Дашборд ходить до бота лише через `/api/autopilot`. Порт 5191 у tailnet не публікується.
+Бот слухає `127.0.0.1:5191`. Телефон у Tailscale відкриває `http://<ім'я>.ts.net:4173/`. Дашборд ходить до бота лише через `/api/autopilot`. Порт 5191 у tailnet не публікується.
 
 Маршрути зібрані в `sui-lp-tracker/api/routeContract.ts`. Dev-сервер і Vercel викликають одні й ті самі модулі для advisor, знімків, історії LP і візитів.
 
