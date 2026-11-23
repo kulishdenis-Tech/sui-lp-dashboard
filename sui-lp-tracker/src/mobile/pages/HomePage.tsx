@@ -264,7 +264,7 @@ export function HomePage() {
 							</div>
 						</>
 					) : (
-						<p className="text-sm text-slate-500">Немає відкритих LP-позицій.</p>
+						<p className="text-sm text-slate-500">{busy ? 'Завантаження…' : 'Немає відкритих LP-позицій.'}</p>
 					)}
 				</div>
 			</Section>
