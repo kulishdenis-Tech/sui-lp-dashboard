@@ -172,16 +172,21 @@ export async function getMomentumPositions(
 	let poolsData: PoolsData
 	let tokensData: TokensData
 
+	// Cheap typed owned-objects probe first (runs alongside the pool/token catalogue load). A wallet with no
+	// Momentum position NFT would otherwise pay for the SDK scan + the deep package-page fallback (~13 s of gRPC budget).
+	let ownedIds: Set<string> | null = null
 	try {
-		;[poolsData, tokensData] = await Promise.all([
-			getCachedAllPools(sdk),
-			getCachedAllTokens(sdk),
+		;[[poolsData, tokensData], ownedIds] = await Promise.all([
+			Promise.all([getCachedAllPools(sdk), getCachedAllTokens(sdk)]),
+			devTime('momentum/owned-probe', () =>
+				scanMomentumOwnedPositionIds(walletAddress, sdk.rpcClient, { deep: false }),
+			).catch(() => null),
 		])
 	} catch (e) {
-		 
 		console.warn('Momentum Pool.getAllPools/getAllTokens failed', e)
 		return []
 	}
+	if (ownedIds != null && ownedIds.size === 0) return []
 
 	// SDK positions and the owned-objects RPC fallback are independent: read them concurrently.
 	const [fromSdk, fromRpc] = await Promise.all([
