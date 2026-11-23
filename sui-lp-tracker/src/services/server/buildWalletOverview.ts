@@ -11,6 +11,13 @@ import { buildOverviewRiskRows } from '@/pages/overviewLab/overviewRisk'
 import { aggregateOpenMetrics } from '@/utils/aggregateOpenMetrics'
 import { isCetusVaultPosition } from '@/utils/cetusVault'
 import { hydrateBluefinUnclaimedBatch } from '@/services/bluefinService'
+import { WATCH_WALLET_SEED } from '@/config/watchWallets'
+import { getCurrentPositions } from '@/services/currentService'
+import { getCurrentMultiplyVaultPositions } from '@/services/currentMultiplyVaultsService'
+import { shortAddress } from '@/utils/formatting'
+import { isCurrentMultiplyVaultPosition } from '@/utils/currentMultiplyVault'
+import type { OverviewWalletBook } from '@/pages/overviewLab/overviewRisk'
+import type { LendingSnapshot, OpenPosition } from '@/types'
 import { finiteUsd } from '@/utils/finiteUsd'
 
 function riskLite(
@@ -33,6 +40,39 @@ function riskLite(
  * Build a Home overview for one wallet using the same snapshot pipeline as cron.
  * Source failures are listed in `partial`; callers merge with the previous cache entry.
  */
+/** Other watch wallets' Current books, so server risk rows match the live Home (which merges them). */
+async function loadWatchBooks(
+	wallet: string,
+	active: LendingSnapshot | null,
+	partial: string[],
+): Promise<{ books: OverviewWalletBook[]; multiply: OpenPosition[]; owner: Record<string, string> }> {
+	const others = WATCH_WALLET_SEED.map((a) => a.toLowerCase()).filter((a) => a !== wallet)
+	if (others.length === 0) return { books: [], multiply: [], owner: {} }
+	const rows = await Promise.all(
+		others.map(async (addr) => {
+			const [snap, multiply] = await Promise.all([
+				getCurrentPositions(addr).catch(() => null),
+				getCurrentMultiplyVaultPositions(addr).catch(() => [] as OpenPosition[]),
+			])
+			if (!snap) partial.push(`watch:${shortAddress(addr)}`)
+			return { addr, snap, multiply }
+		}),
+	)
+	const owner: Record<string, string> = {}
+	const multiply: OpenPosition[] = []
+	for (const r of rows) {
+		for (const p of r.multiply) {
+			multiply.push(p)
+			owner[p.id] = r.addr
+		}
+	}
+	const books: OverviewWalletBook[] = [
+		{ walletId: wallet, label: shortAddress(wallet), current: active },
+		...rows.map((r) => ({ walletId: r.addr, label: shortAddress(r.addr), current: r.snap })),
+	]
+	return { books, multiply, owner }
+}
+
 export async function buildWalletOverview(
 	rawAddress: string,
 	previous?: WalletOverview | null,
@@ -70,7 +110,19 @@ export async function buildWalletOverview(
 	const counts = countLpFilters(positions)
 	// Same filter as client buildOverviewKpis: Cetus vaults are not part of the Home "Unclaimed" tile.
 	const openMetrics = aggregateOpenMetrics(positions.filter((p) => !isCetusVaultPosition(p)))
-	const riskRows = riskLite(buildOverviewRiskRows(full.current, positions))
+	const watch = await loadWatchBooks(wallet, full.current, partial).catch(() => null)
+	const ownOwner: Record<string, string> = {}
+	for (const p of positions) if (isCurrentMultiplyVaultPosition(p)) ownOwner[p.id] = wallet
+	const riskRows = riskLite(
+		watch
+			? buildOverviewRiskRows(
+					full.current,
+					[...positions, ...watch.multiply],
+					watch.books,
+					{ ...watch.owner, ...ownOwner },
+				)
+			: buildOverviewRiskRows(full.current, positions),
+	)
 
 	const lpUSD = snap
 		? finiteUsd(snap.lpUSD + snap.aftermathUSD)
