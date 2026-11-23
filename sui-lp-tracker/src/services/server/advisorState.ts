@@ -399,6 +399,8 @@ async function softUsdPrice(
 	return null
 }
 
+const lastKnownPx: { SUI?: number; DEEP?: number } = {}
+
 export async function buildAdvisorState(options?: { wallet?: string }): Promise<AdvisorState> {
 	return advisorTimed('total', async () => {
 	resetPortfolioReadRpcSource()
@@ -430,6 +432,12 @@ export async function buildAdvisorState(options?: { wallet?: string }): Promise<
 
 	if (raced.kind === 'timeout') {
 		errors.push(`advisor: deadline ${deadlineMs}ms exceeded`)
+		// Let the slow read finish in the background and warm the cache for the next request.
+		void loadWork.then(([c, l]) => {
+			if (c.status !== 'fulfilled' || l.status !== 'fulfilled') return
+			if (l.value.incomplete || l.value.statuses.some((s) => !s.ok)) return
+			recordAdvisorSnapshotSuccess(wallet, l.value.positions, c.value, Date.now())
+		}).catch(() => {})
 		const cacheAt = advisorCacheSavedAtOrUndefined(wallet)
 		openLpRows = stampOpenPositionsStale(getCachedAdvisorLpPositions(wallet), cacheAt)
 		currentSnap = attachCurrentMetricsMeta(getCachedAdvisorCurrent(wallet), true, cacheAt, wallet)
@@ -491,7 +499,8 @@ export async function buildAdvisorState(options?: { wallet?: string }): Promise<
 	const lpPositions: AdvisorLpPosition[] = await advisorTimed('lp-map', () => mapAdvisorLp(openLpActive))
 	const lpEmpty: AdvisorLpPosition[] = await advisorTimed('lp-empty-map', () => mapAdvisorLp(openLpEmpty))
 
-	const priceBudgetMs = deadlineAt - Date.now()
+	// Prices are cheap and started first: keep a small grace after the deadline instead of returning nulls.
+	const priceBudgetMs = Math.max(deadlineAt - Date.now(), 0) + (raced.kind === 'timeout' ? 4_000 : 0)
 	let suiPx: number | null = null
 	let deepPx: number | null = null
 	if (priceBudgetMs > 50) {
@@ -501,12 +510,17 @@ export async function buildAdvisorState(options?: { wallet?: string }): Promise<
 		])
 		if (priced) {
 			;[suiPx, deepPx] = priced
+			if (suiPx != null) lastKnownPx.SUI = suiPx
+			if (deepPx != null) lastKnownPx.DEEP = deepPx
 		} else {
 			errors.push(`advisor: price fetch exceeded ${deadlineMs}ms budget`)
 		}
 	} else {
 		errors.push('advisor: skipped price fetch (deadline budget exhausted)')
 	}
+
+	if (suiPx == null && lastKnownPx.SUI != null) suiPx = lastKnownPx.SUI
+	if (deepPx == null && lastKnownPx.DEEP != null) deepPx = lastKnownPx.DEEP
 
 	const net = computeAdvisorNetTotals(lpPositions, currentSnap, nowMs)
 	const rpcReason = getPortfolioReadRpcSourceReason()
