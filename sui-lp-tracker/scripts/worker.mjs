@@ -15,6 +15,15 @@ import { hydrateViteServerEnv } from '../vite-server-env.ts'
 
 hydrateViteServerEnv('production')
 
+// Background reads (SWR refresh, SDK internals) must never take the whole server down.
+process.on('unhandledRejection', (reason) => {
+	console.error('[unhandledRejection]', reason instanceof Error ? reason.message : reason)
+})
+process.on('uncaughtException', (err) => {
+	console.error('[uncaughtException]', err instanceof Error ? err.stack ?? err.message : err)
+})
+
+
 const cacheFile = overviewCachePath()
 const minCycleMs = Math.max(
 	OVERVIEW_MIN_CYCLE_MS,

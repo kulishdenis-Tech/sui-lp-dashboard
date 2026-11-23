@@ -29,7 +29,7 @@ export const PROXY_HOST_TO_ORIGIN: Record<string, string> = {
 }
 
 export function isAllowedProxyHost(host: string): boolean {
-	return host in PROXY_HOST_TO_ORIGIN
+	return Object.prototype.hasOwnProperty.call(PROXY_HOST_TO_ORIGIN, host)
 }
 
 export function resolveProxyUrl(host: string, path: string): string | null {
