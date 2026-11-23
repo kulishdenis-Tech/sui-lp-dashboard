@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store/appStore'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
@@ -38,9 +38,31 @@ function Section({ title, right, children }: { title: string; right?: ReactNode;
 	)
 }
 
-function money(n: number | null | undefined, hide: boolean, loading = false): string {
+type HomeTotals = { net: number; wallet: number; lp: number; lending: number; unclaimed: number }
+const TOTALS_KEY = (addr: string) => `suilp.home.totals.${addr.toLowerCase()}`
+
+function readTotals(addr: string | null): HomeTotals | null {
+	if (!addr) return null
+	try {
+		const raw = localStorage.getItem(TOTALS_KEY(addr))
+		if (!raw) return null
+		const j = JSON.parse(raw) as Partial<HomeTotals>
+		const ok = (['net', 'wallet', 'lp', 'lending', 'unclaimed'] as const).every((k) => Number.isFinite(j[k]))
+		return ok ? (j as HomeTotals) : null
+	} catch {
+		return null
+	}
+}
+
+/** While loading, show last known value (dimmed) instead of an empty "…". */
+function money(
+	n: number | null | undefined,
+	hide: boolean,
+	loading = false,
+	cached: number | null = null,
+): string {
 	if (hide) return '••••'
-	if (loading) return '…'
+	if (loading) return cached != null ? formatUSDAdaptive(cached) : '…'
 	if (n == null || !Number.isFinite(n)) return '—'
 	return formatUSDAdaptive(n)
 }
@@ -154,6 +176,32 @@ export function HomePage() {
 	const [hide, setHide] = useState(false)
 	const chartRef = useRef<PortfolioChartHandle>(null)
 
+	const loadingOf = (id: string) => m.sources.some((x) => x.id === id && x.status === 'loading')
+	const busyWallet = loadingOf('wallet')
+	const busyLp = loadingOf('lp')
+	const busyLending = loadingOf('lending')
+	const busy = busyWallet || busyLp || busyLending
+	const nwNow = m.kpis.netWorth
+	const addrKey = m.walletAddr
+	const cached = useMemo(() => readTotals(addrKey), [addrKey])
+	const unclaimedNow = m.kpis.unclaimedUSD
+	useEffect(() => {
+		if (busy || !addrKey || !nwNow) return
+		const t: HomeTotals = {
+			net: nwNow.totalNetUSD,
+			wallet: nwNow.walletAssetsUSD,
+			lp: nwNow.openLpUSD,
+			lending: nwNow.netLendingUSD,
+			unclaimed: unclaimedNow ?? 0,
+		}
+		if (!Object.values(t).every((v) => Number.isFinite(v))) return
+		try {
+			localStorage.setItem(TOTALS_KEY(addrKey), JSON.stringify(t))
+		} catch {
+			/* storage unavailable */
+		}
+	}, [busy, addrKey, nwNow, unclaimedNow])
+
 	if (!isConnected && !m.manualViewAddress) {
 		return (
 			<main className="space-y-4 px-4 py-8">
@@ -169,11 +217,6 @@ export function HomePage() {
 	}
 
 	const nw = m.kpis.netWorth
-	const loadingOf = (id: string) => m.sources.some((x) => x.id === id && x.status === 'loading')
-	const busyWallet = loadingOf('wallet')
-	const busyLp = loadingOf('lp')
-	const busyLending = loadingOf('lending')
-	const busy = busyWallet || busyLp || busyLending
 	const c = m.filterCounts
 	const go = (tab: 'lp' | 'lending') => {
 		setActiveTab(tab)
@@ -207,8 +250,10 @@ export function HomePage() {
 						{hide ? 'Show' : 'Hide'}
 					</button>
 				</div>
-				<p className="text-4xl font-semibold tabular-nums tracking-tight text-slate-50">
-					{money(nw?.totalNetUSD, hide, busy)}
+				<p
+					className={`text-4xl font-semibold tabular-nums tracking-tight text-slate-50 ${busy ? 'opacity-60' : ''}`}
+				>
+					{money(nw?.totalNetUSD, hide, busy, cached?.net ?? null)}
 				</p>
 				<DeltaChip analysis={m.delta24h} hide={hide} />
 			</div>
@@ -216,10 +261,10 @@ export function HomePage() {
 			{/* Breakdown */}
 			<Section title="">
 				<div className="grid grid-cols-2 gap-2">
-					<Tile name="Wallet" value={money(nw?.walletAssetsUSD, hide, busyWallet)} />
-					<Tile name="LP value" value={money(nw?.openLpUSD, hide, busyLp)} />
-					<Tile name="Net lending" value={money(nw?.netLendingUSD, hide, busyLending)} />
-					<Tile name="Unclaimed" value={money(m.kpis.unclaimedUSD, hide, busyLp || busyLending)} />
+					<Tile name="Wallet" value={money(nw?.walletAssetsUSD, hide, busyWallet, cached?.wallet ?? null)} />
+					<Tile name="LP value" value={money(nw?.openLpUSD, hide, busyLp, cached?.lp ?? null)} />
+					<Tile name="Net lending" value={money(nw?.netLendingUSD, hide, busyLending, cached?.lending ?? null)} />
+					<Tile name="Unclaimed" value={money(m.kpis.unclaimedUSD, hide, busyLp || busyLending, cached?.unclaimed ?? null)} />
 				</div>
 			</Section>
 
