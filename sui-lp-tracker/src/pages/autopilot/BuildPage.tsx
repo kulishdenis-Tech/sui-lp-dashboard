@@ -65,7 +65,9 @@ export function BuildPage({ wizard = false }: { wizard?: boolean } = {}) {
 	const refreshDrafts = useCallback(() => setDrafts(loadConfigs()), [])
 
 	return (
-		<div className="autopilot-root mx-auto min-w-0 max-w-6xl px-3 py-4 md:px-4 md:py-8">
+		<div
+			className={`autopilot-root mx-auto min-w-0 max-w-6xl px-3 py-4 md:px-4 md:py-8${wizard ? " pb-36" : ""}`}
+		>
 			{wizard ? (
 				<WizardHeader step={step} onStep={setStep} />
 			) : (
