@@ -100,6 +100,65 @@ async function dexCandlesFetch(
 	return parseOkxHistoricalCandlesData(j.data)
 }
 
+
+/**
+ * Per (coin, bar) candle store. One `after`+`before` pair returns up to ~299 candles each side, so a wallet
+ * with dozens of claim events needs 2 requests per coin/bar instead of 2 per event (that storm caused the 429s).
+ * A target is served from the store only when it lies strictly inside the covered span (candles on both sides).
+ */
+const DEX_BAR_STORE_TTL_MS = 10 * 60_000
+const dexBarStore = new Map<string, { at: number; candles: Map<number, OkxDexCandle> }>()
+const dexBarInflight = new Map<string, Promise<void>>()
+
+export function __resetOkxDexBarStoreForTests(): void {
+	dexBarStore.clear()
+	dexBarInflight.clear()
+}
+
+async function dexBarCandlesAround(coinType: string, bar: string, targetMs: number): Promise<OkxDexCandle[]> {
+	const key = `${normalizeCoinTypeForMatch(coinType)}|${bar}`
+	const now = Date.now()
+	const covered = (): OkxDexCandle[] | null => {
+		const e = dexBarStore.get(key)
+		if (!e || now - e.at > DEX_BAR_STORE_TTL_MS || e.candles.size === 0) return null
+		let min = Infinity
+		let max = -Infinity
+		for (const t of e.candles.keys()) {
+			if (t < min) min = t
+			if (t > max) max = t
+		}
+		return targetMs > min && targetMs < max ? [...e.candles.values()] : null
+	}
+	const hit = covered()
+	if (hit) return hit
+	// Coalesce concurrent lookups for the same coin/bar, then re-check coverage.
+	const pending = dexBarInflight.get(key)
+	if (pending) {
+		await pending.catch(() => undefined)
+		const again = covered()
+		if (again) return again
+	}
+	const job = (async () => {
+		const [afterBranch, beforeBranch] = await Promise.all([
+			dexCandlesFetch(coinType, bar, { afterMs: targetMs }),
+			dexCandlesFetch(coinType, bar, { beforeMs: targetMs }),
+		])
+		const prev = dexBarStore.get(key)
+		const fresh = prev && Date.now() - prev.at <= DEX_BAR_STORE_TTL_MS
+		const candles = fresh ? prev.candles : new Map<number, OkxDexCandle>()
+		for (const c of [...afterBranch, ...beforeBranch]) candles.set(Math.floor(c.tsMs), c)
+		dexBarStore.set(key, { at: fresh ? prev.at : Date.now(), candles })
+	})()
+	dexBarInflight.set(key, job)
+	try {
+		await job
+	} finally {
+		if (dexBarInflight.get(key) === job) dexBarInflight.delete(key)
+	}
+	const e = dexBarStore.get(key)
+	return e ? [...e.candles.values()] : []
+}
+
 /**
  * Bar duration in milliseconds for each OKX DEX bar label.
  * Used to compute clamped range distance and candle midpoint.
@@ -161,15 +220,8 @@ export async function okxDexHistoricalClosestUsd(
 
 	for (const bar of DEX_BARS_CASCADE) {
 		const barDurationMs = OKX_BAR_DURATION_MS[bar] ?? 3_600_000
-		const merged = new Map<number, OkxDexCandle>()
-		// Fetch after and before in parallel — halves RTT per bar
-		const [afterBranch, beforeBranch] = await Promise.all([
-			dexCandlesFetch(coinType, bar, { afterMs: targetMs }),
-			dexCandlesFetch(coinType, bar, { beforeMs: targetMs }),
-		])
-		for (const c of [...afterBranch, ...beforeBranch]) merged.set(Math.floor(c.tsMs), c)
-
-		const cand = closestCandleToTarget([...merged.values()], targetMs, barDurationMs)
+		const merged = await dexBarCandlesAround(coinType, bar, targetMs)
+		const cand = closestCandleToTarget(merged, targetMs, barDurationMs)
 		if (cand && cand.close > 0) {
 			// quoteAsOfUnixSec: always report the candle MIDPOINT — honest representation of
 			// OKX DEX OHLC temporal precision (±30 min for 1H, ±2H for 4H, ±12H for 1D).
