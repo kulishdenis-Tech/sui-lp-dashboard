@@ -11,7 +11,7 @@ $Auto = Join-Path $Root 'sui-lp-autopilot'
 $BotDir = Join-Path $Auto 'packages\bot'
 $DbFile = Join-Path $BotDir 'data\autopilot.db.json'
 $LogDir = Join-Path $Root '_local\logs'
-$Port = 5180
+$Port = 4173
 $ApiPort = 5191
 $Url = "http://localhost:$Port/"
 $Marker = 'Projects\SUI Dashboard'
@@ -109,6 +109,20 @@ function Test-AutopilotDistStale {
 	return $false
 }
 
+function Test-TrackerDistStale {
+	$index = Join-Path $Tracker 'dist\index.html'
+	if (-not (Test-Path $index)) { return $true }
+	$distTime = (Get-Item $index).LastWriteTimeUtc
+	$serve = Join-Path $Tracker 'scripts\serve-prod.mjs'
+	if ((Test-Path $serve) -and (Get-Item $serve).LastWriteTimeUtc -gt $distTime) { return $true }
+	$src = Join-Path $Tracker 'src'
+	if (-not (Test-Path $src)) { return $true }
+	$newer = Get-ChildItem $src -Recurse -File -Include *.ts, *.tsx, *.css |
+		Where-Object { $_.LastWriteTimeUtc -gt $distTime } |
+		Select-Object -First 1
+	return [bool]$newer
+}
+
 if (-not (Test-Path (Join-Path $Tracker 'package.json'))) {
 	Fail "Не знайдено sui-lp-tracker\package.json у $Root"
 }
@@ -128,12 +142,17 @@ if (-not (Test-Path (Join-Path $Root 'node_modules'))) {
 	if ($LASTEXITCODE -ne 0) { Fail "npm install завершився з кодом $LASTEXITCODE" }
 }
 
-$ourVite = Get-OurNode 'vite.js'
+$ourDev = Get-OurNode 'vite.js'
+$ourProd = Get-OurNode 'serve-prod.mjs'
 $ourBot = Get-OurNode 'dist\main.js'
 $botUrl = "http://127.0.0.1:${ApiPort}/api/auto-withdraw/status"
 
-if (-not $ourVite -and (Test-HttpUp $Url)) {
-	Fail "Порт $Port уже відповідає, але це не Vite з цієї папки. Процес не зупинено."
+if ($ourDev) {
+	Write-Host "Зупиняю dev Vite (PID $($ourDev.ProcessId)). Дашборд переходить на порт $Port."
+	Stop-Process -Id $ourDev.ProcessId -Force
+}
+if (-not $ourProd -and (Test-HttpUp $Url)) {
+	Fail "Порт $Port уже відповідає, але це не продакшн-сервер з цієї папки. Процес не зупинено."
 }
 if (-not $ourBot -and (Test-HttpUp $botUrl)) {
 	Fail "Порт $ApiPort уже відповідає, але це не бот цієї папки. Другий бот не запущено."
@@ -174,27 +193,35 @@ if (-not $ourBot) {
 	}
 }
 
-if (-not $ourVite) {
-	$node = (Get-Command node).Source
-	$vite = Join-Path $Root 'node_modules\vite\bin\vite.js'
-	if (-not (Test-Path $vite)) {
-		$vite = Join-Path $Tracker 'node_modules\vite\bin\vite.js'
+if (-not $ourProd) {
+	if (Test-TrackerDistStale) {
+		Write-Host 'Збираю продакшн-білд трекера (npm run build:prod).'
+		& npm run build:prod
+		if ($LASTEXITCODE -ne 0) { Fail "build:prod завершився з кодом $LASTEXITCODE" }
+	} else {
+		Write-Host 'dist трекера новіший за source — перезбірка не потрібна.'
 	}
-	if (-not (Test-Path $vite)) { Fail "Не знайдено vite.js. Запустіть npm install у $Root" }
-	$viteOut = Join-Path $LogDir 'vite-5180.log'
-	$viteErr = Join-Path $LogDir 'vite-5180.err.log'
-	Write-Host "Запускаю tracker на $Url (без вікна)."
-	Start-HiddenNode -NodeExe $node -ArgumentList @($vite, '--host', '--port', "$Port", '--strictPort') -WorkingDirectory $Tracker -StdoutPath $viteOut -StderrPath $viteErr
+	$node = (Get-Command node).Source
+	$viteNode = Join-Path $Root 'node_modules\vite-node\vite-node.mjs'
+	$serve = Join-Path $Tracker 'scripts\serve-prod.mjs'
+	if (-not (Test-Path $viteNode)) { Fail "Не знайдено vite-node. Запустіть npm install у $Root" }
+	if (-not (Test-Path $serve)) { Fail "Не знайдено scripts\serve-prod.mjs" }
+	if (-not (Test-Path (Join-Path $Tracker 'dist\index.html'))) { Fail 'Немає dist\index.html після збірки.' }
+	$prodOut = Join-Path $LogDir 'prod-4173.log'
+	$prodErr = Join-Path $LogDir 'prod-4173.err.log'
+	$env:PORT = "$Port"
+	Write-Host "Запускаю продакшн-збірку на $Url (без вікна, без HMR)."
+	Start-HiddenNode -NodeExe $node -ArgumentList @($viteNode, '--mode', 'production', $serve) -WorkingDirectory $Tracker -StdoutPath $prodOut -StderrPath $prodErr
 	if (-not (Wait-Http $Url 60)) {
 		$tail = ''
-		if (Test-Path $viteErr) { $tail = (Get-Content $viteErr -Tail 40) -join "`n" }
-		Fail "Tracker не відповів на $Url за 60 с.`n$tail"
+		if (Test-Path $prodErr) { $tail = (Get-Content $prodErr -Tail 40) -join "`n" }
+		Fail "Дашборд не відповів на $Url за 60 с.`n$tail"
 	}
-	Write-Host "Tracker готовий: $Url"
+	Write-Host "Дашборд готовий: $Url"
 } else {
-	Write-Host "Tracker цієї збірки вже працює (PID $($ourVite.ProcessId))."
+	Write-Host "Продакшн-збірка вже працює (PID $($ourProd.ProcessId))."
 	if (-not (Test-HttpUp $Url)) {
-		Fail "Процес Vite є, але $Url не відповідає."
+		Fail "Процес serve-prod є, але $Url не відповідає."
 	}
 }
 
