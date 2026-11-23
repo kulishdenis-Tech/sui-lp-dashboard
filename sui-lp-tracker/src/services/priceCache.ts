@@ -23,7 +23,36 @@ type Entry = {
 	quoteAsOfUnixSec: number | null
 }
 
+/**
+ * Storage backends: browser → localStorage. Server (no localStorage) → process memory, optionally
+ * persisted by a server-only adapter (see server/priceCacheDisk.ts). Without this the server never
+ * cached historical prices and re-hit OKX/Pyth on every read (429s).
+ */
+export type PriceCacheBackend = {
+	load: () => Record<string, Entry>
+	save: (s: Record<string, Entry>) => void
+}
+let backend: PriceCacheBackend | null = null
+let memStore: Record<string, Entry> | null = null
+
+export function setPriceCacheBackend(b: PriceCacheBackend | null): void {
+	backend = b
+	memStore = null
+}
+
+function hasLocalStorage(): boolean {
+	try {
+		return typeof localStorage !== 'undefined' && localStorage != null
+	} catch {
+		return false
+	}
+}
+
 function readStore(): Record<string, Entry> {
+	if (!hasLocalStorage()) {
+		if (!memStore) memStore = backend ? backend.load() : {}
+		return memStore
+	}
 	try {
 		const raw = localStorage.getItem(LS_KEY)
 		if (!raw) return {}
@@ -34,6 +63,11 @@ function readStore(): Record<string, Entry> {
 }
 
 function writeStore(s: Record<string, Entry>) {
+	if (!hasLocalStorage()) {
+		memStore = s
+		backend?.save(s)
+		return
+	}
 	try {
 		localStorage.setItem(LS_KEY, JSON.stringify(s))
 	} catch {

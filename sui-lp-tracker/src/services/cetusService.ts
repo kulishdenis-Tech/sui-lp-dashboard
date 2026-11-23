@@ -14,6 +14,7 @@
  *  3. getDynamicFieldObject per position → fee_owned_a/b, reward amounts
  *  4. getCoinMetadata + resolveSpots → human amounts + USD values
  */
+import { devTime } from '@/utils/devTiming'
 import { TickMath, Utils } from '@mmt-finance/clmm-sdk'
 import type { BluefinUnclaimedTokenRow, OpenPosition } from '@/types'
 import { suiClient } from '@/services/suiClient'
@@ -580,7 +581,7 @@ export async function getCetusPositions(
 	// 1. Fetch position NFTs
 	let positions: ParsedPosition[]
 	try {
-		positions = await fetchPositionNFTs(walletAddress, options?.incremental === true)
+		positions = await devTime('cetus-clmm/position-nfts', () => fetchPositionNFTs(walletAddress, options?.incremental === true))
 	} catch (e) {
 		 
 		console.warn('[cetus] fetchPositionNFTs failed', e)
@@ -592,7 +593,7 @@ export async function getCetusPositions(
 	const uniquePoolIds = [...new Set(positions.map((p) => p.poolId))]
 	let poolMap: Map<string, ParsedPool>
 	try {
-		poolMap = await fetchPools(uniquePoolIds, options?.incremental === true)
+		poolMap = await devTime('cetus-clmm/pools', () => fetchPools(uniquePoolIds, options?.incremental === true))
 	} catch (e) {
 		 
 		console.warn('[cetus] fetchPools failed', e)
@@ -611,8 +612,17 @@ export async function getCetusPositions(
 		}
 	}
 
+	// Compensation-lock detection only needs positions: start it now so it overlaps metadata + spot reads.
+	const closeLockedP = devTime('cetus-clmm/close-locked', () =>
+		fetchCetusCloseLockedIds(
+			suiClient,
+			positions.map((p) => ({ poolId: p.poolId, positionId: p.objectId })),
+		),
+	)
+	closeLockedP.catch(() => {}) // handled where awaited below
+
 	// 4. Fetch coin metadata
-	const metaMap = await (async () => {
+	const metaMap = await devTime('cetus-clmm/coin-metadata', async () => {
 		const mm = new Map<string, CoinMeta>()
 		await mapPool([...allCoinTypes], RPC_CONCURRENCY, async (ct) => {
 			const m = await resolveCoinMetadata(suiClient, ct)
@@ -624,7 +634,7 @@ export async function getCetusPositions(
 			})
 		})
 		return mm
-	})()
+	})
 
 	// Missing metadata must not become 0 decimals: that prices the raw integer as whole tokens.
 	const getMeta = (ct: string): CoinMeta =>
@@ -636,10 +646,8 @@ export async function getCetusPositions(
 		: undefined
 	let spotsMap: Map<string, Row>
 	try {
-		spotsMap = await resolveSpots(
-			[...allCoinTypes],
-			(ct) => getMeta(ct).symbol,
-			spotOpts,
+		spotsMap = await devTime('cetus-clmm/spots', () =>
+			resolveSpots([...allCoinTypes], (ct) => getMeta(ct).symbol, spotOpts),
 		)
 	} catch {
 		spotsMap = new Map()
@@ -652,10 +660,7 @@ export async function getCetusPositions(
 	// Uses dashboard suiClient (gRPC); Cetus SDK JSON-RPC fails silently in browser.
 	let closeLockedIds: Set<string>
 	try {
-		closeLockedIds = await fetchCetusCloseLockedIds(
-			suiClient,
-			positions.map((p) => ({ poolId: p.poolId, positionId: p.objectId })),
-		)
+		closeLockedIds = await closeLockedP
 		if (closeLockedIds.size > 0) {
 			console.info('[cetus] hiding compensation-certificate positions:', closeLockedIds.size)
 		}

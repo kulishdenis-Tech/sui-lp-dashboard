@@ -1,3 +1,4 @@
+import { devTime } from '@/utils/devTiming'
 import { MmtSDK, TickMath, Utils } from '@mmt-finance/clmm-sdk'
 import type { OpenPosition } from '@/types'
 import { suiClient } from '@/services/suiClient'
@@ -186,10 +187,8 @@ export async function getMomentumPositions(
 	const [fromSdk, fromRpc] = await Promise.all([
 		(async (): Promise<MomentumUserPosRow[]> => {
 			try {
-				return (await sdk.Position.getAllUserPositions(
-					walletAddress,
-					poolsData,
-					tokensData,
+				return (await devTime('momentum/sdk-positions', () =>
+					sdk.Position.getAllUserPositions(walletAddress, poolsData, tokensData),
 				)) as MomentumUserPosRow[]
 			} catch (e) {
 				console.warn('Momentum getAllUserPositions failed', e)
@@ -198,7 +197,9 @@ export async function getMomentumPositions(
 		})(),
 		(async (): Promise<MomentumUserPosRow[]> => {
 			try {
-				return await momentumUserRowsFromOwnedRpc(walletAddress, sdk, poolsData, tokensData)
+				return await devTime('momentum/rpc-fallback', () =>
+					momentumUserRowsFromOwnedRpc(walletAddress, sdk, poolsData, tokensData),
+				)
 			} catch (e2) {
 				console.warn('Momentum RPC fallback (owned objects) failed', e2)
 				return []
@@ -221,7 +222,7 @@ export async function getMomentumPositions(
 	const poolIdsHint = [...new Set(rawRows.map((r) => String(r.poolId).trim()))]
 	let poolsHydrated: typeof poolsData
 	try {
-		const byNorm = await hydrateMomentumPoolsByApiId(sdk, poolsData, poolIdsHint)
+		const byNorm = await devTime('momentum/hydrate-pools', () => hydrateMomentumPoolsByApiId(sdk, poolsData, poolIdsHint))
 		poolsHydrated = [...byNorm.values()]
 	} catch {
 		poolsHydrated = poolsData
@@ -250,7 +251,7 @@ export async function getMomentumPositions(
 
 	let spotsMap: Map<string, Row>
 	try {
-		spotsMap = await resolveSpots(
+		spotsMap = await devTime('momentum/spots', () => resolveSpots(
 			[...allSpotTypes],
 			(ct) => {
 				try {
@@ -268,7 +269,7 @@ export async function getMomentumPositions(
 				}
 			},
 			spotOpts,
-		)
+		))
 	} catch {
 		spotsMap = new Map()
 	}

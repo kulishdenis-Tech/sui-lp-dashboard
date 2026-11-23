@@ -90,6 +90,17 @@ function mapEventFilter(query: AnyRecord | undefined): {
 	gql?: { sender?: string; type?: string; module?: string }
 } {
 	if (!query || typeof query !== 'object') return {}
+	// Non-JSON-RPC extension: sender AND event type in one GraphQL filter (avoids paging through every event of a wallet).
+	if (
+		'SenderAndMoveEventType' in query &&
+		query.SenderAndMoveEventType != null &&
+		typeof query.SenderAndMoveEventType === 'object'
+	) {
+		const q = query.SenderAndMoveEventType as { sender?: string; type?: string }
+		if (typeof q.sender === 'string' && typeof q.type === 'string') {
+			return { gql: { sender: q.sender, type: q.type } }
+		}
+	}
 	if ('Sender' in query && typeof query.Sender === 'string') {
 		return { grpc: { sender: query.Sender }, gql: { sender: query.Sender } }
 	}

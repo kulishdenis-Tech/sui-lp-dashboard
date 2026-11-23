@@ -1,4 +1,7 @@
 import { buildAdvisorState, type AdvisorState } from '@/services/server/advisorState'
+import { installPriceCacheDisk } from '@/services/server/priceCacheDisk'
+
+installPriceCacheDisk()
 
 /**
  * Stale-while-revalidate wrapper for /api/advisor/state.
