@@ -36,6 +36,9 @@ function okxTripCircuit(): void {
 	}
 }
 
+const OKX_AUTH_OFF_MS = 30 * 60_000
+let okxAuthOffUntil = 0
+
 function sleep(ms: number): Promise<void> {
 	return new Promise((r) => setTimeout(r, ms))
 }
@@ -59,11 +62,16 @@ async function okxSignedRequestOnce(
 	pathWithQuery: string,
 	bodyStr = '',
 ): Promise<{ ok: boolean; status: number; json: OkxJson } | null> {
-	if (okxCircuitOpen()) return null
+	if (okxCircuitOpen() || Date.now() < okxAuthOffUntil) return null
 	const path = pathWithQuery.startsWith('/') ? pathWithQuery : `/${pathWithQuery}`
 
 	try {
 		const r = await okxProxyFetch(method, path, bodyStr)
+		if (r.status === 401 || r.status === 402 || r.status === 403) {
+			/* keys missing / plan limit: retrying cannot help — pause all OKX calls for a while */
+			okxAuthOffUntil = Date.now() + OKX_AUTH_OFF_MS
+			return null
+		}
 		const json = (await r.json()) as OkxJson
 		return { ok: r.ok, status: r.status, json }
 	} catch (e) {
