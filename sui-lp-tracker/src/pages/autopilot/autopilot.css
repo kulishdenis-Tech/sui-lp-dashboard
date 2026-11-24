@@ -1309,8 +1309,8 @@ html[data-theme="light"] .autopilot-root .step-btn:hover:not(:disabled) { backgr
 
 @media (max-width: 720px) {
   .autopilot-root .app { padding: 0.85rem 0.85rem 2rem; }
-  .autopilot-root .stepper-row { grid-template-columns: 2.6rem 1fr 2.6rem; }
-  .autopilot-root .step-suffix { grid-column: 1 / -1; }
+  /* Unit (USDC, %) stays next to the field instead of wrapping onto its own row. */
+  .autopilot-root .stepper-row { grid-template-columns: 2.6rem minmax(0, 1fr) 2.6rem auto; }
   .autopilot-root .ctor-top { gap: 0.75rem; }
 }
 
