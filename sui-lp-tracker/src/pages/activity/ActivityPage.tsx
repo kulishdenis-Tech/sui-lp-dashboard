@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { BackButton } from '@/components/ui/BackButton'
 import { createPortal } from 'react-dom'
 import { PageShell } from '@/components/ui/PageShell'
 import { AppCard } from '@/components/ui/AppCard'
@@ -762,10 +763,10 @@ function ActivityDrawer({
 			<div className="h-full w-full max-w-lg overflow-y-auto overscroll-contain border-l border-slate-800 bg-slate-950 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
 				<div className="sticky top-0 z-10 -mx-4 mb-4 flex items-start justify-between gap-3 border-b border-slate-800 bg-slate-950 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))]">
 					<div className="min-w-0">
+						<BackButton label="Activity" onClick={onClose} />
 						<h3 className="text-lg text-slate-100">{ACTIVITY_LABEL[tx.primaryKind]}</h3>
 						<p className="break-all font-mono text-xs text-slate-500">{tx.digest}</p>
 					</div>
-					<Button size="compact" variant="ghost" onClick={onClose}>← Back</Button>
 				</div>
 				<dl className="space-y-2 text-sm text-slate-300">
 					<div className="flex justify-between gap-3"><dt>Time</dt><dd>{tx.timestampMs ? new Date(tx.timestampMs).toLocaleString('uk-UA') : '—'}</dd></div>

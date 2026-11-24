@@ -567,7 +567,7 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 
 				{phase === 'keep_prompt' ? (
 					<>
-						<h2 id="aw-accept-title" className="font-[Syne] text-lg text-slate-100">
+						<h2 id="aw-accept-title" className="text-lg text-slate-100">
 							Keep watching this position?
 						</h2>
 						<p className="mt-2 text-sm text-slate-400">
@@ -594,7 +594,7 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 					</>
 				) : phase === 'progress' || phase === 'result' ? (
 					<>
-						<h2 id="aw-accept-title" className="font-[Syne] text-lg text-slate-100">
+						<h2 id="aw-accept-title" className="text-lg text-slate-100">
 							{progress.includes('Completed')
 								? 'Completed'
 								: phase === 'result'
@@ -634,7 +634,7 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 				) : (
 					<>
 						<div className="flex items-start justify-between gap-2">
-							<h2 id="aw-accept-title" className="font-[Syne] text-lg text-slate-100">
+							<h2 id="aw-accept-title" className="text-lg text-slate-100">
 								Accept &amp; Withdraw
 							</h2>
 							<button

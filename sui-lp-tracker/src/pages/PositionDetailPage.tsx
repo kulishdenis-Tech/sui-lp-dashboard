@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { BackButton } from '@/components/ui/BackButton'
 import { usePositionDetailData } from '@/components/positions/usePositionDetailData'
 import { SUISCAN_OBJECT } from '@/utils/constants'
 import { shortAddress } from '@/utils/formatting'
@@ -114,16 +115,13 @@ export function PositionDetailPage() {
 		return (
 			<main className="mx-auto max-w-6xl px-4 py-8">
 				<p className="text-slate-300">Position not found.</p>
-				<button
-					type="button"
-					className="mt-4 text-sky-400 hover:underline"
+				<BackButton
+					label="LP"
 					onClick={() => {
 						setActiveTab('lp')
 						navigate('/home', { state: { lpView: 'open' } })
 					}}
-				>
-					← Back to LP
-				</button>
+				/>
 			</main>
 		)
 	}
@@ -135,16 +133,13 @@ export function PositionDetailPage() {
 	if (isCurrentMultiplyVaultPosition(position)) {
 		return (
 			<main className="mx-auto max-w-6xl px-4 py-6">
-				<button
-					type="button"
-					className="mb-3 text-sm text-sky-400 hover:underline"
+				<BackButton
+					label="Vaults"
 					onClick={() => {
 						setActiveTab('lp')
 						navigate('/home', { state: { lpView: 'vaults' } })
 					}}
-				>
-					← Back to Vaults
-				</button>
+				/>
 				<CurrentMultiplyDetailSection
 					position={position}
 					onRefresh={
@@ -162,9 +157,8 @@ export function PositionDetailPage() {
 	return (
 		<main className="mx-auto max-w-6xl px-4 py-6">
 			<div className="mb-6">
-				<button
-					type="button"
-					className="mb-3 text-sm text-sky-400 hover:underline"
+				<BackButton
+					label="LP"
 					onClick={() => {
 						setActiveTab('lp')
 						navigate('/home', {
@@ -177,9 +171,7 @@ export function PositionDetailPage() {
 							},
 						})
 					}}
-				>
-					← Back to LP
-				</button>
+				/>
 				<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-start sm:gap-x-[2cm] sm:gap-y-3">
 					<div className="grid min-w-0 max-w-full shrink grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5">
 						<div className="relative col-start-1 row-start-1 flex shrink-0 items-center -space-x-1.5 self-center">
