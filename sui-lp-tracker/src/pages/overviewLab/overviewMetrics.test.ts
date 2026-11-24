@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { LendingSnapshot, OpenPosition, TokenBalance } from "@/types";
 import { computeNetWorth } from "@/utils/netWorth";
 import {
-  NEAR_EDGE_PCT,
+  NEAR_EDGE_FRACTION,
   buildOverviewKpis,
   classifyCascadeBand,
   classifyLpBand,
@@ -368,7 +368,7 @@ describe("overviewMetrics", () => {
     expect(edge.kind).toBe("near_edge");
     if (edge.kind === "near_edge") {
       expect(edge.bound).toBe("Upper");
-      expect(edge.distancePct).toBeLessThanOrEqual(NEAR_EDGE_PCT);
+      expect(edge.distancePct).toBeLessThanOrEqual(54 * NEAR_EDGE_FRACTION);
     }
   });
 
@@ -383,7 +383,7 @@ describe("overviewMetrics", () => {
     const edgy = pos({
       id: "e",
       status: "in_range",
-      priceRangeOverride: { min: 0.97, max: 1.004, current: 1.0 },
+      priceRangeOverride: { min: 0.97, max: 1.003, current: 1.0 },
     });
     expect(classifyLpBand(edgy)).toBe("near");
   });

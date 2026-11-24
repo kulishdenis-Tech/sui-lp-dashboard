@@ -10,7 +10,7 @@ import type { OverviewRiskRow } from '@/pages/overviewLab/overviewRisk'
 import type { LendingSnapshot, OpenPosition } from '@/types'
 import { getAutoWithdrawRule } from '@/pages/autopilot/autoWithdrawStore'
 import {
-	NEAR_EDGE_PCT,
+	NEAR_EDGE_FRACTION,
 	classifyPositionRangeEdge,
 	type OverviewSourceHealth,
 } from '@/pages/overviewLab/overviewMetrics'
@@ -95,7 +95,7 @@ export function buildLpAttentionItems(positions: OpenPosition[]): AttentionItem[
 					severity: 'warn',
 					kind: 'update',
 					title: `Near ${edge.bound} · ${pairLabel(p)}`,
-					detail: `${edge.distancePct.toFixed(1)}% of spot to ${edge.bound} (${edge.priceLabel}). ≤${NEAR_EDGE_PCT}% threshold.`,
+					detail: `${edge.distancePct.toFixed(1)}% of spot to ${edge.bound} (${edge.priceLabel}). within ${NEAR_EDGE_FRACTION * 100}% of band width.`,
 					href: `/lp/position/${encodeURIComponent(p.id)}`,
 				})
 			}
@@ -215,7 +215,7 @@ export function buildRangeExceptionItems(positions: OpenPosition[]): AttentionIt
 			id: 'near-summary',
 			severity: 'warn',
 			kind: 'update',
-			title: `Near edge · ${nearN} ${nearN === 1 ? 'LP' : 'LPs'} within ${NEAR_EDGE_PCT}% of a bound`,
+			title: `Near edge · ${nearN} ${nearN === 1 ? 'LP' : 'LPs'} within ${NEAR_EDGE_FRACTION * 100}% of band width from a bound`,
 			detail: 'Still inside the range.',
 		})
 	}
