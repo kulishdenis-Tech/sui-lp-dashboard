@@ -26,6 +26,7 @@ import {
 	type CascadeBatchJournal,
 } from './cascadeBatchJournal'
 import { getDashboardGrpcClient } from '@/services/suiData'
+import { executeOrFetchLanded } from '@/services/suiData/executeOrFetchLanded'
 import { classifyWalletError, evaluateSignGate, walletMessage, type WalletOutcome } from './walletGate'
 import { signWithTimeout } from './signWithTimeout'
 import {
@@ -1035,7 +1036,7 @@ export function PreviewDrawer({
 			const txBytes = fromBase64(bytes)
 			let result: unknown
 			try {
-				result = await grpc.executeTransaction({
+				result = await executeOrFetchLanded(grpc, {
 					transaction: txBytes,
 					signatures: [sig],
 					include: { effects: true },

@@ -15,6 +15,7 @@ import {
 import { resolveCoinMetadata } from '@/services/coinMetadata'
 import { suiClient } from '@/services/suiClient'
 import { getDashboardGrpcClient } from '@/services/suiData/createGrpcClient'
+import { executeOrFetchLanded } from '@/services/suiData/executeOrFetchLanded'
 import { useWalletSigner } from '@/wallet/useWalletSigner'
 import { Sheet } from './Sheet'
 
@@ -112,7 +113,7 @@ export function ClaimSheet({
 			const signed = await signWithTimeout(() => signTransaction({ transaction: tx }))
 			setPhase('sending')
 			const grpc = getDashboardGrpcClient()
-			const result = await grpc.executeTransaction({
+			const result = await executeOrFetchLanded(grpc, {
 				transaction: fromBase64(signed.bytes),
 				signatures: [signed.signature],
 				include: { effects: true },
