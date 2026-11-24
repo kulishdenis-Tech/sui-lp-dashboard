@@ -52,7 +52,10 @@ import {
 	type ValueChangeUnavailableReason,
 } from '@/utils/snapshotCompleteness'
 
-/** Distance to Lower/Upper ≤ this % of current price → Near Edge. */
+/** Share of the band width (from either bound) that counts as Near for narrow ranges. */
+export const NEAR_EDGE_FRACTION = 0.2
+
+/** Distance to Lower/Upper ≤ this % of current price (capped by band width share) → Near Edge. */
 export const NEAR_EDGE_PCT = 5
 
 export type OverviewSourceHealth = {
@@ -673,12 +676,10 @@ export function classifyPositionRangeEdge(p: OpenPosition): NearEdgeResult {
 	const distLower = Math.abs(pctMinVsCurrent)
 	const distUpper = Math.abs(pctMaxVsCurrent)
 	const rangeWidthPct = Math.abs(pctMaxVsCurrent - pctMinVsCurrent)
-	// A band narrower than the near threshold is entirely "near" under a spot-% rule,
-	// so a tick that is inside it still counts as in range.
-	if (
-		rangeWidthPct > NEAR_EDGE_PCT * 2 &&
-		(distLower <= NEAR_EDGE_PCT || distUpper <= NEAR_EDGE_PCT)
-	) {
+	// Near = within NEAR_EDGE_PCT of spot, but never more than NEAR_EDGE_FRACTION of the
+	// band width, so narrow ranges are only "near" when price is in the outer slice of the band.
+	const nearThreshold = Math.min(NEAR_EDGE_PCT, rangeWidthPct * NEAR_EDGE_FRACTION)
+	if (rangeWidthPct > 0 && (distLower <= nearThreshold || distUpper <= nearThreshold)) {
 		const towardUpper = distUpper <= distLower
 		return {
 			kind: 'near_edge',
