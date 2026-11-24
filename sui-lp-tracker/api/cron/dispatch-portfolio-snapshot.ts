@@ -1,7 +1,10 @@
 ﻿import type { VercelReq, VercelRes } from '../_lib/vercelRequest.js'
 import { authorizeCron } from '../_lib/cronAuth.js'
 import { isSupabaseConfigured } from '../_lib/supabaseAdmin.js'
-import { getNewestSnapshotTs } from '../_lib/supabaseSnapshots.js'
+import {
+	getNewestSnapshotTsForWallet,
+	listWatchedWalletsReadOnly,
+} from '../_lib/supabaseSnapshots.js'
 
 /** Skip re-dispatch when a snapshot landed recently (browser upload or prior GHA). */
 const MIN_INTERVAL_MS = 90 * 60 * 1000
@@ -41,15 +44,21 @@ export default async function handler(req: VercelReq, res: VercelRes) {
 
 	try {
 		if (isSupabaseConfigured()) {
-			const newest = await getNewestSnapshotTs()
-			if (newest != null) {
-				const ageMs = Date.now() - newest
-				if (ageMs >= 0 && ageMs < MIN_INTERVAL_MS) {
+			/* Skip only when EVERY watched wallet is fresh: one wallet kept fresh by an open browser must not block the rest. */
+			const wallets = await listWatchedWalletsReadOnly()
+			if (wallets.length > 0) {
+				const ages: number[] = []
+				for (const w of wallets) {
+					const newest = await getNewestSnapshotTsForWallet(w)
+					ages.push(newest == null ? Number.POSITIVE_INFINITY : Date.now() - newest)
+				}
+				if (ages.every((a) => a >= 0 && a < MIN_INTERVAL_MS)) {
 					res.status(200).json({
 						ok: true,
 						skipped: true,
 						reason: 'fresh_snapshot',
-						ageMs,
+						wallets: wallets.length,
+						oldestAgeMs: Math.max(...ages),
 						minIntervalMs: MIN_INTERVAL_MS,
 					})
 					return
