@@ -382,7 +382,7 @@ export async function getMomentumPositions(
 		const statusLabel = typeof row.status === 'string' ? row.status.trim() : ''
 		const inRangeResolved = momentumStatusToRange(statusLabel || 'out of range') === 'in_range'
 		const feeLabelPct = `${(feeFraction * 100).toFixed(3)}%`
-		const pair = `${symA}/${symB} · ${feeLabelPct}${inRangeResolved ? '' : ' · OUT'}`
+		const pair = `${symA}/${symB} · ${feeLabelPct}`
 
 		const feeHumA = safeHumanFromNumberRaw(Math.floor(row.feeAmountX), decA)
 		const feeHumB = safeHumanFromNumberRaw(Math.floor(row.feeAmountY), decB)

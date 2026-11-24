@@ -207,7 +207,7 @@ export async function getCetusDlmmPositions(
 
 			const inRange = pool.active_id >= pos.lower_bin_id && pool.active_id <= pos.upper_bin_id
 			const feeLabelPct = `${(feeFrac * 100).toFixed(3)}%`
-			const pair = `${metaA.symbol}/${metaB.symbol} · DLMM · ${feeLabelPct}${inRange ? '' : ' · OUT'}`
+			const pair = `${metaA.symbol}/${metaB.symbol} · DLMM · ${feeLabelPct}`
 
 			const rewardCoins = (pool.reward_manager?.rewards ?? [])
 				.map((r) => r.reward_coin)
@@ -379,7 +379,7 @@ export async function getCetusDlmmPositions(
 		}
 
 		const feeLabelPct = `${(p.fee * 100).toFixed(3)}%`
-		p.pair = `${p.tokenA}/${p.tokenB} · DLMM · ${feeLabelPct}${p.status === 'in_range' ? '' : ' · OUT'}`
+		p.pair = `${p.tokenA}/${p.tokenB} · DLMM · ${feeLabelPct}`
 	}
 
 	return out

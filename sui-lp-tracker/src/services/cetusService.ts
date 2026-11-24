@@ -716,7 +716,7 @@ export async function getCetusPositions(
 		// --- Fee rate & range status ---
 		const inRange = cetusTickInRange(pool.currentTick, pos.lowerTick, pos.upperTick)
 		const feeLabelPct = `${(pool.feeRate * 100).toFixed(3)}%`
-		const pair = `${symA}/${symB} · ${feeLabelPct}${inRange ? '' : ' · OUT'}`
+		const pair = `${symA}/${symB} · ${feeLabelPct}`
 
 		const lifecycleStatus = resolveLifecycleStatus(pos.liquidity)
 		// Compensation-certificate NFTs (abort 23): hide from open list entirely.
@@ -901,7 +901,7 @@ export async function getCetusPositions(
 		p.cetusSwapped = true
 		// Recompute pair label with normalised order
 		const feeLabelPct = `${(p.fee * 100).toFixed(3)}%`
-		p.pair = `${p.tokenA}/${p.tokenB} · ${feeLabelPct}${p.status === 'in_range' ? '' : ' · OUT'}`
+		p.pair = `${p.tokenA}/${p.tokenB} · ${feeLabelPct}`
 	}
 
 	return out
