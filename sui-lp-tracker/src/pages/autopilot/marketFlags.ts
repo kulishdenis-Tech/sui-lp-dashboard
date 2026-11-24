@@ -5,9 +5,10 @@ import { poolFeePercent, type PoolRow, type ProtocolId } from './types'
 export const LIQUID_TVL_USD_MIN = 500
 
 export function isLiquidPool(p: PoolRow): boolean {
-	if (p.tvlUsd != null && Number.isFinite(p.tvlUsd) && p.tvlUsd >= LIQUID_TVL_USD_MIN) return true
-	if (p.volume24hUsd != null && Number.isFinite(p.volume24hUsd) && p.volume24hUsd > 0) return true
-	return false
+	const tvlKnown = p.tvlUsd != null && Number.isFinite(p.tvlUsd)
+	if (tvlKnown) return (p.tvlUsd as number) >= LIQUID_TVL_USD_MIN
+	/* TVL unknown: any traded volume still counts, otherwise a tiny pool with a dust trade looked "liquid". */
+	return p.volume24hUsd != null && Number.isFinite(p.volume24hUsd) && p.volume24hUsd > 0
 }
 
 /** Prefer liquid list; if none qualify, keep all so UI is never empty. */
