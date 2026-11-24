@@ -5,6 +5,10 @@
  */
 import { createDAppKit } from '@mysten/dapp-kit-react'
 import { getDashboardGrpcClient } from '@/services/suiData/createGrpcClient'
+import { registerOkxConnectWallet } from '@/wallet/okxConnectWallet'
+
+// Mobile browsers have no injected wallet: expose OKX app deep-link connect as a standard wallet.
+registerOkxConnectWallet()
 
 /** Cursor Simple Browser / Electron often breaks wallet autoConnect (Phantom ethereum clash). */
 const autoConnect =
