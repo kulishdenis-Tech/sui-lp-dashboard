@@ -23,6 +23,8 @@ import { Transaction } from '@mysten/sui/transactions'
 import { fromBase64, toBase64 } from '@mysten/sui/utils'
 import { getDashboardGrpcClient } from '@/services/suiData/createGrpcClient'
 import { installOkxLifecycleLog, okxLog } from '@/wallet/okxDebugLog'
+import { clearPending, resumePendingOkxTx, savePending, waitForDigestOnChain } from '@/wallet/okxPendingTx'
+import { suiTxDigestFromBytesBase64 } from '@/pages/autopilot/suiTxDigest'
 
 /** Fired right before OKX's own modal opens, so the dapp-kit connect dialog can close and not cover it. */
 export const OKX_CONNECT_OPENING_EVENT = 'okx-connect:opening'
@@ -169,17 +171,46 @@ class OkxConnectWallet implements Wallet {
 			txBytes = toBase64(bytes)
 			txSerialize = await Transaction.from(bytes).toJSON()
 		}
-		okxLog(`sign: request sent (${prebuilt ? 'prebuilt' : 'built'} ${txBytes.length}b)`)
-		const ret = await ui.request(
-			{
-				method: 'sui_signTransactionBlock',
-				params: { txBytes, txSerialize },
-				injectParams: { txBytes, txSerialize },
-			} as never,
-			chain,
-		)
-		okxLog(`sign: response ${(ret as RpcResult)?.error ? 'error ' + ((ret as RpcResult).error?.message ?? '') : 'ok'}`)
-		return { bytes: txBytes, signature: String(unwrap(ret)) }
+		const digest = suiTxDigestFromBytesBase64(txBytes)
+		savePending({ digest, owner: account.address, ts: Date.now() })
+		okxLog(`sign: request sent (${prebuilt ? 'prebuilt' : 'built'} ${txBytes.length}b, ${digest.slice(0, 8)}…)`)
+
+		// The wallet signs AND executes. Its reply can be lost if the tab is unloaded while the user
+		// is in the OKX app, so also watch the chain for the digest and take whichever finishes first.
+		let stop = false
+		const reply = ui
+			.request(
+				{
+					method: 'sui_signAndExecuteTransactionBlock',
+					params: { txBytes, txSerialize },
+					injectParams: { txBytes, txSerialize },
+				} as never,
+				chain,
+			)
+			.then((ret) => ({ kind: 'reply' as const, ret }))
+		const watch = waitForDigestOnChain(digest, { isCancelled: () => stop }).then((landed) => ({
+			kind: 'chain' as const,
+			landed,
+		}))
+		try {
+			let first = await Promise.race([reply, watch])
+			if (first.kind === 'reply') {
+				const err = (first.ret as RpcResult)?.error
+				okxLog(`sign: reply ${err ? 'error ' + (err.message ?? '') : 'ok'}`)
+				if (err) throw new Error(err.message ?? 'OKX wallet rejected or failed the request')
+				// Wallet says done: confirm on chain to read the signature.
+				const landed = await waitForDigestOnChain(digest, { timeoutMs: 60_000 })
+				first = { kind: 'chain', landed }
+			}
+			const landed = first.landed
+			if (!landed) throw new Error('Transaction was not found on chain. Check OKX / Suiscan before retrying.')
+			okxLog(`sign: landed ${landed.success ? 'ok' : 'FAILED'}`)
+			if (!landed.signature) throw new Error('Transaction landed but its signature could not be read.')
+			return { bytes: txBytes, signature: landed.signature }
+		} finally {
+			stop = true
+			clearPending()
+		}
 	}
 
 	#signPersonalMessage: SuiSignPersonalMessageFeature['sui:signPersonalMessage']['signPersonalMessage'] =
@@ -204,5 +235,6 @@ export function registerOkxConnectWallet(): void {
 	if (registered || typeof window === 'undefined') return
 	registered = true
 	installOkxLifecycleLog()
+	void resumePendingOkxTx()
 	getWallets().register(new OkxConnectWallet())
 }

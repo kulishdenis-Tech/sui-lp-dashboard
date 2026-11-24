@@ -4,6 +4,10 @@ import { getWallets } from '@mysten/wallet-standard'
 vi.stubGlobal('window', Object.assign(new EventTarget(), { location: { origin: 'http://localhost' } }))
 
 const request = vi.fn()
+const getTransaction = vi.fn()
+vi.mock('@/services/suiData/createGrpcClient', () => ({
+	getDashboardGrpcClient: () => ({ getTransaction }),
+}))
 const openModal = vi.fn()
 let connected = false
 const session = {
@@ -82,7 +86,7 @@ describe('OKX Connect wallet standard adapter', () => {
 		).rejects.toThrow('User rejected')
 	})
 
-	it('signs already-built bytes exactly as given (no rebuild)', async () => {
+	async function builtTx() {
 		const { Transaction } = await import('@mysten/sui/transactions')
 		const { toBase64 } = await import('@mysten/sui/utils')
 		const tx = new Transaction()
@@ -94,18 +98,44 @@ describe('OKX Connect wallet standard adapter', () => {
 		])
 		const [c] = tx.splitCoins(tx.gas, [1])
 		tx.transferObjects([c], '0x' + '11'.repeat(32))
-		const built = toBase64(await tx.build())
+		return toBase64(await tx.build())
+	}
+
+	function signFeature() {
 		const w = getWallets().get().find((x) => x.name === 'OKX App (mobile)')!
-		request.mockResolvedValue({ result: 'SIG' })
-		const f = w.features['sui:signTransaction'] as {
+		return w.features['sui:signTransaction'] as {
 			signTransaction: (i: unknown) => Promise<{ bytes: string; signature: string }>
 		}
-		const out = await f.signTransaction({
-			transaction: { toJSON: async () => built },
-			account: { address: '0x' + '11'.repeat(32) },
-			chain: 'sui:mainnet',
-		})
+	}
+
+	const input = (built: string) => ({
+		transaction: { toJSON: async () => built },
+		account: { address: '0x' + '11'.repeat(32) },
+		chain: 'sui:mainnet',
+	})
+
+	it('signs already-built bytes as given and reads the signature from chain', async () => {
+		const built = await builtTx()
+		request.mockResolvedValue({ result: 'DIGEST' })
+		getTransaction.mockResolvedValue({ $kind: 'Transaction', Transaction: { signatures: ['SIG'] } })
+		const out = await signFeature().signTransaction(input(built))
 		expect(out).toEqual({ bytes: built, signature: 'SIG' })
+		expect(request.mock.calls[0][0].method).toBe('sui_signAndExecuteTransactionBlock')
 		expect(request.mock.calls[0][0].params.txBytes).toBe(built)
+	})
+
+	it('still completes when the wallet reply never arrives (tab was reloaded) but the tx landed', async () => {
+		const built = await builtTx()
+		request.mockReturnValue(new Promise(() => {}))
+		getTransaction.mockResolvedValue({ $kind: 'Transaction', Transaction: { signatures: ['SIG2'] } })
+		const out = await signFeature().signTransaction(input(built))
+		expect(out.signature).toBe('SIG2')
+	})
+
+	it('wallet rejection is an error and is not masked by the chain watcher', async () => {
+		const built = await builtTx()
+		request.mockResolvedValue({ error: { message: 'User rejected' } })
+		getTransaction.mockRejectedValue(new Error('not found'))
+		await expect(signFeature().signTransaction(input(built))).rejects.toThrow('User rejected')
 	})
 })
