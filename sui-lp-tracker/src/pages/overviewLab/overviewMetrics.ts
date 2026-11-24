@@ -16,8 +16,8 @@
  * | Fees Earned | lifetime earnings when history enriched | only if coverage complete enough | positionEvents | else unavailable |
  * | Value change | portfolio snapshots | latest − lookback totalUSD | IDB/server | incomplete snaps filtered |
  *
- * Near-edge threshold: within NEAR_EDGE_PCT of Lower or Upper vs current price
- * (bound/current − 1)×100 absolute ≤ threshold while in_range.
+ * Near-edge threshold: within NEAR_EDGE_FRACTION (10%) of the band width from Lower or Upper
+ * while in_range.
  */
 import type {
 	LendingSnapshot,
@@ -52,11 +52,9 @@ import {
 	type ValueChangeUnavailableReason,
 } from '@/utils/snapshotCompleteness'
 
-/** Share of the band width (from either bound) that counts as Near for narrow ranges. */
-export const NEAR_EDGE_FRACTION = 0.2
+/** Share of the band width (from either bound) that counts as Near Edge. */
+export const NEAR_EDGE_FRACTION = 0.1
 
-/** Distance to Lower/Upper ≤ this % of current price (capped by band width share) → Near Edge. */
-export const NEAR_EDGE_PCT = 5
 
 export type OverviewSourceHealth = {
 	id: string
@@ -676,9 +674,8 @@ export function classifyPositionRangeEdge(p: OpenPosition): NearEdgeResult {
 	const distLower = Math.abs(pctMinVsCurrent)
 	const distUpper = Math.abs(pctMaxVsCurrent)
 	const rangeWidthPct = Math.abs(pctMaxVsCurrent - pctMinVsCurrent)
-	// Near = within NEAR_EDGE_PCT of spot, but never more than NEAR_EDGE_FRACTION of the
-	// band width, so narrow ranges are only "near" when price is in the outer slice of the band.
-	const nearThreshold = Math.min(NEAR_EDGE_PCT, rangeWidthPct * NEAR_EDGE_FRACTION)
+	// Near = price within NEAR_EDGE_FRACTION of the band width from either bound (all LPs).
+	const nearThreshold = rangeWidthPct * NEAR_EDGE_FRACTION
 	if (rangeWidthPct > 0 && (distLower <= nearThreshold || distUpper <= nearThreshold)) {
 		const towardUpper = distUpper <= distLower
 		return {
