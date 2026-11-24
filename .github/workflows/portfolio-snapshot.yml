@@ -1,11 +1,8 @@
-# Heavy worker for portfolio snapshots (Node has enough time; Vercel Hobby does not).
-# Primary trigger: Supabase pg_cron → /api/cron/dispatch-portfolio-snapshot → workflow_dispatch
-# Backup: hourly schedule (GitHub schedule alone is best-effort and often delayed/dropped).
+# Manual fallback for portfolio snapshots. The primary scheduler is the systemd timer on the
+# home server (see sui-lp-tracker/deploy/README.md). GitHub `schedule` was best-effort and dropped runs.
 name: Portfolio snapshot
 
 on:
-  schedule:
-    - cron: "22 * * * *"
   workflow_dispatch:
     inputs:
       force:

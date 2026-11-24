@@ -6,9 +6,6 @@
 	"functions": {
 		"api/cron/portfolio-snapshot.ts": {
 			"maxDuration": 300
-		},
-		"api/cron/dispatch-portfolio-snapshot.ts": {
-			"maxDuration": 30
 		}
 	}
 }
