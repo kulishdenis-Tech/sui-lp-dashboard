@@ -7,14 +7,14 @@ import { GECKO_NETWORK } from '@/utils/constants'
 
 /**
  * Pool chart. Default: our own candles with this LP's Lower/Upper lines and shaded corridor
- * (an iframe cannot be drawn on). The GeckoTerminal embed stays as a tab and as the fallback.
+ * (an iframe cannot be drawn on). The GeckoTerminal embed is only the fallback when there are no candles.
  * Mounting is deferred by the parent (PositionDetailPage) until the user expands
  * the chart section, so the iframe loads lazily on first open.
  */
 export function PositionPoolChart({ position, pairLabel }: { position: OpenPosition; pairLabel?: string }) {
 	const poolId = position.poolId
-	const [mode, setMode] = useState<'range' | 'embed'>('range')
-	const fallbackToEmbed = useCallback(() => setMode('embed'), [])
+	const [embedFallback, setEmbedFallback] = useState(false)
+	const fallbackToEmbed = useCallback(() => setEmbedFallback(true), [])
 	const range = clmmRangeFromOpenPosition(position)
 	const label = pairLabel ?? `${position.tokenA} / ${position.tokenB}`
 
@@ -27,28 +27,10 @@ export function PositionPoolChart({ position, pairLabel }: { position: OpenPosit
 	})
 	const poolUrl = geckoTerminalPoolWebUrl(GECKO_NETWORK, poolId)
 
-	const showRange = mode === 'range' && range != null
+	const showRange = !embedFallback && range != null
 
 	return (
 		<div className="w-full">
-			{range ? (
-				<div className="mb-2 flex gap-1 text-[11px]">
-					{(['range', 'embed'] as const).map((m) => (
-						<button
-							key={m}
-							type="button"
-							onClick={() => setMode(m)}
-							className={`rounded px-2 py-0.5 ${
-								mode === m
-									? 'bg-sky-500/20 text-sky-300'
-									: 'bg-slate-800/60 text-slate-400 hover:text-slate-200'
-							}`}
-						>
-							{m === 'range' ? 'My range' : 'GeckoTerminal'}
-						</button>
-					))}
-				</div>
-			) : null}
 			{showRange && range ? (
 				<PositionRangeChart
 					poolId={poolId}
@@ -70,7 +52,7 @@ export function PositionPoolChart({ position, pairLabel }: { position: OpenPosit
 				</div>
 			)}
 			<p className="mt-1.5 text-[11px] text-slate-600">
-				Chart by{' '}
+				Candles by{' '}
 				{poolUrl ? (
 					<a
 						href={poolUrl}
