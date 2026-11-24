@@ -45,11 +45,6 @@ export const API_ROUTES: readonly ApiRoute[] = [
 	{ path: '/api/dev/portfolio-snapshot', module: null, devAdapter: 'dedicated-plugin' },
 	{ path: '/api/activity/export', module: null, devAdapter: 'dedicated-plugin' },
 	{
-		path: '/api/cron/dispatch-portfolio-snapshot',
-		module: '/api/cron/dispatch-portfolio-snapshot.ts',
-		devAdapter: 'vercel-only',
-	},
-	{
 		path: '/api/cron/portfolio-snapshot',
 		module: '/api/cron/portfolio-snapshot.ts',
 		devAdapter: 'vercel-only',

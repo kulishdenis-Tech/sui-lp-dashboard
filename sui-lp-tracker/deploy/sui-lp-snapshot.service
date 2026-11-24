@@ -1,0 +1,15 @@
+[Unit]
+Description=SUI LP portfolio snapshot (one run)
+After=network-online.target
+Wants=network-online.target
+OnFailure=sui-lp-snapshot-alert.service
+
+[Service]
+Type=oneshot
+User=sui-lp
+WorkingDirectory=/opt/sui-lp-dashboard/sui-lp-tracker
+EnvironmentFile=/opt/sui-lp-dashboard/sui-lp-tracker/.env
+TimeoutStartSec=600
+ExecStart=/usr/bin/npm run snapshot:once
+# Freshness check: exits non-zero if any watched wallet has no snapshot newer than 90 min.
+ExecStartPost=/usr/bin/npm run snapshot:health

@@ -1,0 +1,7 @@
+[Unit]
+Description=Snapshot failed or stale
+
+[Service]
+Type=oneshot
+# Replace with your own notification (ntfy, Telegram curl, mail ...). Default: just log loudly.
+ExecStart=/usr/bin/logger -p user.err "sui-lp-snapshot failed or stale - check: journalctl -u sui-lp-snapshot.service"

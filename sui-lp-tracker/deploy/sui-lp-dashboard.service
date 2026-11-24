@@ -1,0 +1,18 @@
+[Unit]
+Description=SUI LP dashboard (serve:prod)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sui-lp
+WorkingDirectory=/opt/sui-lp-dashboard/sui-lp-tracker
+EnvironmentFile=/opt/sui-lp-dashboard/sui-lp-tracker/.env
+Environment=NODE_ENV=production
+Environment=PORT=4173
+ExecStart=/usr/bin/npm run serve:prod
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
