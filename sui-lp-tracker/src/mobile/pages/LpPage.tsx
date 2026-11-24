@@ -129,7 +129,11 @@ export function LpPage() {
 
 	const total = active.reduce((s, p) => s + positionValueUsd(p), 0)
 	const unclaimed = active.reduce((s, p) => s + (p.unclaimedFeeUSD || 0) + (p.unclaimedRewardUSD || 0), 0)
-	const inRange = active.filter((p) => classifyLpBand(p) === 'in').length
+	// Near edge = ще в діапазоні, тому рахується як in range.
+	const inRange = active.filter((p) => {
+		const b = classifyLpBand(p)
+		return b === 'in' || b === 'near'
+	}).length
 
 	if (isLoading && open.length === 0) {
 		return (
