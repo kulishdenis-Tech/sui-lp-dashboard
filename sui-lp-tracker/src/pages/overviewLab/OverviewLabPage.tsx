@@ -547,7 +547,12 @@ export function OverviewLabPage() {
 	// Headline total must not show a half-loaded figure (e.g. $6k before lending arrives) as if it were final.
 	// (AlphaLend answers first with an empty snapshot while Current is still loading, so "any loaded" is not enough.)
 	const lendingStillLoading = isLoadingLending && lendingSnaps.some((s) => s == null)
-	const netWorthPending = lendingStillLoading || (isLoadingPositions && openPositions.length === 0)
+	// LP protocols answer one by one (Bluefin first, Cetus/vaults later): until positions settle once, the total is partial.
+	// Later background refreshes must not flip it back to "…".
+	const positionsSettledRef = useRef(false)
+	if (!isLoadingPositions) positionsSettledRef.current = true
+	const netWorthPending =
+		lendingStillLoading || (isLoadingPositions && !positionsSettledRef.current)
 	const lendingNet = sumLendingField((s) => s?.netValueUSD)
 	const lendingSupplied = sumLendingField((s) => s?.totalSuppliedUSD)
 	const lendingDebt = sumLendingField((s) => s?.totalBorrowedUSD)

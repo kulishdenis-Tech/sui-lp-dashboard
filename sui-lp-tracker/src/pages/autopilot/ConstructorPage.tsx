@@ -842,7 +842,9 @@ export function ConstructorPage({
 					? 'Pool data is stale — wait for refresh'
 					: fieldIssue
 						? 'Check price range'
-						: !budgetExecutable
+						: cascade == null
+							? 'Set investment, LP count, overlap and price range'
+							: !budgetExecutable
 							? 'Fix budgets before preview'
 							: walletEnough === false
 								? 'Not enough balance'
@@ -1580,7 +1582,10 @@ export function ConstructorPage({
 							}
 						/>
 					) : (
-						<p className="mode">Chart appears after LP parameters are set.</p>
+						<p className="mode">
+							Chart appears after LP parameters are set.
+							{previewBlockReason ? ` Now: ${previewBlockReason.toLowerCase()}.` : ''}
+						</p>
 					)}
 				</section>
 				) : null}
