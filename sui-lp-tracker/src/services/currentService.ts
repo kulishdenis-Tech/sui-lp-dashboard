@@ -159,7 +159,18 @@ async function fetchMarketListPage(marketType?: string): Promise<MarketRow[]> {
 	return data?.content ?? []
 }
 
-export async function fetchAllMarketRows(): Promise<MarketRow[]> {
+let marketRowsInflight: Promise<MarketRow[]> | null = null
+
+/** Concurrent callers share one fetch round (the list is requested from several places at load). */
+export function fetchAllMarketRows(): Promise<MarketRow[]> {
+	if (marketCache && Date.now() - marketCache.ts < 60_000) return Promise.resolve(marketCache.rows)
+	marketRowsInflight ??= fetchAllMarketRowsUncached().finally(() => {
+		marketRowsInflight = null
+	})
+	return marketRowsInflight
+}
+
+async function fetchAllMarketRowsUncached(): Promise<MarketRow[]> {
 	const now = Date.now()
 	if (!marketCache || now - marketCache.ts >= 60_000) {
 		const failed: string[] = []

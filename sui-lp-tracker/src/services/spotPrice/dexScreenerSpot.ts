@@ -118,11 +118,27 @@ type DexScreenerQuote = {
 	change1h: number | null
 }
 
+/** Many callers ask for the same token at once: share one request and keep the answer briefly. */
+const QUOTE_TTL_MS = 20_000
+const quoteCache = new Map<string, { at: number; q: DexScreenerQuote | null }>()
+const quoteInflight = new Map<string, Promise<DexScreenerQuote | null>>()
+
 export async function dexScreenerPrice(coinType: string): Promise<DexScreenerQuote | null> {
 	if (isKnownNoPrice(coinType)) return null
-	const q = await dexScreenerPriceUncached(coinType)
-	if (!q || q.price == null) rememberNoPrice(coinType)
-	return q
+	const hit = quoteCache.get(coinType)
+	if (hit && Date.now() - hit.at < QUOTE_TTL_MS) return hit.q
+	let p = quoteInflight.get(coinType)
+	if (!p) {
+		p = dexScreenerPriceUncached(coinType)
+			.then((q) => {
+				if (!q || q.price == null) rememberNoPrice(coinType)
+				else quoteCache.set(coinType, { at: Date.now(), q })
+				return q
+			})
+			.finally(() => quoteInflight.delete(coinType))
+		quoteInflight.set(coinType, p)
+	}
+	return p
 }
 
 /** Best-effort spot from largest-liquidity pair; якщо /tokens/addr дає void — fallback на /search. */
