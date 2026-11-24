@@ -486,7 +486,6 @@ export async function getBluefinSpotPositions(
 
 		const openedAt = Date.now() / 1000
 		const feeLabel = parseFeeMillionthsToPctLabel(feeBps)
-		const rangeLabel = inRange ? '' : ' · OUT'
 
 		const poolIdOut = poolIdRaw || poolKey
 		const bluefinUnclaimed: BluefinUnclaimedSnapshot = {
@@ -522,7 +521,7 @@ export async function getBluefinSpotPositions(
 			id: p.id,
 			protocol: 'bluefin',
 			poolId: poolIdOut,
-			pair: `${symA}+${symB} · ${feeLabel === '—' ? '—' : feeLabel}${rangeLabel}`,
+			pair: `${symA}+${symB} · ${feeLabel === '—' ? '—' : feeLabel}`,
 			tokenA: symA,
 			tokenB: symB,
 			tokenAAddress: tA,

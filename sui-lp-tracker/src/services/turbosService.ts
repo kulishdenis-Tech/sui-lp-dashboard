@@ -701,7 +701,7 @@ export async function getTurbosPositions(
 		}
 
 		const feeLabelPct = `${(pool.feeRate * 100).toFixed(3)}%`
-		const pair = `${symA}/${symB} · ${feeLabelPct}${inRange ? '' : ' · OUT'}`
+		const pair = `${symA}/${symB} · ${feeLabelPct}`
 
 		out.push({
 			id: nft.nftId,
