@@ -121,7 +121,7 @@ export function currentAggregateReferenceSegment(
 	const pct = (total / baseUsd) * 100
 	return {
 		key: 'current:all',
-		label: 'Current (усі ринки)',
+		label: 'Current (all markets)',
 		valueUsd: total,
 		sharePct: pct,
 		overLimit: false,

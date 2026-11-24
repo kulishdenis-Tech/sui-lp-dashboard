@@ -107,14 +107,14 @@ function AttentionList({
 	if (items.length === 0 && loading) {
 		return (
 			<div className={`${card} flex items-center gap-2 px-3 py-2.5 text-sm text-slate-400`}>
-				<span className="h-2 w-2 rounded-full bg-slate-500" /> Перевіряю…
+				<span className="h-2 w-2 rounded-full bg-slate-500" /> Checking…
 			</div>
 		)
 	}
 	if (items.length === 0) {
 		return (
 			<div className={`${card} flex items-center gap-2 px-3 py-2.5 text-sm text-emerald-300`}>
-				<span className="h-2 w-2 rounded-full bg-emerald-400" /> Усе в нормі — дій не потрібно
+				<span className="h-2 w-2 rounded-full bg-emerald-400" /> All good — nothing to do
 			</div>
 		)
 	}
@@ -235,7 +235,7 @@ export function HomePage() {
 			<main className="space-y-4 px-4 py-8">
 				<h1 className="text-xl font-semibold text-slate-100">Sui LP &amp; Lending</h1>
 				<p className="text-sm text-slate-400">
-					Підключи гаманець або встав адресу (лише перегляд), щоб побачити портфель.
+					Connect a wallet or paste an address (view only) to see your portfolio.
 				</p>
 				<div className={`${card} p-4`}>
 					<WalletConnect />
@@ -274,7 +274,7 @@ export function HomePage() {
 					role="alert"
 					className="rounded-xl border border-amber-700/40 bg-amber-950/35 px-3 py-2 text-xs text-amber-100"
 				>
-					Частину даних не завантажено — {m.lastLoadError ?? m.walletBalancesError}
+					Some data failed to load — {m.lastLoadError ?? m.walletBalancesError}
 				</div>
 			) : null}
 
@@ -356,7 +356,7 @@ export function HomePage() {
 							</div>
 						</>
 					) : (
-						<p className="text-sm text-slate-500">{busyLp ? 'Завантаження…' : 'Немає відкритих LP-позицій.'}</p>
+						<p className="text-sm text-slate-500">{busyLp ? 'Loading…' : 'No open LP positions.'}</p>
 					)}
 				</div>
 			</Section>

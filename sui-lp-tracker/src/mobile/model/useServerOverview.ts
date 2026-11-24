@@ -64,7 +64,7 @@ export function useServerOverview(walletAddr: string | null | undefined): State 
 export function formatOverviewAge(computedAt: number | null, now = Date.now()): string | null {
 	if (computedAt == null || !Number.isFinite(computedAt)) return null
 	const mins = Math.max(0, Math.round((now - computedAt) / 60_000))
-	if (mins <= 0) return 'оновлено щойно'
-	if (mins === 1) return 'оновлено 1 хв тому'
-	return `оновлено ${mins} хв тому`
+	if (mins <= 0) return 'updated just now'
+	if (mins === 1) return 'updated 1 min ago'
+	return `updated ${mins} min ago`
 }

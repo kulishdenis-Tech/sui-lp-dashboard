@@ -190,7 +190,7 @@ export function labelAmountOrStale(
 export function withAgeStale(source: OverviewSourceHealth, nowMs = Date.now()): OverviewSourceHealth {
 	if (source.status === 'loading' || source.status === 'error') return source
 	if (!sourceHasObservation(source)) {
-		return { ...source, status: 'stale', detail: source.detail ?? 'нема даних' }
+		return { ...source, status: 'stale', detail: source.detail ?? 'no data' }
 	}
 	if (source.status === 'ok' && isOnChainDataStale(source.receivedAtMs, nowMs)) {
 		return { ...source, status: 'stale' }

@@ -37,7 +37,7 @@ export function ClosedList({ allClosed, protocolFilter }: { allClosed: ClosedPos
 	const totalPnl = base.reduce((s, c) => s + (Number.isFinite(c.pnlUSD) ? c.pnlUSD : 0), 0)
 	const totalEarned = base.reduce((s, c) => s + (Number.isFinite(c.totalFeesCollectedUSD) ? c.totalFeesCollectedUSD : 0), 0)
 
-	if (base.length === 0) return <p className="px-1 text-sm text-slate-500">Немає закритих позицій.</p>
+	if (base.length === 0) return <p className="px-1 text-sm text-slate-500">No closed positions.</p>
 
 	const pick = (key: ClosedPositionsSortKey) =>
 		setSort((s) => (s?.key === key ? { key, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }))

@@ -118,16 +118,16 @@ export function ClaimSheet({
 				include: { effects: true },
 			})
 			const outcome = classifyTxResult(result)
-			if (outcome.kind === 'failed') throw new Error(outcome.errorMessage ?? 'Транзакція не пройшла')
+			if (outcome.kind === 'failed') throw new Error(outcome.errorMessage ?? 'Transaction failed')
 			if (outcome.kind === 'unknown') {
-				throw new Error('Невідомий результат. Перевірте гаманець/Suiscan перед повторною спробою.')
+				throw new Error('Unknown result. Check your wallet/Suiscan before retrying.')
 			}
 			setDigest(outcome.digest)
 			setPhase('done')
 			onClaimed?.()
 		} catch (e) {
 			const m = e instanceof Error ? e.message : String(e)
-			setErr(/reject|denied|cancel/i.test(m) ? 'Підпис скасовано' : m)
+			setErr(/reject|denied|cancel/i.test(m) ? 'Signing cancelled' : m)
 			setPhase('error')
 		}
 	}
@@ -137,11 +137,11 @@ export function ClaimSheet({
 	return (
 		<Sheet open={open} onClose={busy ? () => {} : onClose} title={`Claim · ${protocol}`}>
 			<div className="space-y-3 pb-2 text-sm">
-				{phase === 'building' ? <p className="text-slate-400">Будую транзакцію й симулюю…</p> : null}
+				{phase === 'building' ? <p className="text-slate-400">Building and simulating transaction…</p> : null}
 
 				{phase === 'review' || phase === 'signing' || phase === 'sending' || phase === 'done' ? (
 					<div className="rounded-xl border border-slate-700/60 bg-slate-900/50 p-3">
-						<p className="mb-2 text-xs uppercase tracking-wide text-slate-500">Надійде на гаманець</p>
+						<p className="mb-2 text-xs uppercase tracking-wide text-slate-500">Will arrive in wallet</p>
 						{lines.length === 0 ? <p className="text-slate-400">—</p> : null}
 						<ul className="space-y-1">
 							{lines.map((l) => (
@@ -157,7 +157,7 @@ export function ClaimSheet({
 						</ul>
 						{protocol === 'AlphaLend' ? (
 							<p className="mt-2 text-xs text-slate-500">
-								AlphaLend може віддати велику SUI-нагороду як stSUI — це видно в списку вище.
+								AlphaLend may pay a large SUI reward as stSUI — see the list above.
 							</p>
 						) : null}
 					</div>
@@ -165,10 +165,10 @@ export function ClaimSheet({
 
 				{blocked && phase === 'review' ? <p className="text-amber-300">{blocked}</p> : null}
 				{phase === 'review' && !blocked && !isOwner ? (
-					<p className="text-amber-300">Підпис можливий лише з гаманця-власника цієї адреси.</p>
+					<p className="text-amber-300">Signing is only possible from the wallet that owns this address.</p>
 				) : null}
 				{phase === 'done' && digest ? (
-					<p className="text-emerald-300">Готово. Digest: {digest.slice(0, 12)}…</p>
+					<p className="text-emerald-300">Done. Digest: {digest.slice(0, 12)}…</p>
 				) : null}
 				{phase === 'error' && err ? <p className="text-red-300">{err}</p> : null}
 
@@ -179,7 +179,7 @@ export function ClaimSheet({
 						disabled={busy}
 						onClick={onClose}
 					>
-						{phase === 'done' ? 'Закрити' : 'Скасувати'}
+						{phase === 'done' ? 'Close' : 'Cancel'}
 					</button>
 					{phase === 'review' || phase === 'signing' || phase === 'sending' ? (
 						<button
@@ -188,7 +188,7 @@ export function ClaimSheet({
 							disabled={!!blocked || !isOwner || phase !== 'review'}
 							onClick={() => void sign()}
 						>
-							{phase === 'signing' ? 'Підтвердіть у гаманці…' : phase === 'sending' ? 'Надсилаю…' : 'Підписати й клеймити'}
+							{phase === 'signing' ? 'Confirm in wallet…' : phase === 'sending' ? 'Sending…' : 'Sign & claim'}
 						</button>
 					) : null}
 				</div>
