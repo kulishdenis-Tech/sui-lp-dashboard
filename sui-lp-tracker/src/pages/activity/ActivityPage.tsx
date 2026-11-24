@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { PageShell } from '@/components/ui/PageShell'
 import { AppCard } from '@/components/ui/AppCard'
 import { Button } from '@/components/ui/Button'
@@ -743,15 +744,28 @@ function ActivityDrawer({
 	onClose: () => void
 }) {
 	const [advanced, setAdvanced] = useState(false)
-	return (
-		<div className="fixed inset-0 z-drawer flex justify-end bg-black/40" onClick={onClose}>
-			<div className="h-full w-full max-w-lg overflow-y-auto border-l border-slate-800 bg-slate-950 p-4" onClick={(e) => e.stopPropagation()}>
-				<div className="mb-4 flex items-start justify-between gap-3">
-					<div>
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') onClose()
+		}
+		document.addEventListener('keydown', onKey)
+		const prev = document.body.style.overflow
+		document.body.style.overflow = 'hidden'
+		return () => {
+			document.removeEventListener('keydown', onKey)
+			document.body.style.overflow = prev
+		}
+	}, [onClose])
+	// Portal + явний z-index: `z-drawer` не є утилітою Tailwind (шар ховався під мобільною шапкою z-30).
+	return createPortal(
+		<div className="fixed inset-0 z-[60] flex justify-end bg-black/40" role="dialog" aria-modal="true" onClick={onClose}>
+			<div className="h-full w-full max-w-lg overflow-y-auto overscroll-contain border-l border-slate-800 bg-slate-950 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
+				<div className="sticky top-0 z-10 -mx-4 mb-4 flex items-start justify-between gap-3 border-b border-slate-800 bg-slate-950 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))]">
+					<div className="min-w-0">
 						<h3 className="text-lg text-slate-100">{ACTIVITY_LABEL[tx.primaryKind]}</h3>
-						<p className="font-mono text-xs text-slate-500">{tx.digest}</p>
+						<p className="break-all font-mono text-xs text-slate-500">{tx.digest}</p>
 					</div>
-					<Button size="compact" variant="ghost" onClick={onClose}>Close</Button>
+					<Button size="compact" variant="ghost" onClick={onClose}>← Back</Button>
 				</div>
 				<dl className="space-y-2 text-sm text-slate-300">
 					<div className="flex justify-between gap-3"><dt>Time</dt><dd>{tx.timestampMs ? new Date(tx.timestampMs).toLocaleString('uk-UA') : '—'}</dd></div>
@@ -831,6 +845,7 @@ function ActivityDrawer({
 					<pre className="mt-2 overflow-x-auto text-[11px] text-slate-500">{JSON.stringify({ activities: tx.activities, reasons: tx.reasons }, null, 2)}</pre>
 				) : null}
 			</div>
-		</div>
+		</div>,
+		document.body,
 	)
 }
