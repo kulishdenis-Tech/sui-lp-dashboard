@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { BackButton } from '@/components/ui/BackButton'
 import { usePositionDetailData } from '@/components/positions/usePositionDetailData'
 import { ProtocolIcon } from '@/components/ui/ProtocolIcon'
 import { Spinner } from '@/components/ui/Spinner'
@@ -81,17 +82,13 @@ export function PositionDetailPage() {
 		return (
 			<div className="px-4 py-8">
 				<p className="text-slate-300">Position not found.</p>
-				<button type="button" className="mt-3 text-sky-400" onClick={() => back()}>
-					← LP
-				</button>
+				<BackButton label="LP" className="mt-3" onClick={() => back()} />
 			</div>
 		)
 	}
 
 	const BackBtn = (
-		<button type="button" onClick={() => back()} className="mb-2 text-sm text-sky-400 active:opacity-70">
-			← LP
-		</button>
+		<BackButton label="LP" onClick={() => back()} />
 	)
 
 	if (isCurrentMultiplyVaultPosition(p)) {
