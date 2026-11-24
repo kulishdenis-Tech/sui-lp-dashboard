@@ -23,6 +23,9 @@ import { Transaction } from '@mysten/sui/transactions'
 import { fromBase64, toBase64 } from '@mysten/sui/utils'
 import { getDashboardGrpcClient } from '@/services/suiData/createGrpcClient'
 
+/** Fired right before OKX's own modal opens, so the dapp-kit connect dialog can close and not cover it. */
+export const OKX_CONNECT_OPENING_EVENT = 'okx-connect:opening'
+
 const WALLET_NAME = 'OKX App (mobile)'
 const CHAIN = SUI_MAINNET_CHAIN
 // Black tile with a white block pattern (OKX-style mark); wallet icons must be data URIs.
@@ -41,6 +44,8 @@ function getUi(): Promise<OkxUi> {
 				name: 'SUI LP Dashboard',
 				icon: `${window.location.origin}/icon-192.png`,
 			},
+			// `deeplink` opens the OKX app directly; the default universal link bounces through a web page first.
+			openAppLinkType: 'deeplink' as never,
 			actionsConfiguration: { modals: ['before'], returnStrategy: 'none' },
 			uiPreferences: { theme: THEME.DARK },
 			language: 'en_US',
@@ -118,6 +123,7 @@ class OkxConnectWallet implements Wallet {
 		const ui = await getUi()
 		let acc = ui.connected() ? accountFromSession(ui) : null
 		if (!acc && !input?.silent) {
+			window.dispatchEvent(new CustomEvent(OKX_CONNECT_OPENING_EVENT))
 			await ui.openModal({ namespaces: { sui: { chains: [CHAIN] } } })
 			acc = accountFromSession(ui)
 		}

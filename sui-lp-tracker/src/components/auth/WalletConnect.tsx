@@ -1,6 +1,7 @@
 import { useCurrentAccount } from '@mysten/dapp-kit-react'
 import { ConnectModal } from '@mysten/dapp-kit-react/ui'
 import { useWalletSigner } from '@/wallet/useWalletSigner'
+import { OKX_CONNECT_OPENING_EVENT } from '@/wallet/okxConnectWallet'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { clearAwAuth, getAwAuthAddress, revokeAwSession } from '@/pages/autopilot/autoWithdrawStore'
 import { useWalletAuth } from '@/hooks/useWalletAuth'
@@ -74,6 +75,13 @@ function WalletOrPaste() {
 	const [draft, setDraft] = useState('')
 	const [err, setErr] = useState<string | null>(null)
 	const [connectOpen, setConnectOpen] = useState(false)
+
+	// OKX opens its own modal; close ours so it is not left on top of it.
+	useEffect(() => {
+		const close = () => setConnectOpen(false)
+		window.addEventListener(OKX_CONNECT_OPENING_EVENT, close)
+		return () => window.removeEventListener(OKX_CONNECT_OPENING_EVENT, close)
+	}, [])
 
 	function onPasteSubmit(e: FormEvent) {
 		e.preventDefault()

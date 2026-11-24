@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { Transaction, coinWithBalance } from '@mysten/sui/transactions'
 import { toBase64 } from '@mysten/sui/utils'
 import { CETUS_DLMM_MAINNET } from './whitelist.js'
-import { verifyUnsignedTx } from './txPolicy.js'
+import { sha256Hex, verifyUnsignedTx } from './txPolicy.js'
+import { vi } from 'vitest'
 
 const OWNER = `0x${'11'.repeat(32)}`
 const STRANGER = `0x${'22'.repeat(32)}`
@@ -90,5 +91,19 @@ describe('manual-sign payload policy', () => {
 			tx.transferObjects([coin], OWNER)
 		})
 		await expect(verifyUnsignedTx(raw, OWNER)).rejects.toThrow(/unexpected package/)
+	})
+})
+
+describe('sha256Hex without WebCrypto (plain http on a LAN address)', () => {
+	it('gives the same digest with and without crypto.subtle', async () => {
+		const data = new TextEncoder().encode('sui-lp-dashboard')
+		const withSubtle = await sha256Hex(data)
+		vi.stubGlobal('crypto', { subtle: undefined })
+		try {
+			expect(await sha256Hex(data)).toBe(withSubtle)
+		} finally {
+			vi.unstubAllGlobals()
+		}
+		expect(withSubtle).toMatch(/^[0-9a-f]{64}$/)
 	})
 })
