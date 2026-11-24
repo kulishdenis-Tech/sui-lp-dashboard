@@ -41,6 +41,8 @@ function App() {
 				<Route path="lp/markets" element={<MarketsRoutePage />} />
 				<Route path="activity" element={<ActivityPage />} />
 				<Route path="settings" element={<SettingsPage />} />
+				{/* Unknown URL (e.g. /lp): go home instead of a blank screen */}
+				<Route path="*" element={<Navigate to="/" replace />} />
 			</Route>
 		</Routes>
 		</Suspense>
