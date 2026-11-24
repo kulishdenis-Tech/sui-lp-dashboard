@@ -22,6 +22,7 @@ import {
 import { Transaction } from '@mysten/sui/transactions'
 import { fromBase64, toBase64 } from '@mysten/sui/utils'
 import { getDashboardGrpcClient } from '@/services/suiData/createGrpcClient'
+import { installOkxLifecycleLog, okxLog } from '@/wallet/okxDebugLog'
 
 /** Fired right before OKX's own modal opens, so the dapp-kit connect dialog can close and not cover it. */
 export const OKX_CONNECT_OPENING_EVENT = 'okx-connect:opening'
@@ -79,6 +80,7 @@ type RpcResult = { result?: unknown; error?: { message?: string } }
 function unwrap(ret: unknown): unknown {
 	const r = ret as RpcResult
 	if (r && 'result' in r && r.result !== undefined) return r.result
+	okxLog(`unwrap: no result (${r?.error?.message ?? 'empty response'})`)
 	throw new Error(r?.error?.message ?? 'OKX wallet rejected or failed the request')
 }
 
@@ -123,10 +125,12 @@ class OkxConnectWallet implements Wallet {
 		const ui = await getUi()
 		let acc = ui.connected() ? accountFromSession(ui) : null
 		if (!acc && !input?.silent) {
+			okxLog('connect: opening OKX')
 			window.dispatchEvent(new CustomEvent(OKX_CONNECT_OPENING_EVENT))
 			await ui.openModal({ namespaces: { sui: { chains: [CHAIN] } } })
 			acc = accountFromSession(ui)
 		}
+		okxLog(`connect: ${acc ? 'connected' : 'no account'}`)
 		this.#setAccount(acc)
 		return { accounts: this.#accounts }
 	}
@@ -148,11 +152,24 @@ class OkxConnectWallet implements Wallet {
 	}) => {
 		signal?.throwIfAborted()
 		const ui = await getUi()
-		const tx = Transaction.from(await transaction.toJSON())
-		tx.setSenderIfNotSet(account.address)
-		const bytes = await tx.build({ client: getDashboardGrpcClient() })
-		const txBytes = toBase64(bytes)
-		const txSerialize = await Transaction.from(bytes).toJSON()
+		okxLog('sign: start')
+		const json = await transaction.toJSON()
+		// A string that is not JSON is already-built base64 bytes: sign exactly those, never rebuild
+		// (a rebuild could differ from the bytes the dashboard dry-ran and policy-checked).
+		const prebuilt = !json.trimStart().startsWith('{')
+		let txBytes: string
+		let txSerialize: string
+		if (prebuilt) {
+			txBytes = json
+			txSerialize = await Transaction.from(fromBase64(json)).toJSON()
+		} else {
+			const tx = Transaction.from(json)
+			tx.setSenderIfNotSet(account.address)
+			const bytes = await tx.build({ client: getDashboardGrpcClient() })
+			txBytes = toBase64(bytes)
+			txSerialize = await Transaction.from(bytes).toJSON()
+		}
+		okxLog(`sign: request sent (${prebuilt ? 'prebuilt' : 'built'} ${txBytes.length}b)`)
 		const ret = await ui.request(
 			{
 				method: 'sui_signTransactionBlock',
@@ -161,6 +178,7 @@ class OkxConnectWallet implements Wallet {
 			} as never,
 			chain,
 		)
+		okxLog(`sign: response ${(ret as RpcResult)?.error ? 'error ' + ((ret as RpcResult).error?.message ?? '') : 'ok'}`)
 		return { bytes: txBytes, signature: String(unwrap(ret)) }
 	}
 
@@ -185,5 +203,6 @@ let registered = false
 export function registerOkxConnectWallet(): void {
 	if (registered || typeof window === 'undefined') return
 	registered = true
+	installOkxLifecycleLog()
 	getWallets().register(new OkxConnectWallet())
 }

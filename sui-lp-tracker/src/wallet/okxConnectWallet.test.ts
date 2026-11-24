@@ -81,4 +81,31 @@ describe('OKX Connect wallet standard adapter', () => {
 			f.signPersonalMessage({ message: new TextEncoder().encode('x'), account: {} }),
 		).rejects.toThrow('User rejected')
 	})
+
+	it('signs already-built bytes exactly as given (no rebuild)', async () => {
+		const { Transaction } = await import('@mysten/sui/transactions')
+		const { toBase64 } = await import('@mysten/sui/utils')
+		const tx = new Transaction()
+		tx.setSender('0x' + '11'.repeat(32))
+		tx.setGasPrice(1000)
+		tx.setGasBudget(10_000_000)
+		tx.setGasPayment([
+			{ objectId: '0x' + '22'.repeat(32), version: '1', digest: '11111111111111111111111111111111' },
+		])
+		const [c] = tx.splitCoins(tx.gas, [1])
+		tx.transferObjects([c], '0x' + '11'.repeat(32))
+		const built = toBase64(await tx.build())
+		const w = getWallets().get().find((x) => x.name === 'OKX App (mobile)')!
+		request.mockResolvedValue({ result: 'SIG' })
+		const f = w.features['sui:signTransaction'] as {
+			signTransaction: (i: unknown) => Promise<{ bytes: string; signature: string }>
+		}
+		const out = await f.signTransaction({
+			transaction: { toJSON: async () => built },
+			account: { address: '0x' + '11'.repeat(32) },
+			chain: 'sui:mainnet',
+		})
+		expect(out).toEqual({ bytes: built, signature: 'SIG' })
+		expect(request.mock.calls[0][0].params.txBytes).toBe(built)
+	})
 })
