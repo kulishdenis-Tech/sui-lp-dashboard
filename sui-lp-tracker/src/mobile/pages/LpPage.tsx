@@ -145,7 +145,7 @@ export function LpPage() {
 
 			<div className="grid grid-cols-3 gap-2">
 				{[
-					['Value', formatUSDAdaptive(total)],
+					['Positions', formatUSDAdaptive(total)],
 					['Unclaimed', formatUSDAdaptive(unclaimed)],
 					['In range', `${inRange}/${active.length}`],
 				].map(([k, v]) => (

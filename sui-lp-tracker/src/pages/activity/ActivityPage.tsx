@@ -562,7 +562,10 @@ export function ActivityPage() {
 					</Button>
 				</div>
 				</div>
-				<p className="text-xs text-slate-500">
+				<p
+					className="text-xs text-slate-500"
+					title="Search checks loaded transactions only. When the indexer cursor is exhausted that does not prove every checkpoint was seen."
+				>
 					{!address
 						? 'Paste a visiting address or connect a wallet. Viewing history does not ask for a signature.'
 						: phase === 'loading' && rows.length === 0
@@ -571,12 +574,10 @@ export function ActivityPage() {
 								? 'No activity in the loaded page.'
 								: phase === 'error'
 									? 'History request failed. Loaded rows are kept.'
-									: `${rows.length} loaded · ${visible.length} shown. ${
-											oldest ? new Date(oldest).toLocaleString('uk-UA') : '—'
-										} → ${newest ? new Date(newest).toLocaleString('uk-UA') : '—'}. ${
-											cursor.hasOlder
-												? 'Older indexed pages remain. Search checks loaded transactions only.'
-												: 'Indexer cursor exhausted for this filter. That does not prove every checkpoint.'
+									: `${visible.length === rows.length ? `${rows.length} loaded` : `${visible.length} of ${rows.length} shown`} · ${
+											oldest ? new Date(oldest).toLocaleDateString('uk-UA') : '—'
+										} → ${newest ? new Date(newest).toLocaleDateString('uk-UA') : '—'}${
+											cursor.hasOlder ? ' · older pages available' : ' · end of indexed history'
 										}`}
 					{hiddenCount > 0 ? ` ${hiddenCount} suspicious hidden.` : ''}{' '}
 					{hiddenCount > 0 ? (
