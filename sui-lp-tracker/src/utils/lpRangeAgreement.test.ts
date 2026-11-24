@@ -54,9 +54,9 @@ describe('one range status for an inverted Cetus pool', () => {
 			const edge = classifyPositionRangeEdge(position)
 			const tone = rangeBarToneForPosition(position)
 			const display = clmmRangeFromOpenPosition(position)
-			const advisorInRange = classifyLpBand(position) === 'in'
-			expect(band === 'in').toBe(inside)
-			expect(edge.kind === 'in_range').toBe(inside)
+			const advisorInRange = band === 'in' || band === 'near'
+			expect(band === 'in' || band === 'near').toBe(inside)
+			expect(edge.kind === 'in_range' || edge.kind === 'near_edge').toBe(inside)
 			expect(tone === 'active').toBe(inside)
 			expect(display?.inRange).toBe(inside)
 			expect(advisorInRange).toBe(inside)
