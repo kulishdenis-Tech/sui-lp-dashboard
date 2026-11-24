@@ -25,9 +25,9 @@ import { getDashboardGrpcClient } from '@/services/suiData/createGrpcClient'
 
 const WALLET_NAME = 'OKX App (mobile)'
 const CHAIN = SUI_MAINNET_CHAIN
-// 1×1 transparent PNG; the wallet list only needs a data URI.
+// Black tile with a white block pattern (OKX-style mark); wallet icons must be data URIs.
 const ICON =
-	'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+	'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9IiMwMDAiLz48ZyBmaWxsPSIjZmZmIj48cmVjdCB4PSIxMCIgeT0iMTAiIHdpZHRoPSIxNCIgaGVpZ2h0PSIxNCIvPjxyZWN0IHg9IjQwIiB5PSIxMCIgd2lkdGg9IjE0IiBoZWlnaHQ9IjE0Ii8+PHJlY3QgeD0iMjUiIHk9IjI1IiB3aWR0aD0iMTQiIGhlaWdodD0iMTQiLz48cmVjdCB4PSIxMCIgeT0iNDAiIHdpZHRoPSIxNCIgaGVpZ2h0PSIxNCIvPjxyZWN0IHg9IjQwIiB5PSI0MCIgd2lkdGg9IjE0IiBoZWlnaHQ9IjE0Ii8+PC9nPjwvc3ZnPg=='
 
 type OkxUi = import('@okxconnect/ui').OKXUniversalConnectUI
 
