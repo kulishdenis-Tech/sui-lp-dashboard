@@ -12,6 +12,7 @@ import { principalOnlySupportForProtocol } from '@autopilot/engine'
 import { payloadsMatch } from '@autopilot/cetus/policy'
 import { verifyAutoWithdrawUnsignedTx } from '@autopilot/cetus/autoWithdrawPolicy'
 import { getDashboardGrpcClient } from '@/services/suiData'
+import { executeOrFetchLanded } from '@/services/suiData/executeOrFetchLanded'
 import {
 	acceptWithdrawOnServer,
 	cancelWithdrawOnServer,
@@ -384,7 +385,7 @@ export function AwAcceptDialog({ owner, canAct, hints }: Props) {
 			const grpc = getDashboardGrpcClient()
 			let result: unknown
 			try {
-				result = await grpc.executeTransaction({
+				result = await executeOrFetchLanded(grpc, {
 					transaction: fromBase64(signed.bytes),
 					signatures: [signed.signature],
 					include: { effects: true },
