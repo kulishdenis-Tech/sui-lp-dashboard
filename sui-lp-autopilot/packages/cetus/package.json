@@ -20,6 +20,7 @@
     "@cetusprotocol/sui-clmm-sdk": "^1.4.9",
     "@firefly-exchange/library-sui": "^4.2.0",
     "@mysten/sui": "2.31.2",
+    "@noble/hashes": "^1.8.0",
     "@types/bn.js": "^5.2.0",
     "blakejs": "^1.2.1",
     "bn.js": "^5.2.5"

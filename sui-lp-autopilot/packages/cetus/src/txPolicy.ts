@@ -1,3 +1,4 @@
+import { sha256 } from '@noble/hashes/sha2'
 import { Transaction } from '@mysten/sui/transactions'
 import { fromBase64 } from '@mysten/sui/utils'
 import { CETUS_DLMM_MAINNET } from './whitelist.js'
@@ -85,7 +86,9 @@ function hexOf(bytes: Uint8Array): string {
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
 	const subtle = (globalThis as { crypto?: { subtle?: { digest(alg: string, data: Uint8Array): Promise<ArrayBuffer> } } })
 		.crypto?.subtle
-	if (!subtle) throw new Error('WebCrypto is required to hash the payload')
+	// `crypto.subtle` exists only in secure contexts (https / localhost). Over plain http on a LAN
+	// address (phone → http://192.168.x.x) it is undefined, so fall back to a pure-JS SHA-256.
+	if (!subtle) return hexOf(sha256(bytes))
 	const digest = await subtle.digest('SHA-256', bytes)
 	return hexOf(new Uint8Array(digest))
 }
