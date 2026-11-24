@@ -113,7 +113,7 @@ export function BalancePage() {
 		)
 	}
 	if (tokenBalances.length === 0) {
-		return <p className="px-4 pt-4 text-sm text-slate-500">Токенів не знайдено (або ще не завантажено).</p>
+		return <p className="px-4 pt-4 text-sm text-slate-500">No tokens found (or not loaded yet).</p>
 	}
 
 	return (
@@ -151,7 +151,7 @@ export function BalancePage() {
 					))}
 				</div>
 			) : (
-				<p className="px-1 text-sm text-slate-500">Немає токенів з ціною вище ${HIDE_BALANCE_VALUE_BELOW_USD}.</p>
+				<p className="px-1 text-sm text-slate-500">No tokens priced above ${HIDE_BALANCE_VALUE_BELOW_USD}.</p>
 			)}
 
 			<HiddenTokensSection tokens={hidden} extraTokens={micro} />

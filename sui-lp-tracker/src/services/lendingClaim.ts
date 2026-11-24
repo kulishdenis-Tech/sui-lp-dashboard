@@ -65,7 +65,7 @@ export async function buildLendingClaimTx(protocol: ClaimProtocol, rawAddress: s
 		const client = await getAlphaLendClient()
 		const caps: Array<{ id: string }> = await client.blockchain.getPositionCapsForUser(address)
 		const positionCapId = caps?.[0]?.id
-		if (!positionCapId) throw new Error('AlphaLend: позицію (PositionCap) не знайдено')
+		if (!positionCapId) throw new Error('AlphaLend: position (PositionCap) not found')
 		// Both flags false: rewards go to the wallet, nothing is re-deposited into the position.
 		await client.claimRewards({
 			tx,
@@ -81,7 +81,7 @@ export async function buildLendingClaimTx(protocol: ClaimProtocol, rawAddress: s
 	const client = getDashboardGrpcClient()
 	const rewards = await getUserAvailableLendingRewards(address, { client, env: 'prod' })
 	const claimable = (rewards ?? []).filter((r) => Number(r.userClaimableReward) > 0)
-	if (claimable.length === 0) throw new Error('Navi: немає нагород до клейму')
+	if (claimable.length === 0) throw new Error('Navi: no rewards to claim')
 	// Navi resolves @mysten/sui via the root pin (bot 2.31); tracker uses 2.36 — same runtime shape.
 	// claimLendingRewardsPTB options are Env/AccountCap/Market (+ customCoinReceive); client is only for reads.
 	await claimLendingRewardsPTB(tx as never, claimable, {
@@ -105,7 +105,7 @@ export async function simulateClaim(tx: Transaction, rawAddress: string): Promis
 			const err = body?.status?.error as { message?: string } | string | null | undefined
 			return {
 				ok: false,
-				error: (typeof err === 'string' ? err : err?.message) ?? 'Симуляція не пройшла',
+				error: (typeof err === 'string' ? err : err?.message) ?? 'Simulation failed',
 				changes: [],
 			}
 		}
@@ -121,12 +121,12 @@ export async function simulateClaim(tx: Transaction, rawAddress: string): Promis
 
 /** A claim may only add coins (and pay SUI gas). Returns an error message, or null when safe. */
 export function assertClaimIsSafe(sim: ClaimSimulation): string | null {
-	if (!sim.ok) return sim.error ?? 'Симуляція не пройшла'
+	if (!sim.ok) return sim.error ?? 'Simulation failed'
 	const spend = sim.changes.find((c) => c.amount < 0n && !isSuiCoin(c.coinType))
-	if (spend) return `Транзакція списує ${spend.coinType.split('::').pop()} — заблоковано`
+	if (spend) return `Transaction spends ${spend.coinType.split('::').pop()} — blocked`
 	const gainsNonSui = sim.changes.some((c) => c.amount > 0n && !isSuiCoin(c.coinType))
 	const gainsSui = sim.changes.some((c) => c.amount > 0n && isSuiCoin(c.coinType))
-	if (!gainsNonSui && !gainsSui) return 'Нічого не надходить на гаманець — клейм не потрібен'
+	if (!gainsNonSui && !gainsSui) return 'Nothing arrives in the wallet — no claim needed'
 	return null
 }
 
@@ -205,16 +205,16 @@ export function pushCurrentClaimCall(
 
 async function addCurrentClaims(tx: Transaction, address: string): Promise<void> {
 	const groups = getCurrentClaimGroups(address)
-	if (groups.length === 0) throw new Error('Current: позицій не знайдено (оновіть дані)')
+	if (groups.length === 0) throw new Error('Current: no positions found (refresh data)')
 	let calls = 0
 	for (const g of groups) {
 		// Fresh read right before building: claim only what is claimable now.
 		const read = await readClaimableMining(g.marketObjectId, g.obligationId, g.deposits, g.borrows, [])
-		if (read.status === 'unavailable') throw new Error(read.reason ?? 'Current: нагороди недоступні')
+		if (read.status === 'unavailable') throw new Error(read.reason ?? 'Current: rewards unavailable')
 		const targets = (read.targets ?? []).filter((t) => BigInt(t.raw) > 0n)
 		if (targets.length === 0) continue
 		const ownerCapId = await findObligationOwnerCap(address, g.obligationId)
-		if (!ownerCapId) throw new Error('Current: ObligationOwnerCap не знайдено на цьому гаманці')
+		if (!ownerCapId) throw new Error('Current: ObligationOwnerCap not found on this wallet')
 		for (const target of targets) {
 			pushCurrentClaimCall(tx, {
 				marketObjectId: g.marketObjectId,
@@ -226,5 +226,5 @@ async function addCurrentClaims(tx: Transaction, address: string): Promise<void>
 			calls++
 		}
 	}
-	if (calls === 0) throw new Error('Current: немає нагород до клейму')
+	if (calls === 0) throw new Error('Current: no rewards to claim')
 }

@@ -138,9 +138,9 @@ export function evaluatePriceSpikes(tokens: TokenBalance[]): PriceSpikeHit[] {
 	}
 
 	for (const h of hits) {
-		const windowLabel = h.window === '5m' ? '5 хв' : '1 год'
+		const windowLabel = h.window === '5m' ? '5 min' : '1 h'
 		const title = `${h.symbol} ${fmtPct(h.pct)}`
-		const body = `Зріс більше ніж на ${PRICE_SPIKE_THRESHOLD_PCT}% за ${windowLabel}`
+		const body = `Up more than ${PRICE_SPIKE_THRESHOLD_PCT}% in ${windowLabel}`
 		pushToast(title, body)
 		showBrowserNotification(title, body)
 	}

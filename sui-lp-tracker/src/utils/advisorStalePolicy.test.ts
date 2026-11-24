@@ -22,7 +22,7 @@ describe('advisorStalePolicy', () => {
 
 	it('formatStaleAgeUk shows minutes ago', () => {
 		const now = 60_000
-		expect(formatStaleAgeUk(now - 12 * 60_000, now)).toBe('12 хв тому')
+		expect(formatStaleAgeUk(now - 12 * 60_000, now)).toBe('12 min ago')
 	})
 
 	it('splits net: unverified excluded from verified sum', () => {

@@ -25,14 +25,14 @@ export function formatSupplyAprDisplay(s: SupplyPosition): {
 	const rewardApr = rewardKnown && bd?.rewardAPR != null && Number.isFinite(bd.rewardAPR) ? bd.rewardAPR : 0
 
 	if (bd && !baseKnown) {
-		const reason = 'базову ставку supply не прочитано'
+		const reason = 'base supply rate unavailable'
 		return {
 			incompleteBase: true,
 			tooltip: reason,
 			text: (
 				<Tooltip tip={reason} className="cursor-help underline decoration-dashed decoration-slate-600 underline-offset-2">
 					<span className="tabular-nums text-slate-400">
-						неповний APR
+						partial APR
 						{rewardKnown && rewardApr > 0 ? ` · reward ${formatPct(rewardApr)}` : ''}
 					</span>
 				</Tooltip>
@@ -53,13 +53,13 @@ export function formatSupplyAprDisplay(s: SupplyPosition): {
 
 	if (rewardStatus === 'partial' || rewardStatus === 'unavailable') {
 		const reason = bd?.rewards?.length
-			? 'не вистачає ціни reward-токена'
-			: 'mining rewards не прочитано'
+			? 'reward token price missing'
+			: 'mining rewards unavailable'
 		return {
 			text: (
 				<Tooltip tip={reason} className="cursor-help underline decoration-dashed decoration-slate-600 underline-offset-2">
 					<span className="tabular-nums">
-						{formatPct(base)} <span className="text-slate-500">без rewards</span>
+						{formatPct(base)} <span className="text-slate-500">excl. rewards</span>
 					</span>
 				</Tooltip>
 			),

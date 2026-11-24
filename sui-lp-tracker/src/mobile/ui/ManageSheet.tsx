@@ -72,7 +72,7 @@ export function ManageActions({ position, unclaimedUsd }: { position: OpenPositi
 				</p>
 				{!viewingOwn ? (
 					<p className="mb-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-						Перегляд без підпису: щоб відправити, підключи гаманець-власник.
+						View only: connect the owner wallet to send.
 					</p>
 				) : null}
 				<div className="space-y-1.5 pb-2">

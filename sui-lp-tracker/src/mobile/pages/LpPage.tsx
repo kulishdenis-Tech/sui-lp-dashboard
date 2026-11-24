@@ -185,7 +185,7 @@ export function LpPage() {
 			{view === 'open' ? (
 				<>
 					{active.length === 0 && empty.length === 0 ? (
-						<p className="px-1 text-sm text-slate-500">Немає відкритих LP-позицій.</p>
+						<p className="px-1 text-sm text-slate-500">No open LP positions.</p>
 					) : (
 						<div className={`${card} divide-y divide-slate-800 overflow-hidden`}>
 							{groups.map((g) =>
@@ -244,7 +244,7 @@ export function LpPage() {
 				</>
 			) : view === 'vaults' ? (
 				vaults.length === 0 ? (
-					<p className="px-1 text-sm text-slate-500">Немає vault-позицій для цієї адреси.</p>
+					<p className="px-1 text-sm text-slate-500">No vault positions for this address.</p>
 				) : (
 					<div className={`${card} divide-y divide-slate-800/70 overflow-hidden`}>
 						{vaults.map((p) => (
@@ -257,7 +257,7 @@ export function LpPage() {
 					<Spinner className="h-4 w-4" /> Loading closed positions…
 				</div>
 			) : closed.length === 0 ? (
-				<p className="px-1 text-sm text-slate-500">Закритих позицій не знайдено.</p>
+				<p className="px-1 text-sm text-slate-500">No closed positions found.</p>
 			) : (
 				<ClosedList allClosed={closed} protocolFilter={filter} />
 			)}

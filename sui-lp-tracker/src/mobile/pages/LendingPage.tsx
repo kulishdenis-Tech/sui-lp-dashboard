@@ -239,7 +239,7 @@ export function LendingPage() {
 	return (
 		<main className="space-y-5 px-4 pb-6 pt-4">
 			{visible.length === 0 ? (
-				<p className="px-1 text-sm text-slate-500">Немає lending-позицій від $1.</p>
+				<p className="px-1 text-sm text-slate-500">No lending positions over $1.</p>
 			) : (
 				visible.map((b) => (
 					<Protocol key={b.title} snapshot={b.snap} title={b.title} hideDust={hideDust} />
@@ -252,7 +252,7 @@ export function LendingPage() {
 					onChange={(e) => setHideDust(!e.target.checked)}
 					className="h-4 w-4 accent-sky-500"
 				/>
-				Показувати позиції до $1
+				Show positions under $1
 			</label>
 		</main>
 	)

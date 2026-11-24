@@ -44,13 +44,13 @@ export function staleAgeBand(lastSuccessAtMs: number | undefined, nowMs = Date.n
 /** Ukrainian relative time for STALE rows ("N хв тому"). */
 export function formatStaleAgeUk(lastSuccessAtMs: number, nowMs = Date.now()): string {
 	const sec = Math.max(0, Math.floor((nowMs - lastSuccessAtMs) / 1000))
-	if (sec < 60) return 'щойно'
+	if (sec < 60) return 'just now'
 	const min = Math.floor(sec / 60)
-	if (min < 60) return `${min} хв тому`
+	if (min < 60) return `${min} min ago`
 	const h = Math.floor(min / 60)
-	if (h < 48) return `${h} год тому`
+	if (h < 48) return `${h} h ago`
 	const d = Math.floor(h / 24)
-	return `${d} дн тому`
+	return `${d} d ago`
 }
 
 export function splitVerifiedUnverifiedUsd(

@@ -54,7 +54,7 @@ export function isHealthFactorP0Alert(
 
 export function healthFactorStatTip(protocol: string): string {
 	if (protocol === 'Current') {
-		return 'Risk debt vs liquidation capacity (isolated market). Попередження при HF < 1.2, P0 при HF < 1.15.'
+		return 'Risk debt vs liquidation capacity (isolated market). Warning at HF < 1.2, P0 at HF < 1.15.'
 	}
 	return 'Liquidation threshold / total debt. Target ≥1.8, alert <1.2, liquidation risk below 1.'
 }

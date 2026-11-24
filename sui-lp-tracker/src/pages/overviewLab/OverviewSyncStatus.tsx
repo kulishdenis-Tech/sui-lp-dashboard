@@ -21,7 +21,7 @@ export function OverviewSyncStatus() {
 			{sources.map((src) => {
 				const observed = sourceHasObservation(src)
 					? `${formatUpdatedAtKyiv(src.receivedAtMs)} · ${formatRelativeShort(src.receivedAtMs!)}`
-					: 'нема даних'
+					: 'no data'
 				const markStale = src.status === 'stale' || (src.status === 'error' && !sourceHasObservation(src))
 				return (
 					<div key={src.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">

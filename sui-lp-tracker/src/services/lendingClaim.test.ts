@@ -27,12 +27,12 @@ describe('lendingClaim safety', () => {
 
 	it('blocks spending a non-SUI coin', () => {
 		const sim = { ok: true, changes: [{ coinType: USDC, amount: -1n }, { coinType: '0x2::sui::SUI', amount: 5n }] }
-		expect(assertClaimIsSafe(sim)).toMatch(/списує/)
+		expect(assertClaimIsSafe(sim)).toMatch(/spends/)
 	})
 
 	it('blocks when nothing arrives', () => {
 		expect(assertClaimIsSafe({ ok: true, changes: [{ coinType: '0x2::sui::SUI', amount: -3n }] })).toMatch(
-			/Нічого не надходить/,
+			/Nothing arrives/,
 		)
 	})
 
