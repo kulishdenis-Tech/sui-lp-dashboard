@@ -53,7 +53,23 @@ export function sortClassifiedBalances(
 	dir: SortDir,
 ): ClassifiedTokenBalance[] {
 	const m = dir === 'asc' ? 1 : -1
-	return [...rows].sort((a, b) => m * cmp(a, b, col))
+	// Rows with no value for the sorted column (unpriced tokens) always go last, in either direction.
+	const missing = (r: ClassifiedTokenBalance): boolean => {
+		const v =
+			col === 'price' ? r.priceUSD
+			: col === 'change5m' ? r.change5m
+			: col === 'change1h' ? r.change1h
+			: col === 'change24h' ? r.change24h
+			: col === 'value' ? r.valueUSD
+			: 0
+		return v == null || !Number.isFinite(v)
+	}
+	return [...rows].sort((a, b) => {
+		const ma = missing(a)
+		const mb = missing(b)
+		if (ma !== mb) return ma ? 1 : -1
+		return m * cmp(a, b, col)
+	})
 }
 
 /** Початковий напрямок після вибору колонки (для "чисел" — спочатку desc). */

@@ -59,6 +59,8 @@ type Props = {
 	viewKey: string
 	componentsAvailable: boolean
 	hideAmounts?: boolean
+	/** History is still being fetched: show "Loading…" instead of the empty-state text. */
+	loading?: boolean
 	/** When false, parent renders {@link PortfolioHistoryMeta} beside controls. */
 	showMeta?: boolean
 	/** Fires when manual pan/zoom arms Reset, and when Reset / programmatic fit clears it. */
@@ -132,6 +134,7 @@ export const PortfolioChart = forwardRef<PortfolioChartHandle, Props>(function P
 		viewKey,
 		componentsAvailable,
 		hideAmounts = false,
+		loading = false,
 		showMeta = true,
 		onViewportModifiedChange,
 	},
@@ -554,7 +557,7 @@ export const PortfolioChart = forwardRef<PortfolioChartHandle, Props>(function P
 				/>
 				{empty ? (
 					<div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center rounded-[inherit] bg-app-card/80 px-4 text-center text-sm text-slate-500">
-						{hasAnyHistory ? 'No data in this period' : 'No history yet'}
+						{loading && !hasAnyHistory ? 'Loading history…' : hasAnyHistory ? 'No data in this period' : 'No history yet'}
 					</div>
 				) : null}
 			</div>
