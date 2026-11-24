@@ -1,5 +1,6 @@
 import { type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { BackButton } from '@/components/ui/BackButton'
 import { PROTOCOL_COLORS } from '@/utils/constants'
 import { AppCard } from '@/components/ui/AppCard'
 import { Badge } from '@/components/ui/Badge'
@@ -94,6 +95,7 @@ const navAnchors = [
 	{ href: '#colors', label: 'Colours' },
 	{ href: '#spacing', label: 'Spacing' },
 	{ href: '#buttons', label: 'Buttons' },
+	{ href: '#navigation', label: 'Navigation' },
 	{ href: '#inputs', label: 'Inputs' },
 	{ href: '#cards', label: 'Cards' },
 	{ href: '#tables', label: 'Tables' },
@@ -104,6 +106,7 @@ const navAnchors = [
 
 /** Окремий оглядовий екран без привʼязки до табів дашборду */
 export function DesignSystemPage() {
+	const navigate = useNavigate()
 	return (
 		<main className="mx-auto min-h-0 max-w-6xl px-4 py-10 pb-20">
 			<header className="mb-10 flex flex-col gap-4 border-b border-slate-700/70 pb-8 sm:flex-row sm:items-end sm:justify-between">
@@ -114,12 +117,7 @@ export function DesignSystemPage() {
 						component patterns, and application rules.
 					</p>
 				</div>
-				<Link
-					to="/"
-					className="shrink-0 text-sm font-medium text-sky-400/95 hover:text-sky-300"
-				>
-					← Back to home
-				</Link>
+				<BackButton label="Home" className="shrink-0" onClick={() => navigate('/')} />
 			</header>
 
 			<nav
@@ -359,6 +357,26 @@ export function DesignSystemPage() {
 					<p className="mt-2 text-xs text-slate-500">
 						Header layout (wraps on narrow screens): title block → SUI/USDC quote → TabNav → action cluster → wallet.
 					</p>
+				</Section>
+
+				<Section
+					id="navigation"
+					title="Navigation & Overlays"
+					lead="One pattern for every detail view and drawer: BackButton at the top-left (chevron + name of the section you return to), title below it. Overlays must set an explicit z-index above the mobile header (z-30) and render via portal."
+				>
+					<p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">BackButton</p>
+					<div className="flex flex-wrap items-center gap-6">
+						<BackButton label="LP" />
+						<BackButton label="Activity" />
+						<BackButton label="Vaults" />
+					</div>
+					<ul className="mt-5 list-disc space-y-1.5 pl-5 text-sm text-slate-400">
+						<li>Always top-left, label = destination section (LP, Activity, Vaults, Home). Never &quot;Close&quot; on the right.</li>
+						<li>Min touch target 44px; sky-400 text, same chevron everywhere.</li>
+						<li>Detail drawers/pages: sticky top bar with safe-area top padding, Escape closes, body scroll locked.</li>
+						<li>Layers: mobile header z-30 &lt; bottom-nav More z-34 &lt; Sheet / drawers z-[60] &lt; dialogs z-[80]. Do not use non-existent utilities like <code className="font-mono text-slate-300">z-drawer</code>.</li>
+						<li>Fonts: Syne (sans) for text, JetBrains Mono for numbers/addresses; no per-component font overrides.</li>
+					</ul>
 				</Section>
 
 				<Section
