@@ -1,4 +1,5 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
+import { okxLogClear, okxLogLines } from '@/wallet/okxDebugLog'
 import { Link } from 'react-router-dom'
 import { Sheet } from '@/mobile/ui/Sheet'
 import { WalletConnect } from '@/components/auth/WalletConnect'
@@ -17,6 +18,7 @@ const row =
 
 /** Гаманці, оновлення даних і сервісні дії — усе, що в десктопі розкидано по шапці. */
 export function WalletSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+	const [okxLines, setOkxLines] = useState<string[]>([])
 	const { address } = useWalletAuth()
 	const { wallets } = useWalletNicknames()
 	const isLoading = useAppStore(
@@ -100,6 +102,28 @@ export function WalletSheet({ open, onClose }: { open: boolean; onClose: () => v
 						<span aria-hidden>›</span>
 					</Link>
 				</section>
+
+				<details
+					className="rounded-xl border border-slate-800 bg-slate-900/40 px-3 py-2 text-xs text-slate-400"
+					onToggle={(e) => {
+						if ((e.currentTarget as HTMLDetailsElement).open) setOkxLines(okxLogLines())
+					}}
+				>
+					<summary className="cursor-pointer select-none">OKX connection log</summary>
+					<div className="mt-2 max-h-48 overflow-auto font-mono text-[10px] leading-4 text-slate-500">
+						{okxLines.length === 0 ? <p>No events yet.</p> : okxLines.map((l, i) => <p key={i}>{l}</p>)}
+					</div>
+					<button
+						type="button"
+						className="mt-2 text-[11px] text-sky-400"
+						onClick={() => {
+							okxLogClear()
+							setOkxLines([])
+						}}
+					>
+						Clear log
+					</button>
+				</details>
 
 				<p className="text-center text-[11px] text-slate-600" title={appBuildDateTooltip()}>
 					{formatAppVersionLabel()}
