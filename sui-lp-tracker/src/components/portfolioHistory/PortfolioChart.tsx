@@ -148,6 +148,8 @@ export const PortfolioChart = forwardRef<PortfolioChartHandle, Props>(function P
 	const lpSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
 	const lendingSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
 	const fitKeyRef = useRef<string | null>(null)
+	/** Перший ts набору: змінився (прийшли дані для іншого періоду) → перепідігнати вікно, якщо юзер не рухав графік. */
+	const dataStartRef = useRef<number | null>(null)
 	const userInteractedRef = useRef(false)
 	/** Ignore logical-range events from fit / resize / setData — not user pan/zoom. */
 	const suppressRangeNotifyRef = useRef(0)
@@ -255,6 +257,8 @@ export const PortfolioChart = forwardRef<PortfolioChartHandle, Props>(function P
 		const chart = createChart(el, {
 			width: Math.max(el.clientWidth, 320),
 			height: 280,
+			// Вертикальний свайп по графіку скролить сторінку, а не рухає шкалу/час.
+			handleScroll: { vertTouchDrag: false },
 			layout: {
 				background: { color: 'transparent' },
 				textColor: '#94a3b8',
@@ -488,6 +492,13 @@ export const PortfolioChart = forwardRef<PortfolioChartHandle, Props>(function P
 		endSuppressRangeNotify()
 
 		cancelRafs()
+		// Дані періоду можуть догрузитись ПІСЛЯ перемикання 24h/7d/30d: lightweight-charts зберігає
+		// логічний (індексний) діапазон, тому без refit графік «їде» вліво.
+		const start = chartable[0]?.ts ?? null
+		if (start !== dataStartRef.current) {
+			dataStartRef.current = start
+			if (!userInteractedRef.current) fitKeyRef.current = null
+		}
 		const id = requestAnimationFrame(() => {
 			const id2 = requestAnimationFrame(() => fitIfNeeded(false))
 			rafIdsRef.current.push(id2)
