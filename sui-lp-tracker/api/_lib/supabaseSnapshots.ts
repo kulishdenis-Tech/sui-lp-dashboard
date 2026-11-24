@@ -102,21 +102,31 @@ export async function upsertSnapshot(
 	}
 }
 
+/** PostgREST caps one response (default 1000 rows): read in pages so long ranges are not cut off. */
+const SNAPSHOT_PAGE = 1000
+const SNAPSHOT_MAX_PAGES = 30
+
 export async function getSnapshotsForWallet(
 	walletAddr: string,
 	fromMs: number,
 ): Promise<ClientPortfolioSnapshot[]> {
 	const db = getSupabaseAdmin()
-	let q = db
-		.from('portfolio_snapshots')
-		.select('*')
-		.eq('wallet_addr', walletAddr.toLowerCase())
-		.order('ts', { ascending: true })
-	if (fromMs > 0) q = q.gte('ts', fromMs)
-
-	const { data, error } = await q
-	if (error) throw error
-	return (data ?? []).map((row) => rowToSnapshot(row as Parameters<typeof rowToSnapshot>[0]))
+	const rows: Parameters<typeof rowToSnapshot>[0][] = []
+	for (let page = 0; page < SNAPSHOT_MAX_PAGES; page++) {
+		let q = db
+			.from('portfolio_snapshots')
+			.select('*')
+			.eq('wallet_addr', walletAddr.toLowerCase())
+			.order('ts', { ascending: true })
+			.range(page * SNAPSHOT_PAGE, (page + 1) * SNAPSHOT_PAGE - 1)
+		if (fromMs > 0) q = q.gte('ts', fromMs)
+		const { data, error } = await q
+		if (error) throw error
+		const got = (data ?? []) as Parameters<typeof rowToSnapshot>[0][]
+		rows.push(...got)
+		if (got.length < SNAPSHOT_PAGE) break
+	}
+	return rows.map((row) => rowToSnapshot(row))
 }
 
 export async function pruneSnapshotsOlderThan(cutoffMs: number): Promise<number> {
