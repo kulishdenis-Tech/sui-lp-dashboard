@@ -14,10 +14,16 @@ function buildSimplePriceUrl(base: string, ids: string[]): URL {
 	return u
 }
 
+/** After a 429 the free tier stays blocked for a while: don't hammer it from every caller. */
+const CG_COOLDOWN_MS = 60_000
+let cgCooldownUntil = 0
+
 async function fetchCgUrl(url: URL, headers: Record<string, string>): Promise<Record<string, CgRow>> {
+	if (Date.now() < cgCooldownUntil) return {}
 	try {
 		const r = await fetch(extFetchUrl(url.toString()), { headers, signal: AbortSignal.timeout(8_000) })
 		if (r.ok) return (await r.json()) as Record<string, CgRow>
+		if (r.status === 429) cgCooldownUntil = Date.now() + CG_COOLDOWN_MS
 	} catch {
 		/* */
 	}
@@ -41,12 +47,14 @@ async function coingeckoSimpleBatchRaw(ids: string[]): Promise<Record<string, Cg
 			? process.env.COINGECKO_API_KEY ?? process.env.VITE_COINGECKO_API_KEY
 			: undefined)
 
+	if (Date.now() < cgCooldownUntil) return {}
 	if (isProdBuild() && typeof key === 'string' && key.length >= 3) {
 		const u = buildSimplePriceUrl(CG_FREE_BASE, uniq)
 		const path = `${u.pathname}${u.search}`
 		try {
 			const r = await coingeckoProxyFetch(path)
 			if (r.ok) return (await r.json()) as Record<string, CgRow>
+			if (r.status === 429) cgCooldownUntil = Date.now() + CG_COOLDOWN_MS
 		} catch {
 			/* fall through */
 		}
@@ -115,5 +123,6 @@ export async function coingeckoSimpleBatch(ids: string[]): Promise<Record<string
 
 export function _resetCoingeckoBatchCacheForTests(): void {
 	cgRows.clear()
+	cgCooldownUntil = 0
 	cgInflight.clear()
 }

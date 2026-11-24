@@ -8,10 +8,10 @@ import './autopilot.css'
 
 type WizardStep = 1 | 2 | 3 | 4
 const WIZARD_STEPS: Array<{ n: WizardStep; label: string }> = [
-	{ n: 1, label: 'Налаштування' },
-	{ n: 2, label: 'Параметри' },
-	{ n: 3, label: 'Діапазони' },
-	{ n: 4, label: 'Перевірка' },
+	{ n: 1, label: 'Setup' },
+	{ n: 2, label: 'Parameters' },
+	{ n: 3, label: 'Ranges' },
+	{ n: 4, label: 'Review' },
 ]
 
 /** Mobile wizard header: tappable steps (earlier ones only) + progress bar. */
@@ -22,9 +22,9 @@ function WizardHeader({ step, onStep }: { step: WizardStep; onStep: (n: WizardSt
 				<h2 className="text-base font-semibold tracking-tight text-slate-100">
 					Build · {WIZARD_STEPS[step - 1]!.label}
 				</h2>
-				<span className="whitespace-nowrap text-xs text-slate-500">{`Крок ${step} з 4`}</span>
+				<span className="whitespace-nowrap text-xs text-slate-500">{`Step ${step} of 4`}</span>
 			</div>
-			<ol className="mt-2 grid grid-cols-4 gap-1.5" aria-label="Кроки">
+			<ol className="mt-2 grid grid-cols-4 gap-1.5" aria-label="Steps">
 				{WIZARD_STEPS.map((s) => (
 					<li key={s.n}>
 						<span
@@ -177,7 +177,7 @@ export function BuildPage({ wizard = false }: { wizard?: boolean } = {}) {
 						disabled={step === 1}
 						onClick={() => setStep((s) => (s > 1 ? ((s - 1) as WizardStep) : s))}
 					>
-						← Назад
+						← Back
 					</button>
 					{step < 4 ? (
 						<button
@@ -186,11 +186,11 @@ export function BuildPage({ wizard = false }: { wizard?: boolean } = {}) {
 							disabled={!status.hasPool}
 							onClick={() => setStep((s) => (s < 4 ? ((s + 1) as WizardStep) : s))}
 						>
-							{status.hasPool ? 'Далі →' : 'Оберіть пул'}
+							{status.hasPool ? 'Next →' : 'Select a pool'}
 						</button>
 					) : (
 						<span className="text-xs text-slate-500">
-							{status.canPreview ? 'Готово до Preview' : 'Preview заблоковано'}
+							{status.canPreview ? 'Ready to preview' : 'Preview locked'}
 						</span>
 					)}
 				</div>
