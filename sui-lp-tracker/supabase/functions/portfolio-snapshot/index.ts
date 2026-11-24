@@ -69,21 +69,44 @@ Deno.serve(async (req: Request) => {
 
   try {
     if (!force) {
-      const { data: newestRows, error: newestErr } = await admin
-        .from("portfolio_snapshots")
-        .select("ts")
-        .order("ts", { ascending: false })
-        .limit(1);
-      if (newestErr) throw newestErr;
-      const newest = newestRows?.[0]?.ts;
-      if (typeof newest === "number" && Number.isFinite(newest)) {
-        const ageMs = Date.now() - newest;
-        if (ageMs >= 0 && ageMs < MIN_INTERVAL_MS) {
+      // Skip only when EVERY watched wallet is fresh: one wallet kept fresh by an open
+      // browser must not block dispatch for the others.
+      const { data: watched, error: watchedErr } = await admin
+        .from("watched_wallets")
+        .select("address");
+      if (watchedErr) throw watchedErr;
+      const wallets = new Set<string>(
+        (watched ?? []).map((r: { address?: string }) => String(r.address ?? "").toLowerCase()).filter(Boolean),
+      );
+      for (const w of (Deno.env.get("WATCH_WALLETS") ?? "").split(",")) {
+        const a = w.trim().toLowerCase();
+        if (a) wallets.add(a);
+      }
+
+      if (wallets.size > 0) {
+        const ages: number[] = [];
+        for (const w of wallets) {
+          const { data: rows, error: rowErr } = await admin
+            .from("portfolio_snapshots")
+            .select("ts")
+            .eq("wallet_addr", w)
+            .order("ts", { ascending: false })
+            .limit(1);
+          if (rowErr) throw rowErr;
+          const newest = rows?.[0]?.ts;
+          ages.push(
+            typeof newest === "number" && Number.isFinite(newest)
+              ? Date.now() - newest
+              : Number.POSITIVE_INFINITY,
+          );
+        }
+        if (ages.every((a) => a >= 0 && a < MIN_INTERVAL_MS)) {
           return json(200, {
             ok: true,
             skipped: true,
             reason: "fresh_snapshot",
-            ageMs,
+            wallets: wallets.size,
+            oldestAgeMs: Math.max(...ages),
             minIntervalMs: MIN_INTERVAL_MS,
           });
         }
