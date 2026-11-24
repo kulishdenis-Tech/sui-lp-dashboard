@@ -388,6 +388,13 @@ describe("overviewMetrics", () => {
     expect(classifyLpBand(edgy)).toBe("near");
   });
 
+  it("very narrow bands use a 0.3% floor for Near but keep a centre", () => {
+    const nearFloor = pos({ id: "f", status: "in_range", priceRangeOverride: { min: 0.99, max: 1.0025, current: 1.0 } });
+    expect(classifyLpBand(nearFloor)).toBe("near");
+    const centre = pos({ id: "g", status: "in_range", priceRangeOverride: { min: 0.995, max: 1.005, current: 1.0 } });
+    expect(classifyLpBand(centre)).toBe("in");
+  });
+
   it("out-of-range Above/Below is not classified as near-edge", () => {
     const oor = pos({
       id: "o",

@@ -55,6 +55,12 @@ import {
 /** Share of the band width (from either bound) that counts as Near Edge. */
 export const NEAR_EDGE_FRACTION = 0.1
 
+/** Minimum Near zone, % of spot: stops very narrow bands from flickering In ↔ Near. */
+export const NEAR_EDGE_MIN_PCT = 0.3
+
+/** The Near zone never takes more than this share of the band width per side (keeps a centre). */
+export const NEAR_EDGE_MAX_FRACTION = 0.4
+
 
 export type OverviewSourceHealth = {
 	id: string
@@ -675,7 +681,10 @@ export function classifyPositionRangeEdge(p: OpenPosition): NearEdgeResult {
 	const distUpper = Math.abs(pctMaxVsCurrent)
 	const rangeWidthPct = Math.abs(pctMaxVsCurrent - pctMinVsCurrent)
 	// Near = price within NEAR_EDGE_FRACTION of the band width from either bound (all LPs).
-	const nearThreshold = rangeWidthPct * NEAR_EDGE_FRACTION
+	const nearThreshold = Math.min(
+		Math.max(rangeWidthPct * NEAR_EDGE_FRACTION, NEAR_EDGE_MIN_PCT),
+		rangeWidthPct * NEAR_EDGE_MAX_FRACTION,
+	)
 	if (rangeWidthPct > 0 && (distLower <= nearThreshold || distUpper <= nearThreshold)) {
 		const towardUpper = distUpper <= distLower
 		return {
