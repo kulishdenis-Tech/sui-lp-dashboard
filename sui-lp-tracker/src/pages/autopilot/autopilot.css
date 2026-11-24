@@ -1350,3 +1350,9 @@ html[data-theme="light"] .autopilot-root .step-btn:hover:not(:disabled) { backgr
   /* Step 4: lift the Save/Preview bar above the wizard footer. */
   .autopilot-root .ctor-actions { bottom: calc(3.5rem + 3.9rem + env(safe-area-inset-bottom)); }
 }
+
+/* Mobile: LP table keeps pair and price range on one line each (the table scrolls horizontally). */
+@media (max-width: 767px) {
+  .autopilot-root .lp-table th,
+  .autopilot-root .lp-table td { white-space: nowrap; }
+}
