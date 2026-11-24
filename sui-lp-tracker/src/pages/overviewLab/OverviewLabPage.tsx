@@ -806,6 +806,7 @@ export function OverviewLabPage() {
 							viewKey={walletAddr ?? ''}
 							componentsAvailable={componentsAvailable}
 							hideAmounts={hideAmounts}
+							loading={histLoading}
 							showMeta={false}
 							onViewportModifiedChange={setViewportModified}
 						/>

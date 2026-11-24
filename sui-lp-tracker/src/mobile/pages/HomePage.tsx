@@ -393,6 +393,7 @@ export function HomePage() {
 						viewKey={m.walletAddr ?? ''}
 						componentsAvailable={m.componentsAvailable}
 						hideAmounts={hide}
+						loading={m.history.isLoading}
 						showMeta={false}
 					/>
 				</div>

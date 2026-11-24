@@ -23,7 +23,7 @@ function fmtAmount(n: number): string {
 	if (n >= 1000) return n.toLocaleString('en-US', { maximumFractionDigits: 0 })
 	if (n >= 1) return n.toLocaleString('en-US', { maximumFractionDigits: 3 })
 	if (n >= 0.0001) return n.toLocaleString('en-US', { maximumFractionDigits: 4 })
-	return n.toExponential(2)
+	return n > 0 ? '<0.0001' : '0'
 }
 
 function fmtPrice(n: number | null | undefined): string {

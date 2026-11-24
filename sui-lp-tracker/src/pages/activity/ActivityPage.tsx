@@ -572,8 +572,8 @@ export function ActivityPage() {
 								: phase === 'error'
 									? 'History request failed. Loaded rows are kept.'
 									: `${rows.length} loaded · ${visible.length} shown. ${
-											oldest ? new Date(oldest).toLocaleString('en-US') : '—'
-										} → ${newest ? new Date(newest).toLocaleString('en-US') : '—'}. ${
+											oldest ? new Date(oldest).toLocaleString('uk-UA') : '—'
+										} → ${newest ? new Date(newest).toLocaleString('uk-UA') : '—'}. ${
 											cursor.hasOlder
 												? 'Older indexed pages remain. Search checks loaded transactions only.'
 												: 'Indexer cursor exhausted for this filter. That does not prove every checkpoint.'
@@ -624,7 +624,7 @@ export function ActivityPage() {
 										<span className={tx.status === 'failure' ? 'text-rose-400' : tx.status === 'unknown' ? 'text-amber-300' : 'text-emerald-400'}>{tx.status === 'failure' ? 'Failed' : tx.status === 'unknown' ? 'Unknown' : 'Success'}</span>
 									</div>
 									<AssetChanges tx={tx} />
-									<div className="text-xs text-slate-500">{tx.timestampMs ? new Date(tx.timestampMs).toLocaleString('en-US') : '—'}</div>
+									<div className="text-xs text-slate-500">{tx.timestampMs ? new Date(tx.timestampMs).toLocaleString('uk-UA') : '—'}</div>
 								</AppCard>
 							</button>
 						))}
@@ -682,7 +682,7 @@ function ActivityRow({ tx, onOpen }: { tx: ActivityTransaction; onOpen: () => vo
 					</a>
 				</div>
 			</td>
-			<td className="px-2 py-3 text-slate-300">{tx.timestampMs ? new Date(tx.timestampMs).toLocaleString('en-US') : '—'}</td>
+			<td className="px-2 py-3 text-slate-300">{tx.timestampMs ? new Date(tx.timestampMs).toLocaleString('uk-UA') : '—'}</td>
 			<td className="px-2 py-3"><AssetChanges tx={tx} /></td>
 			<td className="px-2 py-3 text-slate-300">
 				{tx.activities.find((a) => a.protocol)?.protocol ??
@@ -753,7 +753,7 @@ function ActivityDrawer({
 					<Button size="compact" variant="ghost" onClick={onClose}>Close</Button>
 				</div>
 				<dl className="space-y-2 text-sm text-slate-300">
-					<div className="flex justify-between gap-3"><dt>Time</dt><dd>{tx.timestampMs ? new Date(tx.timestampMs).toLocaleString('en-US') : '—'}</dd></div>
+					<div className="flex justify-between gap-3"><dt>Time</dt><dd>{tx.timestampMs ? new Date(tx.timestampMs).toLocaleString('uk-UA') : '—'}</dd></div>
 					<div className="flex justify-between gap-3"><dt>Checkpoint</dt><dd className="font-mono">{tx.checkpoint ?? '—'}</dd></div>
 					<div className="flex justify-between gap-3"><dt>Sender</dt><dd className="font-mono">{tx.sender ? <NamedAddress address={tx.sender} /> : '—'}</dd></div>
 					<div className="flex justify-between gap-3"><dt>Fee payer</dt><dd className="font-mono">{tx.feePayer ? <NamedAddress address={tx.feePayer} /> : '—'}</dd></div>
