@@ -154,55 +154,120 @@ export async function getLendingPositions(
 		if (!Number.isNaN(id)) marketByIdRaw.set(id, data)
 	}
 
-	// Use first portfolio (single position per wallet is common in AlphaLend)
-	const p = portfolios[0]
-
-	const totalSuppliedUSD = safeNum(p.totalSuppliedUsd)
-	const totalBorrowedUSD = safeNum(p.totalBorrowedUsd)
-	const liquidationUSD = safeNum(p.liquidationThreshold)
-	const safeBorrowLimitUSD = safeNum(p.safeBorrowLimit)
-	const healthFactor = totalBorrowedUSD > 0 ? liquidationUSD / totalBorrowedUSD : null
-
-	// ── Supplies ─────────────────────────────────────────────────────────────
+	// Sum ALL portfolios (multiple PositionCaps); HF per portfolio, risk uses min.
 	const supplies: SupplyPosition[] = []
-	for (const [marketIdNum, amtDecimal] of p.suppliedAmounts.entries()) {
-		const mkt = marketByIdRaw.get(marketIdNum)
-		if (!mkt) continue
-		const amount = safeNum(amtDecimal)
-		if (amount === 0) continue
-		const priceUsd = mkt.price != null ? parseFloat(String(mkt.price)) : 0
-		const ltFactor = normalizeLiquidationThresholdFactor(safeNum(mkt.liquidationThreshold))
-		const supplyParts = extractAprParts(mkt.supplyApr)
-		supplies.push({
-			id: `alphalend-supply-${marketIdNum}`,
-			asset: mkt.symbol ?? mkt.coinType.split('::').pop() ?? `Mkt${marketIdNum}`,
-			coinType: mkt.coinType,
-			sCoinType: '',
-			suppliedAmount: amount,
-			currentAmount: amount,
-			earnedInterest: 0,
-			earnedInterestUSD: 0,
-			supplyAPR: supplyParts.total,
-			supplyRewardAPR: supplyParts.rewardAPR,
-			aprBreakdown: {
-				baseAPR: supplyParts.baseAPR,
-				...(supplyParts.stakingAPR > 0 ? { stakingAPR: supplyParts.stakingAPR } : {}),
-				rewardAPR: supplyParts.rewardAPR,
-				rewards: supplyParts.rewardTokens,
-			},
-			currentValueUSD: amount * priceUsd,
-			liquidationThresholdFactor: ltFactor > 0 ? ltFactor : undefined,
-			startedAt: 0,
-			daysActive: 0,
-			events: [],
-			protocol: 'AlphaLend',
-			iconUrl: null,
-		})
+	const borrows: BorrowPosition[] = []
+	const rewardsToClaim: LendingRewardToClaim[] = []
+	let totalSuppliedUSD = 0
+	let totalBorrowedUSD = 0
+	let safeBorrowLimitUSD = 0
+	const portfolioHfs: number[] = []
+	let netAprAcc = 0
+	let dailyEarnAcc = 0
+
+	for (const p of portfolios) {
+		const pSupplyUsd = safeNum(p.totalSuppliedUsd)
+		const pBorrowUsd = safeNum(p.totalBorrowedUsd)
+		const pLiqUsd = safeNum(p.liquidationThreshold)
+		const pSafe = safeNum(p.safeBorrowLimit)
+		totalSuppliedUSD += pSupplyUsd
+		totalBorrowedUSD += pBorrowUsd
+		safeBorrowLimitUSD += pSafe
+		if (pBorrowUsd > 0 && pLiqUsd > 0) portfolioHfs.push(pLiqUsd / pBorrowUsd)
+		netAprAcc += safeNum(p.netApr)
+		dailyEarnAcc += safeNum(p.dailyEarnings)
+
+		const posKey = String(p.positionId ?? supplies.length)
+		for (const [marketIdNum, amtDecimal] of p.suppliedAmounts.entries()) {
+			const mkt = marketByIdRaw.get(marketIdNum)
+			if (!mkt) continue
+			const amount = safeNum(amtDecimal)
+			if (amount === 0) continue
+			const priceUsd = mkt.price != null ? parseFloat(String(mkt.price)) : 0
+			const ltFactor = normalizeLiquidationThresholdFactor(safeNum(mkt.liquidationThreshold))
+			const supplyParts = extractAprParts(mkt.supplyApr)
+			supplies.push({
+				id: `alphalend-supply-${posKey}-${marketIdNum}`,
+				asset: mkt.symbol ?? mkt.coinType.split('::').pop() ?? `Mkt${marketIdNum}`,
+				coinType: mkt.coinType,
+				sCoinType: '',
+				suppliedAmount: amount,
+				currentAmount: amount,
+				earnedInterest: 0,
+				earnedInterestUSD: 0,
+				supplyAPR: supplyParts.total,
+				supplyRewardAPR: supplyParts.rewardAPR,
+				aprBreakdown: {
+					baseAPR: supplyParts.baseAPR,
+					...(supplyParts.stakingAPR > 0 ? { stakingAPR: supplyParts.stakingAPR } : {}),
+					rewardAPR: supplyParts.rewardAPR,
+					rewards: supplyParts.rewardTokens,
+				},
+				currentValueUSD: amount * priceUsd,
+				liquidationThresholdFactor: ltFactor > 0 ? ltFactor : undefined,
+				startedAt: 0,
+				daysActive: 0,
+				events: [],
+				protocol: 'AlphaLend',
+				iconUrl: null,
+			})
+		}
+
+		for (const [marketIdNum, amtDecimal] of p.borrowedAmounts.entries()) {
+			const mkt = marketByIdRaw.get(marketIdNum)
+			if (!mkt) continue
+			const amount = safeNum(amtDecimal)
+			if (amount === 0) continue
+			const priceUsd = mkt.price != null ? parseFloat(String(mkt.price)) : 0
+			const borrowParts = extractAprParts(mkt.borrowApr)
+			const rewardAPR = borrowParts.rewardAPR
+			const borrowAPR = borrowParts.baseAPR - rewardAPR
+			const pHf = pBorrowUsd > 0 ? pLiqUsd / pBorrowUsd : null
+			borrows.push({
+				id: `alphalend-borrow-${posKey}-${marketIdNum}`,
+				obligationId: p.positionId ?? '',
+				asset: mkt.symbol ?? mkt.coinType.split('::').pop() ?? `Mkt${marketIdNum}`,
+				coinType: mkt.coinType,
+				borrowedAmount: amount,
+				currentDebt: amount,
+				accruedInterest: 0,
+				accruedInterestUSD: 0,
+				borrowAPR,
+				borrowRewardAPR: rewardAPR,
+				netBorrowCost: borrowAPR,
+				aprBreakdown: {
+					baseAPR: borrowParts.baseAPR,
+					rewardAPR: borrowParts.rewardAPR,
+					rewards: borrowParts.rewardTokens,
+				},
+				currentDebtUSD: amount * priceUsd,
+				collateral: [],
+				healthFactor: pHf ?? 0,
+				liquidationThreshold: pLiqUsd,
+				...(pSafe > 0 ? { safeBorrowLimit: pSafe } : {}),
+				startedAt: 0,
+				daysActive: 0,
+				events: [],
+				protocol: 'AlphaLend',
+				iconUrl: null,
+			})
+		}
+
+		for (const r of p.rewardsToClaim ?? []) {
+			if (!(safeNum(r.rewardAmount) > 0)) continue
+			const mkt = [...marketByIdRaw.values()].find((m) => m.coinType === r.coinType)
+			const priceUsd = mkt?.price != null ? parseFloat(String(mkt.price)) : 0
+			const amount = safeNum(r.rewardAmount)
+			rewardsToClaim.push({
+				coinType: r.coinType,
+				symbol: mkt?.symbol ?? r.coinType.split('::').pop() ?? r.coinType,
+				amount,
+				valueUSD: amount * priceUsd,
+			})
+		}
 	}
 
 	const suppliesWithLiq = enrichSupplyLiquidationPrices(supplies, totalBorrowedUSD)
-
-	// ── Borrows ──────────────────────────────────────────────────────────────
 	const collateral: CollateralInfo[] = suppliesWithLiq.map((s) => ({
 		asset: s.asset,
 		amount: s.currentAmount,
@@ -210,68 +275,14 @@ export async function getLendingPositions(
 		collateralWeight: 0,
 		effectiveValueUSD: s.currentValueUSD,
 	}))
-
-	const borrows: BorrowPosition[] = []
-	for (const [marketIdNum, amtDecimal] of p.borrowedAmounts.entries()) {
-		const mkt = marketByIdRaw.get(marketIdNum)
-		if (!mkt) continue
-		const amount = safeNum(amtDecimal)
-		if (amount === 0) continue
-		const priceUsd = mkt.price != null ? parseFloat(String(mkt.price)) : 0
-		const borrowParts = extractAprParts(mkt.borrowApr)
-		// For borrows: rewards are an OFFSET (you earn them back), so net cost = base − rewards.
-		// borrowAPR displayed = net cost; borrowRewardAPR = magnitude of the offset.
-		const rewardAPR = borrowParts.rewardAPR
-		const borrowAPR = borrowParts.baseAPR - rewardAPR   // can be negative (net earn)
-		borrows.push({
-			id: `alphalend-borrow-${marketIdNum}`,
-			obligationId: p.positionId ?? '',
-			asset: mkt.symbol ?? mkt.coinType.split('::').pop() ?? `Mkt${marketIdNum}`,
-			coinType: mkt.coinType,
-			borrowedAmount: amount,
-			currentDebt: amount,
-			accruedInterest: 0,
-			accruedInterestUSD: 0,
-			borrowAPR,
-			borrowRewardAPR: rewardAPR,
-			netBorrowCost: borrowAPR,   // already net
-			aprBreakdown: {
-				baseAPR: borrowParts.baseAPR,
-				rewardAPR: borrowParts.rewardAPR,
-				rewards: borrowParts.rewardTokens,
-			},
-			currentDebtUSD: amount * priceUsd,
-			collateral,
-			healthFactor: healthFactor ?? 0,
-			liquidationThreshold: liquidationUSD,
-			...(safeBorrowLimitUSD > 0 ? { safeBorrowLimit: safeBorrowLimitUSD } : {}),
-			startedAt: 0,
-			daysActive: 0,
-			events: [],
-			protocol: 'AlphaLend',
-			iconUrl: null,
-		})
+	const healthFactor = portfolioHfs.length > 0 ? Math.min(...portfolioHfs) : null
+	for (const b of borrows) {
+		if (!(b.healthFactor > 0) && healthFactor != null) b.healthFactor = healthFactor
+		b.collateral = collateral
 	}
 
-	// ── Rewards ───────────────────────────────────────────────────────────────
-	const rewardsToClaim: LendingRewardToClaim[] = (p.rewardsToClaim ?? [])
-		.filter((r) => safeNum(r.rewardAmount) > 0)
-		.map((r) => {
-			const mkt = [...marketByIdRaw.values()].find((m) => m.coinType === r.coinType)
-			const priceUsd = mkt?.price != null ? parseFloat(String(mkt.price)) : 0
-			const amount = safeNum(r.rewardAmount)
-			return {
-				coinType: r.coinType,
-				symbol: mkt?.symbol ?? r.coinType.split('::').pop() ?? r.coinType,
-				amount,
-				valueUSD: amount * priceUsd,
-			}
-		})
-
-	// Net APR from SDK is in percentage units (2.93 = 2.93%) → divide by 100
-	const netAPR = safeNum(p.netApr) / 100 || null
-	// Daily earnings already in USD
-	const dailyEarningsUSD = safeNum(p.dailyEarnings) || null
+	const netAPR = portfolios.length > 0 ? netAprAcc / portfolios.length / 100 || null : null
+	const dailyEarningsUSD = dailyEarnAcc || null
 
 	return {
 		supplies: suppliesWithLiq,
@@ -284,6 +295,7 @@ export async function getLendingPositions(
 		dailyEarningsUSD,
 		rewardsToClaim,
 		protocol: 'AlphaLend',
+		...(safeBorrowLimitUSD > 0 ? {} : {}),
 	}
 }
 

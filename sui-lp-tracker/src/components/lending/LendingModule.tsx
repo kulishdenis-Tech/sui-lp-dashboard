@@ -879,26 +879,55 @@ function ProtocolSection({
 
 // ── Main ───────────────────────────────────────────────────────────────────
 export function LendingModule() {
-	const { snapshot, naviSnapshot, currentSnapshot, isLoading, error } = useLendingPositions()
+	const {
+		snapshot,
+		naviSnapshot,
+		currentSnapshot,
+		suilendSnapshot,
+		scallopSnapshot,
+		isLoading,
+		error,
+	} = useLendingPositions()
 
 	const alphaHasData = snapshot && (snapshot.supplies.length > 0 || snapshot.borrows.length > 0)
 	const naviHasData = naviSnapshot && (naviSnapshot.supplies.length > 0 || naviSnapshot.borrows.length > 0)
 	const currentHasData =
 		currentSnapshot && (currentSnapshot.supplies.length > 0 || currentSnapshot.borrows.length > 0)
-	const anyData = alphaHasData || naviHasData || currentHasData
+	const suilendHasData =
+		suilendSnapshot && (suilendSnapshot.supplies.length > 0 || suilendSnapshot.borrows.length > 0)
+	const scallopHasData =
+		scallopSnapshot && (scallopSnapshot.supplies.length > 0 || scallopSnapshot.borrows.length > 0)
+	const anyData = Boolean(alphaHasData || naviHasData || currentHasData || suilendHasData || scallopHasData)
 	const [hideUnderOneUsd, setHideUnderOneUsd] = useState(true)
-	const showAlpha = Boolean(
-		snapshot && alphaHasData && !(hideUnderOneUsd && protocolBookUnderOneUsd(snapshot)),
-	)
-	const showNavi = Boolean(
-		naviSnapshot && naviHasData && !(hideUnderOneUsd && protocolBookUnderOneUsd(naviSnapshot)),
-	)
-	const showCurrent = Boolean(
+	const books: { key: string; name: string; snap: NonNullable<typeof snapshot> }[] = []
+	if (snapshot && alphaHasData && !(hideUnderOneUsd && protocolBookUnderOneUsd(snapshot))) {
+		books.push({ key: 'alpha', name: 'AlphaLend', snap: snapshot })
+	}
+	if (naviSnapshot && naviHasData && !(hideUnderOneUsd && protocolBookUnderOneUsd(naviSnapshot))) {
+		books.push({ key: 'navi', name: 'Navi', snap: naviSnapshot })
+	}
+	if (
 		currentSnapshot &&
-			currentHasData &&
-			!(hideUnderOneUsd && protocolBookUnderOneUsd(currentSnapshot)),
-	)
-	const labeled = [showAlpha, showNavi, showCurrent].filter(Boolean).length > 1
+		currentHasData &&
+		!(hideUnderOneUsd && protocolBookUnderOneUsd(currentSnapshot))
+	) {
+		books.push({ key: 'current', name: 'Current', snap: currentSnapshot })
+	}
+	if (
+		suilendSnapshot &&
+		suilendHasData &&
+		!(hideUnderOneUsd && protocolBookUnderOneUsd(suilendSnapshot))
+	) {
+		books.push({ key: 'suilend', name: 'Suilend', snap: suilendSnapshot })
+	}
+	if (
+		scallopSnapshot &&
+		scallopHasData &&
+		!(hideUnderOneUsd && protocolBookUnderOneUsd(scallopSnapshot))
+	) {
+		books.push({ key: 'scallop', name: 'Scallop', snap: scallopSnapshot })
+	}
+	const labeled = books.length > 1
 
 	if (isLoading && !anyData) return <SkeletonCard />
 	if (error && !anyData)
@@ -907,7 +936,7 @@ export function LendingModule() {
 	if (!anyData) {
 		return (
 			<p className="text-sm text-slate-500">
-				No lending positions found for this wallet (AlphaLend / Navi / Current).
+				No lending positions found for this wallet (AlphaLend / Navi / Current / Suilend / Scallop).
 			</p>
 		)
 	}
@@ -915,9 +944,8 @@ export function LendingModule() {
 	const hideToggle = (
 		<HideUnderOneToggle checked={hideUnderOneUsd} onChange={setHideUnderOneUsd} />
 	)
-	const toggleHost = showNavi ? 'navi' : showAlpha ? 'alpha' : showCurrent ? 'current' : 'none'
 
-	if (toggleHost === 'none') {
+	if (books.length === 0) {
 		return (
 			<div className="space-y-3">
 				<div className="flex items-center">{hideToggle}</div>
@@ -928,39 +956,18 @@ export function LendingModule() {
 
 	return (
 		<div className="space-y-6">
-			{showAlpha && (
-				<div>
-					{(labeled || toggleHost === 'alpha') && (
+			{books.map((b, i) => (
+				<div key={b.key}>
+					{i > 0 ? <hr className="mb-6 border-slate-800" /> : null}
+					{(labeled || i === 0) && (
 						<div className="mb-3 flex items-center gap-3">
-							{labeled && <ProtocolLabel name="AlphaLend" />}
-							{toggleHost === 'alpha' && hideToggle}
+							{labeled && <ProtocolLabel name={b.name} />}
+							{i === 0 && hideToggle}
 						</div>
 					)}
-					<ProtocolSection snapshot={snapshot!} hideUnderOneUsd={hideUnderOneUsd} />
+					<ProtocolSection snapshot={b.snap} hideUnderOneUsd={hideUnderOneUsd} />
 				</div>
-			)}
-			{showAlpha && (showNavi || showCurrent) && <hr className="border-slate-800" />}
-			{showNavi && (
-				<div>
-					<div className="mb-3 flex items-center gap-3">
-						{labeled && <ProtocolLabel name="Navi" />}
-						{toggleHost === 'navi' && hideToggle}
-					</div>
-					<ProtocolSection snapshot={naviSnapshot!} hideUnderOneUsd={hideUnderOneUsd} />
-				</div>
-			)}
-			{showNavi && showCurrent && <hr className="border-slate-800" />}
-			{showCurrent && (
-				<div>
-					{(labeled || toggleHost === 'current') && (
-						<div className="mb-3 flex items-center gap-3">
-							{labeled && <ProtocolLabel name="Current" />}
-							{toggleHost === 'current' && hideToggle}
-						</div>
-					)}
-					<ProtocolSection snapshot={currentSnapshot!} hideUnderOneUsd={hideUnderOneUsd} />
-				</div>
-			)}
+			))}
 		</div>
 	)
 }

@@ -478,7 +478,7 @@ export async function getCetusVaultPositions(
 		const pxaF = typeof pxa === 'number' && Number.isFinite(pxa) ? pxa : 0
 		const pxbF = typeof pxb === 'number' && Number.isFinite(pxb) ? pxb : 0
 		const valueUsd = clampUsd(humA * pxaF + humB * pxbF)
-		const inRange = pool.currentTick >= v.tickLower && pool.currentTick <= v.tickUpper
+		const inRange = pool.currentTick >= v.tickLower && pool.currentTick < v.tickUpper
 		const feeLabelPct = `${(pool.feeRate * 100).toFixed(3)}%`
 		const sharePct = vaultLpSharePct(lpRaw, v.totalSupply) ?? undefined
 		let vaultTvlUsd: number | undefined

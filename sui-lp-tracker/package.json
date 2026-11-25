@@ -1,7 +1,7 @@
 {
   "name": "sui-lp-tracker",
   "private": true,
-  "version": "2.4.0",
+  "version": "2.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -21,7 +21,8 @@
     "test:smoke": "node scripts/vite-advisor-smoke.mjs",
     "typecheck": "tsc -b --pretty false",
     "probe:rpc": "node scripts/probe-sui-rpc-nodes.mjs",
-    "spike:grpc-graphql": "node scripts/spike-sui-grpc-graphql.mjs"
+    "spike:grpc-graphql": "node scripts/spike-sui-grpc-graphql.mjs",
+    "review:fixture": "node harness/review-fixture.mjs"
   },
   "dependencies": {
     "@alphafi/alphalend-sdk": "^4.1.0",
@@ -39,6 +40,8 @@
     "@okxconnect/ui": "^1.9.1",
     "@okxconnect/universal-provider": "^1.9.1",
     "@protobuf-ts/grpc-transport": "^2.11.1",
+    "@suilend/sdk": "^17.1.0",
+    "@suilend/sui-core": "^2.3.0",
     "@supabase/supabase-js": "^2.49.8",
     "@tanstack/react-query": "^5.101.2",
     "aftermath-ts-sdk": "^6.1.1",

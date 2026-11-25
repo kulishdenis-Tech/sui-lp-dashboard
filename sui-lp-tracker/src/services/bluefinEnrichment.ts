@@ -154,10 +154,21 @@ export async function enrichBluefinOpenPositionWithEvents(
 	// Protocol-agnostic: works for bluefin, momentum, cetus, and any future CLMM protocol.
 	// Only uses generic OpenPosition fields (tokenA/B, prices, decimals, etc.).
 	if (events.length === 0) {
+		// No Open/Add found → Partial, never fake $0 deposit/PnL.
+		const partial = true
 		return {
-			merged: { historyPartial },
+			merged: {
+				historyPartial: partial,
+				depositedUSD: Number.NaN,
+				pnlUSD: Number.NaN,
+				pnlPct: Number.NaN,
+				daysOpen: Number.NaN,
+				lifetimeEarningsUSD: Number.NaN,
+				vsHodlDeltaUSD: Number.NaN,
+				aprEstimatePct: Number.NaN,
+			},
 			events: [],
-			historyPartial,
+			historyPartial: partial,
 		}
 	}
 
@@ -570,32 +581,63 @@ export async function enrichBluefinOpenPositionWithEvents(
 		hodlB = grossDepB
 		hodlBasketOut = Number.isFinite(hodlGross) ? hodlGross : null
 	}
+	const hasDepositEvt = events.some(
+		(e) => e.type === 'add_liquidity' || e.type === 'open_position',
+	)
+	let forcePartial = historyPartial || !hasDepositEvt
+	// Negative / near-zero net deposit with positive live value → incomplete history, not "profit".
+	const liveVal = Number.isFinite(p.currentValueUSD) ? p.currentValueUSD : 0
+	if (
+		lifecycle === 'open' &&
+		!forcePartial &&
+		liveVal > 1 &&
+		(depOut < 0 || (depOut > 0 && depOut < liveVal * 0.05 && daysOpen > 1))
+	) {
+		forcePartial = true
+	}
+
 	if (Math.abs(depOut) > ABSURD || Math.abs(pnlOut) > ABSURD) {
-		console.warn('[enrichment] ABSURD value detected — zeroing metrics for position', { depOut, pnlOut })
-		depOut = 0
-		pnlOut = 0
-		pnlPctOut = 0
-		lifeOut = 0
-		vsHodlOut = 0
-		aprOut = 0
+		console.warn('[enrichment] ABSURD value detected — nulling metrics + Partial', { depOut, pnlOut })
+		depOut = Number.NaN
+		pnlOut = Number.NaN
+		pnlPctOut = Number.NaN
+		lifeOut = Number.NaN
+		vsHodlOut = Number.NaN
+		aprOut = Number.NaN
+		forcePartial = true
+	} else if (forcePartial && !hasDepositEvt) {
+		depOut = Number.NaN
+		pnlOut = Number.NaN
+		pnlPctOut = Number.NaN
 	}
 
 	/** All-in APR лише як «ставка здобутку»; негатив (збиток) через PnL/ROI — показуємо 0. */
-	aprOut = Number.isFinite(aprOut) ? Math.max(0, aprOut) : 0
+	aprOut = Number.isFinite(aprOut) ? Math.max(0, aprOut) : Number.NaN
 
 	return {
 		events: updatedEvents,
-		historyPartial,
+		historyPartial: forcePartial,
 		merged: {
 			depositedUSD: depOut,
 			pnlUSD: pnlOut,
 			pnlPct: pnlPctOut,
 			openedAt: minTs,
-			daysOpen,
+			daysOpen: forcePartial && !hasDepositEvt ? Number.NaN : daysOpen,
 			lifetimeEarningsUSD: lifeOut,
 			vsHodlDeltaUSD: vsHodlOut,
-			aprEstimatePct: Number.isFinite(aprOut) ? aprOut : 0,
-			historyPartial,
+			aprEstimatePct: Number.isFinite(aprOut) ? aprOut : Number.NaN,
+			historyPartial: forcePartial,
+			// PnL decomposition (P1-4)
+			feesUnclaimedUSD: uFeeE,
+			rewardsUnclaimedUSD: uRewE,
+			feesClaimedUSD: sumClaimedFeeUsd,
+			rewardsClaimedUSD: sumClaimedRewardUsd,
+			priceEffectUSD: Number.isFinite(hodlUsd) && Number.isFinite(depOut) ? hodlUsd - depOut : Number.NaN,
+			ilUSD:
+				Number.isFinite(p.currentValueUSD) && Number.isFinite(hodlUsd)
+					? p.currentValueUSD - hodlUsd
+					: Number.NaN,
+			realizedPnlUSD: lifecycle === 'closed' ? pnlOut : Number.NaN,
 			// Open: net amounts (what's still at risk in LP, reflecting partial withdrawals).
 			// Closed: gross deposit amounts (what you put in — shown as the HODL basket).
 			hodlTokenAAmount: hodlA,
@@ -899,6 +941,24 @@ export async function enrichAllBluefinOpenPositions(
 				// Active wallets often hit the Sender page limit on non-LP events while seed/delta
 				// already has deposits — showing "partial history" then is a false alarm.
 				const historyPartial = protocolPartial && !positionHasDeposit(evs)
+				// P1-6: close in history after open snapshot → stale; do not invent PnL.
+				const closedAfterOpen = evs.some(
+					(e) => e.type === 'close_position' || e.type === 'remove_liquidity',
+				) && evs.some((e) => e.type === 'close_position')
+				if (closedAfterOpen) {
+					return {
+						merged: {
+							historyPartial: true,
+							lifecycleStatus: 'empty' as const,
+							depositedUSD: Number.NaN,
+							pnlUSD: Number.NaN,
+							pnlPct: Number.NaN,
+							readStale: true,
+						},
+						events: evs,
+						historyPartial: true,
+					}
+				}
 				return enrichBluefinOpenPositionWithEvents(p, evs, historyPartial, { quoteMemo })
 			}),
 		)

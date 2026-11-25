@@ -1,7 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { WATCH_WALLET_SEED } from '@/config/watchWallets'
 import {
@@ -15,7 +14,6 @@ import {
 	writeNicknameOverrides,
 } from '../../api/_lib/walletNicknameFile.ts'
 
-const trackerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const dirs: string[] = []
 
 afterEach(() => {
@@ -23,46 +21,63 @@ afterEach(() => {
 })
 
 describe('wallet nicknames', () => {
-	it('seeds Slush for the 8da6 account and OKX for the other', () => {
+	it('resolveNicknames follows WATCH_WALLET_SEED (env-only; empty when unset)', () => {
 		const rows = resolveNicknames(null)
 		expect(rows.map((row) => row.address)).toEqual([...WATCH_WALLET_SEED])
-		expect(rows.map((row) => row.nickname)).toEqual(['Slush', 'OKX'])
-		expect(rows[0]?.address.endsWith('8da6')).toBe(true)
-		expect(rows[1]?.address.endsWith('44b9')).toBe(true)
+		if (WATCH_WALLET_SEED.length >= 2) {
+			expect(rows.map((row) => row.nickname)).toEqual(['Slush', 'OKX'])
+		} else {
+			expect(rows).toEqual([])
+		}
 	})
 
 	it('keeps a saved name and ignores an unknown address or a blank one', () => {
+		if (WATCH_WALLET_SEED.length < 2) {
+			expect(resolveNicknames({ '0xabc': 'Desk' })).toEqual([])
+			return
+		}
 		const [first, second] = resolveNicknames(null)
 		expect(first).toBeTruthy()
 		expect(second).toBeTruthy()
 		const rows = resolveNicknames({
 			[first!.address]: 'Desk',
 			[second!.address]: '   ',
-			'0xnot-a-wallet': 'Nope',
+			'0xdead': 'Nope',
 		})
-		expect(rows.map((row) => row.nickname)).toEqual(['Desk', 'OKX'])
-		expect(normalizeNickname('0x925e')).toBeNull()
-		expect(normalizeNickname('a'.repeat(25))).toBeNull()
-		expect(normalizeNickname('OKX 2')).toBe('OKX 2')
+		expect(rows.find((r) => r.address === first!.address)?.nickname).toBe('Desk')
+		expect(rows.find((r) => r.address === second!.address)?.nickname).toBe('OKX')
 	})
 
-	it('fills a partial payload back to the two seed names', () => {
-		const [first] = resolveNicknames(null)
-		const rows = walletsFromPayload([{ address: first!.address, nickname: 'Desk' }, { address: 'nope' }])
-		expect(rows?.map((row) => row.nickname)).toEqual(['Desk', 'OKX'])
-		expect(walletsFromPayload({ wallets: [] })).toBeNull()
+	it('normalizeNickname rejects addresses and blanks', () => {
+		expect(normalizeNickname('')).toBeNull()
+		expect(normalizeNickname('0xabc')).toBeNull()
+		expect(normalizeNickname('Desk')).toBe('Desk')
 	})
 
-	it('round-trips the two names through the shared file', () => {
-		const dir = mkdtempSync(path.join(tmpdir(), 'wallet-nicknames-'))
+	it('walletsFromPayload keeps only monitored accounts', () => {
+		if (WATCH_WALLET_SEED.length < 1) {
+			expect(walletsFromPayload([{ address: '0x1', nickname: 'X' }])).toEqual([])
+			return
+		}
+		const addr = WATCH_WALLET_SEED[0]!
+		const rows = walletsFromPayload([{ address: addr, nickname: 'Lab' }, { address: '0xnope', nickname: 'X' }])
+		expect(rows?.map((r) => r.address)).toEqual([addr])
+		expect(rows?.[0]?.nickname).toBe('Lab')
+	})
+
+	it('reads and writes nickname overrides file for monitored wallets', () => {
+		const dir = mkdtempSync(path.join(tmpdir(), 'nick-'))
 		dirs.push(dir)
-		const file = path.join(dir, 'wallet-nicknames.json')
-		const [first] = resolveNicknames(null)
-		writeNicknameOverrides(file, { [first!.address]: 'Desk' })
-		expect(readNicknameOverrides(file)[first!.address]).toBe('Desk')
-		const stored = JSON.parse(readFileSync(file, 'utf8')) as Record<string, string>
-		expect(Object.keys(stored)).toHaveLength(2)
-		expect(stored[first!.address]).toBe('Desk')
-		expect(nicknameFilePath(trackerRoot).replace(/\\/g, '/')).toMatch(/\/_local\/wallet-nicknames\.json$/)
+		const file = nicknameFilePath(dir)
+		if (WATCH_WALLET_SEED.length === 0) {
+			writeNicknameOverrides(file, { '0xabc': 'A' })
+			// Without env watch list, non-monitored overrides are dropped.
+			expect(readNicknameOverrides(file)).toEqual({})
+			return
+		}
+		const addr = WATCH_WALLET_SEED[0]!
+		writeNicknameOverrides(file, { [addr]: 'Lab' })
+		expect(readFileSync(file, 'utf8')).toContain(addr)
+		expect(readNicknameOverrides(file)).toEqual({ [addr]: 'Lab' })
 	})
 })

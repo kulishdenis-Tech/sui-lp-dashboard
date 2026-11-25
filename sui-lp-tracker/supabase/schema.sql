@@ -25,11 +25,8 @@ create index if not exists idx_portfolio_snapshots_wallet_ts
 create unique index if not exists idx_portfolio_snapshots_wallet_bucket
 	on public.portfolio_snapshots (wallet_addr, hour_bucket);
 
--- Seed your watch wallets (normalized lowercase 0x…):
-insert into public.watched_wallets (address) values
-	('0xff8a51f37daceef95619a7d31915868375329964bacea6c72811175d6a458da6'),
-	('0x925efc24d39e9a1726b22ff6a869ffe107820d036d91e5a1775353c38e0644b9')
-on conflict (address) do nothing;
+-- Seed watch wallets locally (do not commit personal addresses):
+-- insert into public.watched_wallets (address) values ('0x…') on conflict (address) do nothing;
 
 -- RLS: service role bypasses; anon read only for watched wallets via API (server-side).
 alter table public.watched_wallets enable row level security;

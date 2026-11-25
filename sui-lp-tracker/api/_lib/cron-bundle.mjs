@@ -407,6 +407,8 @@ var init_mapObject = __esm({
 });
 
 // src/services/suiData/jsonRpcCompat.ts
+import { TypeTagSerializer } from "@mysten/sui/bcs";
+import { deriveDynamicFieldID } from "@mysten/sui/utils";
 function loadCoinMetaStore() {
   if (coinMetaStore) return coinMetaStore;
   try {
@@ -428,6 +430,13 @@ function writeStoredCoinMeta(coinType, meta) {
     if (keys.length > 600) for (const k of keys.slice(0, keys.length - 600)) delete store[k];
     localStorage.setItem(COIN_META_KEY, JSON.stringify(store));
   } catch {
+  }
+}
+function deriveFieldId(parentId, name) {
+  try {
+    return deriveDynamicFieldID(parentId, TypeTagSerializer.parseFromStr(name.type), name.bcs);
+  } catch {
+    return null;
   }
 }
 function asOwner(input) {
@@ -750,6 +759,20 @@ function createJsonRpcCompatClient(grpc = getDashboardGrpcClient()) {
       const promise = (async () => {
         const name = encodeLegacyDfName(input.name);
         const include = { json: true, type: true };
+        if (derivedVerifiedParents.has(input.parentId)) {
+          const derivedId = deriveFieldId(input.parentId, name);
+          if (derivedId) {
+            try {
+              const { object } = await withSuiDataThrottle(() => grpc.getObject({ objectId: derivedId, include }));
+              return legacyObjectResponse(object);
+            } catch (e) {
+              return {
+                data: null,
+                error: { code: "dynamicFieldNotFound", message: e instanceof Error ? e.message : String(e) }
+              };
+            }
+          }
+        }
         if (!plainDfParents.has(input.parentId)) {
           try {
             const { object } = await withSuiDataThrottle(
@@ -768,6 +791,8 @@ function createJsonRpcCompatClient(grpc = getDashboardGrpcClient()) {
             return { data: null, error: { code: "dynamicFieldNotFound", message: "missing fieldId" } };
           }
           plainDfParents.add(input.parentId);
+          const derived = deriveFieldId(input.parentId, name);
+          if (derived && derived.toLowerCase() === fieldId.toLowerCase()) derivedVerifiedParents.add(input.parentId);
           const { object } = await withSuiDataThrottle(
             () => grpc.getObject({ objectId: fieldId, include })
           );
@@ -935,7 +960,7 @@ function getJsonRpcCompatClient() {
   if (!sharedCompat) sharedCompat = createJsonRpcCompatClient();
   return sharedCompat;
 }
-var COIN_META_KEY, coinMetaInflight, coinMetaStore, DF_CACHE_TTL_MS, dfObjectCache, plainDfParents, sharedCompat;
+var COIN_META_KEY, coinMetaInflight, coinMetaStore, DF_CACHE_TTL_MS, dfObjectCache, plainDfParents, derivedVerifiedParents, sharedCompat;
 var init_jsonRpcCompat = __esm({
   "src/services/suiData/jsonRpcCompat.ts"() {
     init_createGrpcClient();
@@ -950,6 +975,7 @@ var init_jsonRpcCompat = __esm({
     DF_CACHE_TTL_MS = 3e4;
     dfObjectCache = /* @__PURE__ */ new Map();
     plainDfParents = /* @__PURE__ */ new Set();
+    derivedVerifiedParents = /* @__PURE__ */ new Set();
     sharedCompat = null;
   }
 });
@@ -1407,9 +1433,11 @@ function buildSimplePriceUrl(base, ids) {
   return u;
 }
 async function fetchCgUrl(url, headers) {
+  if (Date.now() < cgCooldownUntil) return {};
   try {
     const r = await fetch(extFetchUrl(url.toString()), { headers, signal: AbortSignal.timeout(8e3) });
     if (r.ok) return await r.json();
+    if (r.status === 429) cgCooldownUntil = Date.now() + CG_COOLDOWN_MS;
   } catch {
   }
   return {};
@@ -1418,12 +1446,14 @@ async function coingeckoSimpleBatchRaw(ids) {
   if (ids.length === 0) return {};
   const uniq = [...new Set(ids)];
   const key = (typeof import.meta.env.VITE_COINGECKO_API_KEY === "string" && import.meta.env.VITE_COINGECKO_API_KEY.length > 0 ? import.meta.env.VITE_COINGECKO_API_KEY : void 0) ?? (typeof process !== "undefined" ? process.env.COINGECKO_API_KEY ?? process.env.VITE_COINGECKO_API_KEY : void 0);
+  if (Date.now() < cgCooldownUntil) return {};
   if (isProdBuild() && typeof key === "string" && key.length >= 3) {
     const u2 = buildSimplePriceUrl(CG_FREE_BASE, uniq);
     const path = `${u2.pathname}${u2.search}`;
     try {
       const r = await coingeckoProxyFetch(path);
       if (r.ok) return await r.json();
+      if (r.status === 429) cgCooldownUntil = Date.now() + CG_COOLDOWN_MS;
     } catch {
     }
   }
@@ -1469,13 +1499,15 @@ async function coingeckoSimpleBatch(ids) {
   }
   return out;
 }
-var CG_FREE_BASE, CG_TTL_MS, CG_STALE_MAX_MS, cgRows, cgInflight;
+var CG_FREE_BASE, CG_COOLDOWN_MS, cgCooldownUntil, CG_TTL_MS, CG_STALE_MAX_MS, cgRows, cgInflight;
 var init_coingecko24hBatch = __esm({
   "src/services/spotPrice/coingecko24hBatch.ts"() {
     init_priceSources();
     init_apiProxy();
     init_externalFetchUrl();
     CG_FREE_BASE = "https://api.coingecko.com/api/v3";
+    CG_COOLDOWN_MS = 6e4;
+    cgCooldownUntil = 0;
     CG_TTL_MS = 3e4;
     CG_STALE_MAX_MS = 10 * 6e4;
     cgRows = /* @__PURE__ */ new Map();
@@ -1813,9 +1845,18 @@ function rememberNoPrice(coinType) {
 }
 async function dexScreenerPrice(coinType) {
   if (isKnownNoPrice(coinType)) return null;
-  const q = await dexScreenerPriceUncached(coinType);
-  if (!q || q.price == null) rememberNoPrice(coinType);
-  return q;
+  const hit = quoteCache.get(coinType);
+  if (hit && Date.now() - hit.at < QUOTE_TTL_MS) return hit.q;
+  let p = quoteInflight.get(coinType);
+  if (!p) {
+    p = dexScreenerPriceUncached(coinType).then((q) => {
+      if (!q || q.price == null) rememberNoPrice(coinType);
+      else quoteCache.set(coinType, { at: Date.now(), q });
+      return q;
+    }).finally(() => quoteInflight.delete(coinType));
+    quoteInflight.set(coinType, p);
+  }
+  return p;
 }
 async function dexScreenerPriceUncached(coinType) {
   const norm2 = normalizeCoinTypeForMatch(coinType);
@@ -1852,7 +1893,7 @@ async function dexScreenerPriceUncached(coinType) {
     return null;
   }
 }
-var DS, NO_PRICE_TTL_MS, NO_PRICE_KEY, noPrice;
+var DS, NO_PRICE_TTL_MS, NO_PRICE_KEY, noPrice, QUOTE_TTL_MS, quoteCache, quoteInflight;
 var init_dexScreenerSpot = __esm({
   "src/services/spotPrice/dexScreenerSpot.ts"() {
     init_externalFetchUrl();
@@ -1861,6 +1902,9 @@ var init_dexScreenerSpot = __esm({
     NO_PRICE_TTL_MS = 30 * 60 * 1e3;
     NO_PRICE_KEY = "suilp.dexscreener.noPrice.v1";
     noPrice = null;
+    QUOTE_TTL_MS = 2e4;
+    quoteCache = /* @__PURE__ */ new Map();
+    quoteInflight = /* @__PURE__ */ new Map();
   }
 });
 
@@ -1991,10 +2035,14 @@ function okxSuccess(j) {
   return j.code === "0" || j.code === 0;
 }
 async function okxSignedRequestOnce(method, pathWithQuery, bodyStr = "") {
-  if (okxCircuitOpen()) return null;
+  if (okxCircuitOpen() || Date.now() < okxAuthOffUntil) return null;
   const path = pathWithQuery.startsWith("/") ? pathWithQuery : `/${pathWithQuery}`;
   try {
     const r = await okxProxyFetch(method, path, bodyStr);
+    if (r.status === 401 || r.status === 402 || r.status === 403) {
+      okxAuthOffUntil = Date.now() + OKX_AUTH_OFF_MS;
+      return null;
+    }
     const json = await r.json();
     return { ok: r.ok, status: r.status, json };
   } catch (e) {
@@ -2174,7 +2222,7 @@ function isOkxDexConfigured() {
 function isOkxCircuitOpen() {
   return okxCircuitOpen();
 }
-var CHAIN_SUI, PRICE_INFO_PATH, BATCH, DEFAULT_FETCH_RETRIES, DEFAULT_RETRY_BACKOFF_MS, OKX_CIRCUIT_OPEN_MS, _okxCircuitTrippedAt, NO_QUOTE_TTL_MS, noQuoteUntil, CHAIN_ETH, ETHEREUM_WETH, SUI_BRIDGE_ETH, SUI_WORMHOLE_WETH;
+var CHAIN_SUI, PRICE_INFO_PATH, BATCH, DEFAULT_FETCH_RETRIES, DEFAULT_RETRY_BACKOFF_MS, OKX_CIRCUIT_OPEN_MS, _okxCircuitTrippedAt, OKX_AUTH_OFF_MS, okxAuthOffUntil, NO_QUOTE_TTL_MS, noQuoteUntil, CHAIN_ETH, ETHEREUM_WETH, SUI_BRIDGE_ETH, SUI_WORMHOLE_WETH;
 var init_okxDexApi = __esm({
   "src/services/spotPrice/okxDexApi.ts"() {
     init_apiProxy();
@@ -2186,6 +2234,8 @@ var init_okxDexApi = __esm({
     DEFAULT_RETRY_BACKOFF_MS = 1500;
     OKX_CIRCUIT_OPEN_MS = 4 * 60 * 1e3;
     _okxCircuitTrippedAt = 0;
+    OKX_AUTH_OFF_MS = 30 * 6e4;
+    okxAuthOffUntil = 0;
     NO_QUOTE_TTL_MS = 15 * 6e4;
     noQuoteUntil = /* @__PURE__ */ new Map();
     CHAIN_ETH = "1";
@@ -3180,27 +3230,27 @@ __export(cetusDlmmService_exports, {
   requireDlmmOwnerRows: () => requireDlmmOwnerRows
 });
 import { BinUtils, FEE_PRECISION } from "@cetusprotocol/dlmm-sdk";
-import Decimal8 from "decimal.js";
-function symbolFromCoinType3(ct) {
+import Decimal9 from "decimal.js";
+function symbolFromCoinType4(ct) {
   const parts = ct.split("::");
   return parts[2] ?? parts[1] ?? "\u2014";
 }
-function clampUsd3(v) {
+function clampUsd4(v) {
   if (!Number.isFinite(v) || v < 0) return 0;
-  return v <= MAX_SANE_POSITION_USD4 ? v : 0;
+  return v <= MAX_SANE_POSITION_USD5 ? v : 0;
 }
 function safeHumanFromStringRaw2(raw, decimals) {
   const s = raw?.trim();
   if (!s || !/^\d+$/.test(s) || !Number.isFinite(decimals) || decimals < 0) return 0;
   try {
-    const n2 = new Decimal8(s).div(new Decimal8(10).pow(decimals)).toNumber();
-    if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS4) return 0;
+    const n2 = new Decimal9(s).div(new Decimal9(10).pow(decimals)).toNumber();
+    if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS5) return 0;
     return n2;
   } catch {
     return 0;
   }
 }
-function spotPriceSafe2(raw) {
+function spotPriceSafe3(raw) {
   if (raw == null || !Number.isFinite(raw) || raw <= 0 || raw > 1e8) return null;
   return raw;
 }
@@ -3245,12 +3295,12 @@ async function getCetusDlmmPositions(walletAddress, options) {
     const m = await resolveCoinMetadata(suiClient, ct);
     if (!m) return;
     metaMap.set(ct, {
-      symbol: m.symbol || symbolFromCoinType3(ct),
+      symbol: m.symbol || symbolFromCoinType4(ct),
       decimals: m.decimals,
       iconUrl: m.iconUrl
     });
   });
-  const getMeta = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType3(ct), decimals: -1, iconUrl: null };
+  const getMeta = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType4(ct), decimals: -1, iconUrl: null };
   const spotOpts = options?.forceRefreshPrices ? { forceRefresh: true } : void 0;
   let spotsMap;
   try {
@@ -3276,9 +3326,9 @@ async function getCetusDlmmPositions(walletAddress, options) {
       const amounts = await sdk2.Position.getPositionAmounts(pos, pool);
       const humA = safeHumanFromStringRaw2(amounts.amount_a, decA);
       const humB = safeHumanFromStringRaw2(amounts.amount_b, decB);
-      const pxaF = spotPriceSafe2(spotsMap.get(pos.coin_type_a)?.price);
-      const pxbF = spotPriceSafe2(spotsMap.get(pos.coin_type_b)?.price);
-      const valueUsd = clampUsd3((pxaF != null ? humA * pxaF : 0) + (pxbF != null ? humB * pxbF : 0));
+      const pxaF = spotPriceSafe3(spotsMap.get(pos.coin_type_a)?.price);
+      const pxbF = spotPriceSafe3(spotsMap.get(pos.coin_type_b)?.price);
+      const valueUsd = clampUsd4((pxaF != null ? humA * pxaF : 0) + (pxbF != null ? humB * pxbF : 0));
       let feeFrac = feeCache.get(pos.pool_id);
       if (feeFrac == null) {
         try {
@@ -3299,7 +3349,7 @@ async function getCetusDlmmPositions(walletAddress, options) {
       if (!(priceLo > 0) || !(priceHi > 0) || !(priceCur > 0)) continue;
       const inRange = pool.active_id >= pos.lower_bin_id && pool.active_id <= pos.upper_bin_id;
       const feeLabelPct = `${(feeFrac * 100).toFixed(3)}%`;
-      const pair = `${metaA.symbol}/${metaB.symbol} \xB7 DLMM \xB7 ${feeLabelPct}${inRange ? "" : " \xB7 OUT"}`;
+      const pair = `${metaA.symbol}/${metaB.symbol} \xB7 DLMM \xB7 ${feeLabelPct}`;
       const rewardCoins = (pool.reward_manager?.rewards ?? []).map((r) => r.reward_coin).filter((c) => typeof c === "string" && c.length > 0);
       feeFetchOpts.push({
         pool_id: pool.id,
@@ -3371,14 +3421,14 @@ async function getCetusDlmmPositions(walletAddress, options) {
         const rew = rewardData[p.id];
         const feeHumA = safeHumanFromStringRaw2(fee?.fee_owned_a, p.tokenADecimals);
         const feeHumB = safeHumanFromStringRaw2(fee?.fee_owned_b, p.tokenBDecimals);
-        const pxaF = spotPriceSafe2(spotsMap.get(p.tokenAAddress)?.price);
-        const pxbF = spotPriceSafe2(spotsMap.get(p.tokenBAddress)?.price);
+        const pxaF = spotPriceSafe3(spotsMap.get(p.tokenAAddress)?.price);
+        const pxbF = spotPriceSafe3(spotsMap.get(p.tokenBAddress)?.price);
         let feeUsd = 0;
         if (pxaF != null) feeUsd += feeHumA * pxaF;
         if (pxbF != null) feeUsd += feeHumB * pxbF;
         p.unclaimedFeeA = feeHumA;
         p.unclaimedFeeB = feeHumB;
-        p.unclaimedFeeUSD = clampUsd3(feeUsd);
+        p.unclaimedFeeUSD = clampUsd4(feeUsd);
         const rows2 = [];
         let rewUsd = 0;
         for (const r of rew?.rewards ?? []) {
@@ -3386,18 +3436,18 @@ async function getCetusDlmmPositions(walletAddress, options) {
           const meta = getMeta(ct);
           const hum = safeHumanFromStringRaw2(r.reward_owned, meta.decimals);
           const spot = spotsMap.get(ct);
-          const px = spotPriceSafe2(spot?.price);
-          const amountUsd = px != null ? clampUsd3(hum * px) : 0;
+          const px = spotPriceSafe3(spot?.price);
+          const amountUsd = px != null ? clampUsd4(hum * px) : 0;
           rewUsd += amountUsd;
           rows2.push({
-            token: meta.symbol || symbolFromCoinType3(ct),
+            token: meta.symbol || symbolFromCoinType4(ct),
             coinType: ct,
             amount: hum,
             amount_usd: amountUsd,
             price_source: px != null ? String(spot?.priceSource ?? "spot") : "unavailable"
           });
         }
-        p.unclaimedRewardUSD = clampUsd3(rewUsd);
+        p.unclaimedRewardUSD = clampUsd4(rewUsd);
         p.unclaimedRewardRows = rows2;
       }
     } catch (e) {
@@ -3405,8 +3455,8 @@ async function getCetusDlmmPositions(walletAddress, options) {
     }
   }
   for (const p of out) {
-    const aIsStable = STABLECOIN_SYMS.has(p.tokenA.toUpperCase());
-    const bIsStable = STABLECOIN_SYMS.has(p.tokenB.toUpperCase());
+    const aIsStable = STABLECOIN_SYMS2.has(p.tokenA.toUpperCase());
+    const bIsStable = STABLECOIN_SYMS2.has(p.tokenB.toUpperCase());
     p.cetusOriginalDecimalsA = p.tokenADecimals;
     p.cetusOriginalDecimalsB = p.tokenBDecimals;
     if (!aIsStable || bIsStable) continue;
@@ -3456,11 +3506,11 @@ async function getCetusDlmmPositions(walletAddress, options) {
       p.priceCurrentOverride = invCur;
     }
     const feeLabelPct = `${(p.fee * 100).toFixed(3)}%`;
-    p.pair = `${p.tokenA}/${p.tokenB} \xB7 DLMM \xB7 ${feeLabelPct}${p.status === "in_range" ? "" : " \xB7 OUT"}`;
+    p.pair = `${p.tokenA}/${p.tokenB} \xB7 DLMM \xB7 ${feeLabelPct}`;
   }
   return out;
 }
-var MAX_SANE_POSITION_USD4, MAX_SANE_HUMAN_TOKENS4, STABLECOIN_SYMS;
+var MAX_SANE_POSITION_USD5, MAX_SANE_HUMAN_TOKENS5, STABLECOIN_SYMS2;
 var init_cetusDlmmService = __esm({
   "src/services/cetusDlmmService.ts"() {
     init_cetusDlmmSdk();
@@ -3469,9 +3519,9 @@ var init_cetusDlmmService = __esm({
     init_suiClient();
     init_concurrency();
     init_constants();
-    MAX_SANE_POSITION_USD4 = 5e7;
-    MAX_SANE_HUMAN_TOKENS4 = 1e18;
-    STABLECOIN_SYMS = /* @__PURE__ */ new Set([
+    MAX_SANE_POSITION_USD5 = 5e7;
+    MAX_SANE_HUMAN_TOKENS5 = 1e18;
+    STABLECOIN_SYMS2 = /* @__PURE__ */ new Set([
       "USDC",
       "USDT",
       "DAI",
@@ -3513,7 +3563,7 @@ if (!globalThis.Buffer) {
 }
 
 // src/services/server/loadPortfolioSnapshot.ts
-import { normalizeSuiAddress as normalizeSuiAddress19 } from "@mysten/sui/utils";
+import { normalizeSuiAddress as normalizeSuiAddress22 } from "@mysten/sui/utils";
 
 // src/services/balanceService.ts
 init_suiClient();
@@ -3748,46 +3798,112 @@ async function getLendingPositions(walletAddress, options) {
     const id = Number(data.marketId);
     if (!Number.isNaN(id)) marketByIdRaw.set(id, data);
   }
-  const p = portfolios[0];
-  const totalSuppliedUSD = safeNum(p.totalSuppliedUsd);
-  const totalBorrowedUSD = safeNum(p.totalBorrowedUsd);
-  const liquidationUSD = safeNum(p.liquidationThreshold);
-  const safeBorrowLimitUSD = safeNum(p.safeBorrowLimit);
-  const healthFactor = totalBorrowedUSD > 0 ? liquidationUSD / totalBorrowedUSD : null;
   const supplies = [];
-  for (const [marketIdNum, amtDecimal] of p.suppliedAmounts.entries()) {
-    const mkt = marketByIdRaw.get(marketIdNum);
-    if (!mkt) continue;
-    const amount = safeNum(amtDecimal);
-    if (amount === 0) continue;
-    const priceUsd = mkt.price != null ? parseFloat(String(mkt.price)) : 0;
-    const ltFactor = normalizeLiquidationThresholdFactor(safeNum(mkt.liquidationThreshold));
-    const supplyParts = extractAprParts(mkt.supplyApr);
-    supplies.push({
-      id: `alphalend-supply-${marketIdNum}`,
-      asset: mkt.symbol ?? mkt.coinType.split("::").pop() ?? `Mkt${marketIdNum}`,
-      coinType: mkt.coinType,
-      sCoinType: "",
-      suppliedAmount: amount,
-      currentAmount: amount,
-      earnedInterest: 0,
-      earnedInterestUSD: 0,
-      supplyAPR: supplyParts.total,
-      supplyRewardAPR: supplyParts.rewardAPR,
-      aprBreakdown: {
-        baseAPR: supplyParts.baseAPR,
-        ...supplyParts.stakingAPR > 0 ? { stakingAPR: supplyParts.stakingAPR } : {},
-        rewardAPR: supplyParts.rewardAPR,
-        rewards: supplyParts.rewardTokens
-      },
-      currentValueUSD: amount * priceUsd,
-      liquidationThresholdFactor: ltFactor > 0 ? ltFactor : void 0,
-      startedAt: 0,
-      daysActive: 0,
-      events: [],
-      protocol: "AlphaLend",
-      iconUrl: null
-    });
+  const borrows = [];
+  const rewardsToClaim = [];
+  let totalSuppliedUSD = 0;
+  let totalBorrowedUSD = 0;
+  let safeBorrowLimitUSD = 0;
+  const portfolioHfs = [];
+  let netAprAcc = 0;
+  let dailyEarnAcc = 0;
+  for (const p of portfolios) {
+    const pSupplyUsd = safeNum(p.totalSuppliedUsd);
+    const pBorrowUsd = safeNum(p.totalBorrowedUsd);
+    const pLiqUsd = safeNum(p.liquidationThreshold);
+    const pSafe = safeNum(p.safeBorrowLimit);
+    totalSuppliedUSD += pSupplyUsd;
+    totalBorrowedUSD += pBorrowUsd;
+    safeBorrowLimitUSD += pSafe;
+    if (pBorrowUsd > 0 && pLiqUsd > 0) portfolioHfs.push(pLiqUsd / pBorrowUsd);
+    netAprAcc += safeNum(p.netApr);
+    dailyEarnAcc += safeNum(p.dailyEarnings);
+    const posKey = String(p.positionId ?? supplies.length);
+    for (const [marketIdNum, amtDecimal] of p.suppliedAmounts.entries()) {
+      const mkt = marketByIdRaw.get(marketIdNum);
+      if (!mkt) continue;
+      const amount = safeNum(amtDecimal);
+      if (amount === 0) continue;
+      const priceUsd = mkt.price != null ? parseFloat(String(mkt.price)) : 0;
+      const ltFactor = normalizeLiquidationThresholdFactor(safeNum(mkt.liquidationThreshold));
+      const supplyParts = extractAprParts(mkt.supplyApr);
+      supplies.push({
+        id: `alphalend-supply-${posKey}-${marketIdNum}`,
+        asset: mkt.symbol ?? mkt.coinType.split("::").pop() ?? `Mkt${marketIdNum}`,
+        coinType: mkt.coinType,
+        sCoinType: "",
+        suppliedAmount: amount,
+        currentAmount: amount,
+        earnedInterest: 0,
+        earnedInterestUSD: 0,
+        supplyAPR: supplyParts.total,
+        supplyRewardAPR: supplyParts.rewardAPR,
+        aprBreakdown: {
+          baseAPR: supplyParts.baseAPR,
+          ...supplyParts.stakingAPR > 0 ? { stakingAPR: supplyParts.stakingAPR } : {},
+          rewardAPR: supplyParts.rewardAPR,
+          rewards: supplyParts.rewardTokens
+        },
+        currentValueUSD: amount * priceUsd,
+        liquidationThresholdFactor: ltFactor > 0 ? ltFactor : void 0,
+        startedAt: 0,
+        daysActive: 0,
+        events: [],
+        protocol: "AlphaLend",
+        iconUrl: null
+      });
+    }
+    for (const [marketIdNum, amtDecimal] of p.borrowedAmounts.entries()) {
+      const mkt = marketByIdRaw.get(marketIdNum);
+      if (!mkt) continue;
+      const amount = safeNum(amtDecimal);
+      if (amount === 0) continue;
+      const priceUsd = mkt.price != null ? parseFloat(String(mkt.price)) : 0;
+      const borrowParts = extractAprParts(mkt.borrowApr);
+      const rewardAPR = borrowParts.rewardAPR;
+      const borrowAPR = borrowParts.baseAPR - rewardAPR;
+      const pHf = pBorrowUsd > 0 ? pLiqUsd / pBorrowUsd : null;
+      borrows.push({
+        id: `alphalend-borrow-${posKey}-${marketIdNum}`,
+        obligationId: p.positionId ?? "",
+        asset: mkt.symbol ?? mkt.coinType.split("::").pop() ?? `Mkt${marketIdNum}`,
+        coinType: mkt.coinType,
+        borrowedAmount: amount,
+        currentDebt: amount,
+        accruedInterest: 0,
+        accruedInterestUSD: 0,
+        borrowAPR,
+        borrowRewardAPR: rewardAPR,
+        netBorrowCost: borrowAPR,
+        aprBreakdown: {
+          baseAPR: borrowParts.baseAPR,
+          rewardAPR: borrowParts.rewardAPR,
+          rewards: borrowParts.rewardTokens
+        },
+        currentDebtUSD: amount * priceUsd,
+        collateral: [],
+        healthFactor: pHf ?? 0,
+        liquidationThreshold: pLiqUsd,
+        ...pSafe > 0 ? { safeBorrowLimit: pSafe } : {},
+        startedAt: 0,
+        daysActive: 0,
+        events: [],
+        protocol: "AlphaLend",
+        iconUrl: null
+      });
+    }
+    for (const r of p.rewardsToClaim ?? []) {
+      if (!(safeNum(r.rewardAmount) > 0)) continue;
+      const mkt = [...marketByIdRaw.values()].find((m) => m.coinType === r.coinType);
+      const priceUsd = mkt?.price != null ? parseFloat(String(mkt.price)) : 0;
+      const amount = safeNum(r.rewardAmount);
+      rewardsToClaim.push({
+        coinType: r.coinType,
+        symbol: mkt?.symbol ?? r.coinType.split("::").pop() ?? r.coinType,
+        amount,
+        valueUSD: amount * priceUsd
+      });
+    }
   }
   const suppliesWithLiq = enrichSupplyLiquidationPrices(supplies, totalBorrowedUSD);
   const collateral = suppliesWithLiq.map((s) => ({
@@ -3797,59 +3913,13 @@ async function getLendingPositions(walletAddress, options) {
     collateralWeight: 0,
     effectiveValueUSD: s.currentValueUSD
   }));
-  const borrows = [];
-  for (const [marketIdNum, amtDecimal] of p.borrowedAmounts.entries()) {
-    const mkt = marketByIdRaw.get(marketIdNum);
-    if (!mkt) continue;
-    const amount = safeNum(amtDecimal);
-    if (amount === 0) continue;
-    const priceUsd = mkt.price != null ? parseFloat(String(mkt.price)) : 0;
-    const borrowParts = extractAprParts(mkt.borrowApr);
-    const rewardAPR = borrowParts.rewardAPR;
-    const borrowAPR = borrowParts.baseAPR - rewardAPR;
-    borrows.push({
-      id: `alphalend-borrow-${marketIdNum}`,
-      obligationId: p.positionId ?? "",
-      asset: mkt.symbol ?? mkt.coinType.split("::").pop() ?? `Mkt${marketIdNum}`,
-      coinType: mkt.coinType,
-      borrowedAmount: amount,
-      currentDebt: amount,
-      accruedInterest: 0,
-      accruedInterestUSD: 0,
-      borrowAPR,
-      borrowRewardAPR: rewardAPR,
-      netBorrowCost: borrowAPR,
-      // already net
-      aprBreakdown: {
-        baseAPR: borrowParts.baseAPR,
-        rewardAPR: borrowParts.rewardAPR,
-        rewards: borrowParts.rewardTokens
-      },
-      currentDebtUSD: amount * priceUsd,
-      collateral,
-      healthFactor: healthFactor ?? 0,
-      liquidationThreshold: liquidationUSD,
-      ...safeBorrowLimitUSD > 0 ? { safeBorrowLimit: safeBorrowLimitUSD } : {},
-      startedAt: 0,
-      daysActive: 0,
-      events: [],
-      protocol: "AlphaLend",
-      iconUrl: null
-    });
+  const healthFactor = portfolioHfs.length > 0 ? Math.min(...portfolioHfs) : null;
+  for (const b of borrows) {
+    if (!(b.healthFactor > 0) && healthFactor != null) b.healthFactor = healthFactor;
+    b.collateral = collateral;
   }
-  const rewardsToClaim = (p.rewardsToClaim ?? []).filter((r) => safeNum(r.rewardAmount) > 0).map((r) => {
-    const mkt = [...marketByIdRaw.values()].find((m) => m.coinType === r.coinType);
-    const priceUsd = mkt?.price != null ? parseFloat(String(mkt.price)) : 0;
-    const amount = safeNum(r.rewardAmount);
-    return {
-      coinType: r.coinType,
-      symbol: mkt?.symbol ?? r.coinType.split("::").pop() ?? r.coinType,
-      amount,
-      valueUSD: amount * priceUsd
-    };
-  });
-  const netAPR = safeNum(p.netApr) / 100 || null;
-  const dailyEarningsUSD = safeNum(p.dailyEarnings) || null;
+  const netAPR = portfolios.length > 0 ? netAprAcc / portfolios.length / 100 || null : null;
+  const dailyEarningsUSD = dailyEarnAcc || null;
   return {
     supplies: suppliesWithLiq,
     borrows,
@@ -3860,7 +3930,8 @@ async function getLendingPositions(walletAddress, options) {
     netAPR,
     dailyEarningsUSD,
     rewardsToClaim,
-    protocol: "AlphaLend"
+    protocol: "AlphaLend",
+    ...safeBorrowLimitUSD > 0 ? {} : {}
   };
 }
 var EMPTY_SNAP = {
@@ -5193,7 +5264,15 @@ async function fetchMarketListPage(marketType) {
   const data = await getJson(q);
   return data?.content ?? [];
 }
-async function fetchAllMarketRows() {
+var marketRowsInflight = null;
+function fetchAllMarketRows() {
+  if (marketCache && Date.now() - marketCache.ts < 6e4) return Promise.resolve(marketCache.rows);
+  marketRowsInflight ??= fetchAllMarketRowsUncached().finally(() => {
+    marketRowsInflight = null;
+  });
+  return marketRowsInflight;
+}
+async function fetchAllMarketRowsUncached() {
   const now2 = Date.now();
   if (!marketCache || now2 - marketCache.ts >= 6e4) {
     const failed = [];
@@ -5513,20 +5592,20 @@ async function readMiningRewardApr(marketId, side, reserveCoin, exchangeOrIndex,
   }
   const content = fieldsOf(market.data?.content);
   const miner = fieldsOf(content?.liquidity_miner);
-  const tableId = uidOf(miner?.[side]);
+  const tableId2 = uidOf(miner?.[side]);
   if (!miner) {
     return { status: "unavailable", apr: null, parts: [], reason: "malformed liquidity miner", readAtMs };
   }
-  if (!tableId) {
+  if (!tableId2) {
     return { status: "empty", apr: 0, parts: [], reason: "no mining table", readAtMs };
   }
   let df;
   try {
     const dfName = normTypeName(reserveCoin);
     df = await memoRead(
-      `df:${tableId}:${dfName}`,
+      `df:${tableId2}:${dfName}`,
       () => suiClient.getDynamicFieldObject({
-        parentId: tableId,
+        parentId: tableId2,
         name: { type: "0x1::type_name::TypeName", value: { name: dfName } }
       })
     );
@@ -6385,10 +6464,403 @@ var EMPTY_CURRENT_SNAP = {
   protocol: "Current"
 };
 
-// src/config/junkTokens.ts
-var JUNK_COIN_TYPE_DENYLIST = /* @__PURE__ */ new Set([
-  // Приклад: додай пакети/типи, які не хочеш бачити
-]);
+// src/services/suilendService.ts
+init_suiClient();
+init_resolveSpots();
+import {
+  SuilendClient,
+  LENDING_MARKET_ID,
+  LENDING_MARKET_TYPE,
+  getCTokenMarketValue
+} from "@suilend/sdk";
+import { normalizeSuiAddress as normalizeSuiAddress2 } from "@mysten/sui/utils";
+var EMPTY_SUILEND_SNAP = {
+  supplies: [],
+  borrows: [],
+  totalSuppliedUSD: 0,
+  totalBorrowedUSD: 0,
+  netValueUSD: 0,
+  healthFactor: null,
+  rewardsToClaim: [],
+  protocol: "Suilend"
+};
+function toNum(v) {
+  if (v == null) return 0;
+  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+  const s = typeof v === "string" ? v : v.toString();
+  const n2 = Number(s);
+  return Number.isFinite(n2) ? n2 : 0;
+}
+function coinSym(ct) {
+  return ct.split("::").pop() ?? "?";
+}
+var _client2 = null;
+async function getClient2() {
+  if (_client2) return _client2;
+  _client2 = await SuilendClient.initialize(LENDING_MARKET_ID, LENDING_MARKET_TYPE, suiClient);
+  return _client2;
+}
+async function getSuilendPositions(walletAddress) {
+  let owner;
+  try {
+    owner = normalizeSuiAddress2(walletAddress.trim());
+  } catch {
+    owner = walletAddress.trim();
+  }
+  let caps;
+  try {
+    caps = await SuilendClient.getObligationOwnerCaps(owner, [LENDING_MARKET_TYPE], suiClient);
+  } catch (e) {
+    console.warn("[suilend] getObligationOwnerCaps failed", e);
+    return EMPTY_SUILEND_SNAP;
+  }
+  if (!caps?.length) return EMPTY_SUILEND_SNAP;
+  const client = await getClient2();
+  const market = client.lendingMarket;
+  const reserves = Array.isArray(market?.reserves) ? market.reserves : [];
+  const reserveByCoin = /* @__PURE__ */ new Map();
+  for (const r of reserves) {
+    const row = r;
+    if (typeof row.coinType === "string" && row.coinType) {
+      reserveByCoin.set(row.coinType.toLowerCase(), row);
+    }
+  }
+  const spotTypes = [...reserveByCoin.keys()];
+  let spots = /* @__PURE__ */ new Map();
+  if (spotTypes.length) {
+    try {
+      spots = await resolveSpots(
+        [...new Set([...reserveByCoin.values()].map((r) => r.coinType))],
+        (ct) => coinSym(ct)
+      );
+    } catch {
+    }
+  }
+  const priceOf = (ct) => {
+    const hit = spots.get(ct)?.price;
+    if (hit != null && hit > 0) return hit;
+    for (const [k, v] of spots) {
+      if (k.toLowerCase() === ct.toLowerCase() && v.price > 0) return v.price;
+    }
+    const r = reserveByCoin.get(ct.toLowerCase());
+    const px = toNum(r?.price);
+    return px > 0 ? px : Number.NaN;
+  };
+  const supplies = [];
+  const borrows = [];
+  let totalSuppliedUSD = 0;
+  let totalBorrowedUSD = 0;
+  let liquidationUSD = 0;
+  const obligationHfs = [];
+  for (const cap of caps) {
+    const oblId = String(cap.obligationId ?? "");
+    if (!oblId) continue;
+    let obligation;
+    try {
+      obligation = await SuilendClient.getObligation(oblId, [LENDING_MARKET_TYPE], suiClient);
+    } catch (e) {
+      console.warn("[suilend] getObligation failed", oblId.slice(0, 12), e);
+      continue;
+    }
+    let oblBorrow = 0;
+    let oblLiq = 0;
+    const deposits = obligation.deposits ?? [];
+    for (const d of deposits) {
+      const dep = d;
+      const coinType = typeof dep.coinType === "string" ? dep.coinType : "";
+      if (!coinType) continue;
+      const reserve = reserveByCoin.get(coinType.toLowerCase());
+      const ctoken = toNum(dep.depositedCtokenAmount);
+      let amount = 0;
+      try {
+        if (reserve && typeof getCTokenMarketValue === "function") {
+          const mv = getCTokenMarketValue(reserve, ctoken);
+          amount = toNum(mv);
+        }
+      } catch {
+      }
+      const decimals = reserve?.mintDecimals ?? 9;
+      if (!(amount > 0)) {
+        const avail = toNum(reserve?.availableAmount);
+        const borrowed = toNum(reserve?.borrowedAmount);
+        const supply = toNum(reserve?.ctokenSupply);
+        const underlying = supply > 0 ? ctoken * (avail + borrowed) / supply : ctoken;
+        amount = underlying / 10 ** decimals;
+      } else if (amount > 1e6) {
+        amount = amount / 10 ** decimals;
+      }
+      const px = priceOf(coinType);
+      let valueUSD = Number.isFinite(px) ? amount * px : Number.NaN;
+      if (!Number.isFinite(valueUSD) && amount > 0 && amount < 1e9) {
+        valueUSD = Number.NaN;
+      }
+      const closeLtvRaw = reserve?.config?.closeLtvPct ?? 0;
+      const closeLtv = closeLtvRaw > 1 ? closeLtvRaw / 100 : closeLtvRaw;
+      const ltFactor = normalizeLiquidationThresholdFactor(closeLtv);
+      if (Number.isFinite(valueUSD)) {
+        totalSuppliedUSD += valueUSD;
+        if (ltFactor > 0) {
+          oblLiq += valueUSD * ltFactor;
+          liquidationUSD += valueUSD * ltFactor;
+        }
+      }
+      supplies.push({
+        id: `suilend-supply-${oblId.slice(2, 10)}-${coinSym(coinType)}`,
+        asset: reserve?.symbol ?? coinSym(coinType),
+        coinType,
+        sCoinType: "",
+        suppliedAmount: amount,
+        currentAmount: amount,
+        earnedInterest: 0,
+        earnedInterestUSD: 0,
+        supplyAPR: 0,
+        currentValueUSD: valueUSD,
+        liquidationThresholdFactor: ltFactor > 0 ? ltFactor : void 0,
+        startedAt: 0,
+        daysActive: 0,
+        events: [],
+        protocol: "Suilend",
+        iconUrl: null
+      });
+    }
+    const borrowRows = obligation.borrows ?? [];
+    for (const b of borrowRows) {
+      const bor = b;
+      const coinType = typeof bor.coinType === "string" ? bor.coinType : "";
+      if (!coinType) continue;
+      const reserve = reserveByCoin.get(coinType.toLowerCase());
+      let borrowed = toNum(bor.borrowedAmount);
+      if (borrowed > 1e12) borrowed = borrowed / 1e18;
+      const decimals = reserve?.mintDecimals ?? 9;
+      if (borrowed > 1e6) borrowed = borrowed / 10 ** decimals;
+      if (!(borrowed > 0)) continue;
+      const px = priceOf(coinType);
+      const debtUSD = Number.isFinite(px) ? borrowed * px : Number.NaN;
+      if (Number.isFinite(debtUSD)) {
+        oblBorrow += debtUSD;
+        totalBorrowedUSD += debtUSD;
+      }
+      borrows.push({
+        id: `suilend-borrow-${oblId.slice(2, 10)}-${coinSym(coinType)}`,
+        obligationId: oblId,
+        asset: reserve?.symbol ?? coinSym(coinType),
+        coinType,
+        borrowedAmount: borrowed,
+        currentDebt: borrowed,
+        accruedInterest: 0,
+        accruedInterestUSD: 0,
+        borrowAPR: 0,
+        netBorrowCost: 0,
+        currentDebtUSD: debtUSD,
+        collateral: [],
+        healthFactor: 0,
+        liquidationThreshold: 0,
+        startedAt: 0,
+        daysActive: 0,
+        events: [],
+        protocol: "Suilend",
+        iconUrl: null
+      });
+    }
+    if (oblBorrow > 0 && oblLiq > 0) obligationHfs.push(oblLiq / oblBorrow);
+  }
+  const suppliesWithLiq = enrichSupplyLiquidationPrices(supplies, totalBorrowedUSD);
+  const collateral = suppliesWithLiq.map((s) => ({
+    asset: s.asset,
+    amount: s.currentAmount,
+    valueUSD: Number.isFinite(s.currentValueUSD) ? s.currentValueUSD : 0,
+    collateralWeight: 0,
+    effectiveValueUSD: Number.isFinite(s.currentValueUSD) ? s.currentValueUSD : 0
+  }));
+  const healthFactor = obligationHfs.length > 0 ? Math.min(...obligationHfs) : totalBorrowedUSD > 0 && liquidationUSD > 0 ? liquidationUSD / totalBorrowedUSD : null;
+  for (const b of borrows) {
+    b.healthFactor = healthFactor ?? 0;
+    b.liquidationThreshold = liquidationUSD;
+    b.collateral = collateral;
+  }
+  return {
+    supplies: suppliesWithLiq,
+    borrows,
+    totalSuppliedUSD,
+    totalBorrowedUSD,
+    netValueUSD: totalSuppliedUSD - totalBorrowedUSD,
+    healthFactor,
+    rewardsToClaim: [],
+    protocol: "Suilend"
+  };
+}
+
+// src/services/scallopLendingService.ts
+init_suiClient();
+
+// src/services/objectVersionCache.ts
+function asRpcObjectClient(client) {
+  return client;
+}
+var CHUNK2 = 50;
+function normId(id) {
+  const t = id.trim().toLowerCase();
+  return t.startsWith("0x") ? t : `0x${t}`;
+}
+var ObjectVersionCache = class {
+  map = /* @__PURE__ */ new Map();
+  get(id) {
+    return this.map.get(normId(id));
+  }
+  hasContent(id) {
+    const hit = this.get(id);
+    return hit != null && hit.content != null;
+  }
+  put(data) {
+    if (!data.objectId || data.content == null) return;
+    this.map.set(normId(data.objectId), {
+      objectId: data.objectId,
+      version: String(data.version),
+      digest: data.digest,
+      type: data.type,
+      content: data.content
+    });
+  }
+  putResponses(res) {
+    for (const r of res) {
+      if (r.data?.content != null) this.put(r.data);
+    }
+  }
+  toResponse(id) {
+    const hit = this.get(id);
+    if (!hit) return null;
+    return { data: hit };
+  }
+  clear() {
+    this.map.clear();
+  }
+  size() {
+    return this.map.size;
+  }
+};
+var shared3 = null;
+function getObjectVersionCache() {
+  if (!shared3) shared3 = new ObjectVersionCache();
+  return shared3;
+}
+var CHUNK_CONCURRENCY = 4;
+async function multiGetChunked(client, ids, options) {
+  const parts = [];
+  for (let i = 0; i < ids.length; i += CHUNK2) parts.push(ids.slice(i, i + CHUNK2));
+  const results = new Array(parts.length);
+  let next = 0;
+  const worker = async () => {
+    for (; ; ) {
+      const idx = next++;
+      if (idx >= parts.length) return;
+      results[idx] = await client.multiGetObjects({ ids: parts[idx], options });
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, parts.length) }, worker));
+  return results.flat();
+}
+async function multiGetObjectsHydrated(client, ids, opts) {
+  if (!ids.length) return [];
+  const cache3 = getObjectVersionCache();
+  const showType = opts?.showType !== false;
+  const showContent = opts?.showContent !== false;
+  const incremental = opts?.incremental === true;
+  if (!incremental) {
+    const res = await multiGetChunked(client, ids, { showContent, showType });
+    cache3.putResponses(res);
+    return res;
+  }
+  const needFull = [];
+  const versionCheck = [];
+  for (const id of ids) {
+    if (cache3.hasContent(id)) versionCheck.push(id);
+    else needFull.push(id);
+  }
+  if (versionCheck.length) {
+    const versionRes = await multiGetChunked(client, versionCheck, { showContent: false, showType: false });
+    for (const r of versionRes) {
+      const id = r.data?.objectId;
+      if (!id) continue;
+      const ver = r.data?.version != null ? String(r.data.version) : "";
+      const cached2 = cache3.get(id);
+      if (!cached2 || cached2.version !== ver) needFull.push(id);
+    }
+  }
+  const uniqueFull = [...new Set(needFull.map(normId))];
+  const fullRes = uniqueFull.length ? await multiGetChunked(client, uniqueFull, { showContent: true, showType }) : [];
+  cache3.putResponses(fullRes);
+  const byId = /* @__PURE__ */ new Map();
+  for (const r of fullRes) {
+    if (r.data?.objectId) byId.set(normId(r.data.objectId), r);
+  }
+  return ids.map((id) => {
+    const key = normId(id);
+    const fresh = byId.get(key);
+    if (fresh) return fresh;
+    return cache3.toResponse(key) ?? { data: null };
+  });
+}
+async function listOwnedMoveObjects(client, args) {
+  const cache3 = getObjectVersionCache();
+  const incremental = args.incremental === true;
+  const collected = [];
+  let cursor;
+  for (; ; ) {
+    const page = await client.getOwnedObjects({
+      owner: args.owner,
+      filter: args.filter,
+      options: {
+        showContent: !incremental,
+        showType: true
+      },
+      cursor: cursor ?? null,
+      limit: args.limit ?? 50
+    });
+    collected.push(...page.data);
+    if (!page.hasNextPage) break;
+    cursor = page.nextCursor ?? null;
+  }
+  if (!incremental) {
+    cache3.putResponses(collected);
+    return collected;
+  }
+  const ids = collected.map((r) => r.data?.objectId).filter((id) => Boolean(id));
+  if (!ids.length) return collected;
+  return multiGetObjectsHydrated(client, ids, { incremental: true, showType: true });
+}
+
+// src/services/scallopLendingService.ts
+init_resolveSpots();
+
+// src/services/turbosService.ts
+init_suiClient();
+import { TickMath, Utils } from "@mmt-finance/clmm-sdk";
+init_resolveSpots();
+init_concurrency();
+init_constants();
+import { normalizeStructTag, normalizeSuiAddress as normalizeSuiAddress3 } from "@mysten/sui/utils";
+
+// src/clmm/feeGrowth.ts
+var U128_MOD = 2n ** 128n;
+var U64_MAX = 18446744073709551615n;
+function computeFeeGrowthInside(feeGrowthGlobal, lowerFeeGrowthOutside, upperFeeGrowthOutside, lowerTick, upperTick, currentTick) {
+  const feeGrowthBelow = currentTick >= lowerTick ? lowerFeeGrowthOutside : (feeGrowthGlobal - lowerFeeGrowthOutside + U128_MOD) % U128_MOD;
+  const feeGrowthAbove = currentTick < upperTick ? upperFeeGrowthOutside : (feeGrowthGlobal - upperFeeGrowthOutside + U128_MOD) % U128_MOD;
+  return (feeGrowthGlobal - feeGrowthBelow - feeGrowthAbove + 2n * U128_MOD) % U128_MOD;
+}
+function computeTotalOwed(tokensOwedRaw, feeGrowthInsideNow, feeGrowthInsideLast, liquidity, shiftBits = 128) {
+  try {
+    const liq = BigInt(liquidity);
+    if (liq === 0n) return tokensOwedRaw;
+    const owed = BigInt(tokensOwedRaw || "0");
+    const delta = (feeGrowthInsideNow - feeGrowthInsideLast + U128_MOD) % U128_MOD;
+    const live = delta * liq >> BigInt(shiftBits);
+    const total = owed + live > U64_MAX ? owed : owed + live;
+    return total.toString();
+  } catch {
+    return tokensOwedRaw;
+  }
+}
 
 // src/utils/cetusVault.ts
 import Decimal3 from "decimal.js";
@@ -6485,6 +6957,928 @@ function dynamicFieldChildId(item) {
   return fromName;
 }
 
+// src/utils/clmmTickBounds.ts
+function ordered(tickLower, tickUpper) {
+  return {
+    lower: Math.min(tickLower, tickUpper),
+    upper: Math.max(tickLower, tickUpper)
+  };
+}
+function cetusTickInRange(currentTick, tickLower, tickUpper) {
+  const { lower, upper } = ordered(tickLower, tickUpper);
+  return currentTick >= lower && currentTick < upper;
+}
+function bluefinTickInRange(currentTick, tickLower, tickUpper) {
+  const { lower, upper } = ordered(tickLower, tickUpper);
+  return currentTick >= lower && currentTick < upper;
+}
+
+// src/utils/lpLifecycle.ts
+function liquidityRawState(liquidity) {
+  if (liquidity == null || liquidity === "") return "unknown";
+  if (!/^\d+$/.test(liquidity)) return "unknown";
+  try {
+    return BigInt(liquidity) === 0n ? "zero" : "positive";
+  } catch {
+    return "unknown";
+  }
+}
+function resolveLifecycleStatus(liquidity) {
+  const s = liquidityRawState(liquidity);
+  if (s === "zero") return "empty";
+  if (s === "positive") return "active";
+  return "unknown";
+}
+
+// src/services/turbosService.ts
+import Decimal4 from "decimal.js";
+import BN from "bn.js";
+var TURBOS_POSITION_TYPE = `${PROTOCOL_PACKAGES.TURBOS}::position_nft::TurbosPositionNFT`;
+var MAX_SANE_POSITION_USD = 5e7;
+var MAX_SANE_HUMAN_TOKENS = 1e18;
+var STABLECOIN_SYMS = /* @__PURE__ */ new Set([
+  "USDC",
+  "USDT",
+  "DAI",
+  "BUSD",
+  "TUSD",
+  "FDUSD",
+  "PYUSD",
+  "USDD",
+  "FRAX",
+  "LUSD",
+  "SUSD",
+  "GUSD"
+]);
+function unwrapStruct(val) {
+  if (!val || typeof val !== "object") return null;
+  const obj = val;
+  if (obj.fields != null && typeof obj.fields === "object") {
+    return obj.fields;
+  }
+  return obj;
+}
+function normTypeSafe(raw) {
+  try {
+    return normalizeStructTag(raw.trim());
+  } catch {
+    return null;
+  }
+}
+function normCoinType(raw) {
+  if (typeof raw !== "string" || !raw) return null;
+  const s = raw.trim();
+  const full = s.startsWith("0x") ? s : `0x${s}`;
+  return normTypeSafe(full);
+}
+function extractTypeName(val) {
+  if (typeof val === "string") return normCoinType(val);
+  if (!val || typeof val !== "object") return null;
+  const obj = val;
+  if (typeof obj.name === "string" && obj.name) return normCoinType(obj.name);
+  const f = obj.fields;
+  if (f && typeof f === "object") {
+    const name = f.name;
+    if (typeof name === "string" && name) return normCoinType(name);
+  }
+  return null;
+}
+function coinTypesFromPoolType(poolType) {
+  if (!poolType || typeof poolType !== "string") return { coinTypeA: null, coinTypeB: null };
+  const args = typeArguments(poolType);
+  return {
+    coinTypeA: args[0] ? normCoinType(args[0]) : null,
+    coinTypeB: args[1] ? normCoinType(args[1]) : null
+  };
+}
+function objectTypeString(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw;
+  const data = o.data ?? o;
+  const t = data.type;
+  return typeof t === "string" && t.includes("<") ? t : null;
+}
+function normId2(raw) {
+  if (typeof raw !== "string") return "";
+  try {
+    return normalizeSuiAddress3(raw.trim());
+  } catch {
+    return raw.trim();
+  }
+}
+function i32FromBits(bits) {
+  const n2 = typeof bits === "number" ? bits : typeof bits === "string" ? Number(bits) : NaN;
+  if (!Number.isFinite(n2)) return 0;
+  const u = Math.floor(n2) & 4294967295;
+  return u > 2147483647 ? u - 4294967296 : u;
+}
+function readTick(val) {
+  const s = unwrapStruct(val);
+  if (!s) return 0;
+  return i32FromBits(s.bits);
+}
+function safeHumanFromBnRaw(rawBn, decimals) {
+  try {
+    const raw = rawBn.toString(10);
+    if (!/^\d+$/.test(raw) || !Number.isFinite(decimals) || decimals < 0) return 0;
+    const d = new Decimal4(raw).div(new Decimal4(10).pow(decimals));
+    const n2 = d.toNumber();
+    if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS) return 0;
+    return n2;
+  } catch {
+    return 0;
+  }
+}
+function rawToHuman(raw, decimals) {
+  const s = typeof raw === "string" ? raw : typeof raw === "number" ? String(raw) : "0";
+  if (!/^\d+$/.test(s)) return 0;
+  try {
+    return safeHumanFromBnRaw(new BN(s, 10), decimals);
+  } catch {
+    return 0;
+  }
+}
+function spotPriceSafe(raw) {
+  if (raw == null || !Number.isFinite(raw) || raw <= 0 || raw > 1e8) return 0;
+  return raw;
+}
+function clampUsd(v) {
+  return Number.isFinite(v) && v >= 0 && v <= MAX_SANE_POSITION_USD ? v : 0;
+}
+function symbolFromCoinType(ct) {
+  const p = ct.split("::");
+  return p[2] ?? p[1] ?? "\u2014";
+}
+function parseNftObject(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  const o = obj;
+  const data = o.data ?? o;
+  const content = data.content;
+  if (!content) return null;
+  const fields = content.fields ?? content;
+  const nftId = normId2(data.objectId ?? data.id?.id);
+  const poolId = normId2(fields.pool_id);
+  const positionId = normId2(fields.position_id);
+  if (!nftId || !poolId || !positionId) return null;
+  const coinTypeA = extractTypeName(fields.coin_type_a);
+  const coinTypeB = extractTypeName(fields.coin_type_b);
+  return { nftId, poolId, positionId, coinTypeA, coinTypeB };
+}
+function parsePositionObject(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  const o = obj;
+  const data = o.data ?? o;
+  const content = data.content;
+  if (!content) return null;
+  const f = content.fields ?? content;
+  const liquidity = String(f.liquidity ?? "0");
+  const lowerTick = readTick(f.tick_lower_index);
+  const upperTick = readTick(f.tick_upper_index);
+  const lowerTickRaw = f.tick_lower_index;
+  const upperTickRaw = f.tick_upper_index;
+  const tokensOwedA = String(f.tokens_owed_a ?? "0");
+  const tokensOwedB = String(f.tokens_owed_b ?? "0");
+  const feeGrowthInsideA = String(f.fee_growth_inside_a ?? "0");
+  const feeGrowthInsideB = String(f.fee_growth_inside_b ?? "0");
+  const rewardAmounts = [];
+  const rewardGrowthInsides = [];
+  if (Array.isArray(f.reward_infos)) {
+    for (const ri of f.reward_infos) {
+      const rif = unwrapStruct(ri);
+      rewardAmounts.push(String(rif?.amount_owed ?? "0"));
+      rewardGrowthInsides.push(String(rif?.reward_growth_inside ?? "0"));
+    }
+  }
+  return { liquidity, lowerTick, upperTick, lowerTickRaw, upperTickRaw, tokensOwedA, tokensOwedB, feeGrowthInsideA, feeGrowthInsideB, rewardAmounts, rewardGrowthInsides };
+}
+function parsePoolObject(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  const o = obj;
+  const data = o.data ?? o;
+  const content = data.content;
+  if (!content) return null;
+  const f = content.fields ?? content;
+  const poolType = objectTypeString(obj) ?? (typeof data.type === "string" ? data.type : null);
+  const fromType = coinTypesFromPoolType(poolType);
+  const sqrtPriceStr = String(f.sqrt_price ?? "0");
+  const currentTick = readTick(f.tick_current_index);
+  const rawFee = typeof f.fee === "number" ? f.fee : Number(f.fee) || 0;
+  const feeRate = rawFee / 1e6;
+  const rewardCoinTypes = [];
+  const rewardGrowthGlobals = [];
+  const rewardEmissionsPerSecond = [];
+  if (Array.isArray(f.reward_infos)) {
+    for (const ri of f.reward_infos) {
+      const rif = unwrapStruct(ri);
+      const ct = extractTypeName(rif?.vault_coin_type) ?? normCoinType(rif?.vault_coin_type);
+      if (ct) rewardCoinTypes.push(ct);
+      rewardGrowthGlobals.push(String(rif?.growth_global ?? "0"));
+      rewardEmissionsPerSecond.push(String(rif?.emissions_per_second ?? "0"));
+    }
+  }
+  const poolLiquidity = String(f.liquidity ?? "0");
+  const feeGrowthGlobalA = String(f.fee_growth_global_a ?? "0");
+  const feeGrowthGlobalB = String(f.fee_growth_global_b ?? "0");
+  let ticksTableId = null;
+  try {
+    const tm = unwrapStruct(f.tick_manager);
+    const ticks = tm?.ticks;
+    const ticksF = ticks?.fields ?? ticks;
+    const idW = ticksF?.id;
+    const rawId = idW?.id ?? idW;
+    if (typeof rawId === "string" && rawId.startsWith("0x")) {
+      ticksTableId = rawId;
+    }
+  } catch {
+  }
+  return {
+    sqrtPriceStr,
+    currentTick,
+    feeRate,
+    rewardCoinTypes,
+    feeGrowthGlobalA,
+    feeGrowthGlobalB,
+    rewardGrowthGlobals,
+    rewardEmissionsPerSecond,
+    poolLiquidity,
+    ticksTableId,
+    poolType,
+    coinTypeA: fromType.coinTypeA,
+    coinTypeB: fromType.coinTypeB
+  };
+}
+async function fetchTurbosTickFeeGrowth(poolId, tickRaw, tickIndex) {
+  let nameType;
+  let nameValue;
+  const rawObj = tickRaw;
+  if (rawObj && typeof rawObj.type === "string" && rawObj.fields) {
+    nameType = rawObj.type;
+    nameValue = rawObj.fields;
+  } else {
+    nameType = `${PROTOCOL_PACKAGES.TURBOS}::i32::I32`;
+    nameValue = { bits: tickIndex >>> 0 };
+  }
+  try {
+    const obj = await suiClient.getDynamicFieldObject({
+      parentId: poolId,
+      name: { type: nameType, value: nameValue }
+    });
+    if (!obj?.data?.content) return null;
+    const c = obj.data.content;
+    const fields = c.fields ?? c;
+    const tickFields = unwrapStruct(fields.value ?? fields);
+    if (!tickFields) return null;
+    const readU128 = (v) => {
+      const s = typeof v === "string" ? v : typeof v === "number" ? String(v) : "0";
+      try {
+        return BigInt(s);
+      } catch {
+        return 0n;
+      }
+    };
+    const feeGrowthOutsideA = readU128(tickFields.fee_growth_outside_a);
+    const feeGrowthOutsideB = readU128(tickFields.fee_growth_outside_b);
+    const rewardGrowthOutsides = [];
+    if (Array.isArray(tickFields.reward_growths_outside)) {
+      for (const r of tickFields.reward_growths_outside) rewardGrowthOutsides.push(readU128(r));
+    }
+    return { feeGrowthOutsideA, feeGrowthOutsideB, rewardGrowthOutsides };
+  } catch (e) {
+    console.warn("[turbos-tick] fetch failed poolId", poolId.slice(0, 16), "tick", tickIndex, e?.message);
+    return null;
+  }
+}
+function computeTotalRewardOwed(amountOwedRaw, rewardGrowthInsideNow, rewardGrowthInsideLast, liquidity) {
+  try {
+    const liq = BigInt(liquidity);
+    if (liq === 0n) return amountOwedRaw;
+    const owed = BigInt(amountOwedRaw);
+    const delta = (rewardGrowthInsideNow - rewardGrowthInsideLast + U128_MOD) % U128_MOD;
+    const live = delta * liq >> 64n;
+    const total = owed + live > U64_MAX ? owed : owed + live;
+    return total.toString();
+  } catch {
+    return amountOwedRaw;
+  }
+}
+async function getTurbosPositions(walletAddress, options) {
+  const incremental = options?.incremental === true;
+  const owned = await listOwnedMoveObjects(asRpcObjectClient(suiClient), {
+    owner: walletAddress,
+    filter: { StructType: TURBOS_POSITION_TYPE },
+    incremental
+  });
+  const nfts = [];
+  for (const item of owned) {
+    const parsed = parseNftObject(item);
+    if (parsed) nfts.push(parsed);
+  }
+  if (nfts.length === 0) return [];
+  const positionObjs = await multiGetObjectsHydrated(
+    asRpcObjectClient(suiClient),
+    nfts.map((n2) => n2.positionId),
+    { incremental }
+  );
+  const posData = /* @__PURE__ */ new Map();
+  for (let i = 0; i < nfts.length; i++) {
+    const raw = positionObjs[i];
+    if (!raw) continue;
+    const parsed = parsePositionObject(raw);
+    if (!parsed) continue;
+    if (parsed.liquidity === "0" || !parsed.liquidity) continue;
+    posData.set(nfts[i].positionId, parsed);
+  }
+  const openNfts = nfts.filter((n2) => posData.has(n2.positionId));
+  if (openNfts.length === 0) return [];
+  const uniquePoolIds = [...new Set(openNfts.map((n2) => n2.poolId))];
+  const poolObjs = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), uniquePoolIds, { incremental });
+  const poolData = /* @__PURE__ */ new Map();
+  for (let i = 0; i < uniquePoolIds.length; i++) {
+    const raw = poolObjs[i];
+    if (!raw) continue;
+    const parsed = parsePoolObject(raw);
+    if (!parsed) continue;
+    poolData.set(uniquePoolIds[i], parsed);
+  }
+  const allCoinTypes = /* @__PURE__ */ new Set();
+  for (const n2 of openNfts) {
+    const pool = poolData.get(n2.poolId);
+    if (!pool) continue;
+    const ctA = n2.coinTypeA ?? pool.coinTypeA;
+    const ctB = n2.coinTypeB ?? pool.coinTypeB;
+    if (ctA) allCoinTypes.add(ctA);
+    if (ctB) allCoinTypes.add(ctB);
+    for (const ct of pool.rewardCoinTypes) allCoinTypes.add(ct);
+  }
+  const metaMap = /* @__PURE__ */ new Map();
+  await mapPool([...allCoinTypes], RPC_CONCURRENCY, async (ct) => {
+    try {
+      const m = await suiClient.getCoinMetadata({ coinType: ct });
+      metaMap.set(ct, {
+        symbol: m?.symbol ?? symbolFromCoinType(ct),
+        decimals: m?.decimals ?? 9,
+        iconUrl: typeof m?.iconUrl === "string" && m.iconUrl.startsWith("https://") ? m.iconUrl : null
+      });
+    } catch {
+      metaMap.set(ct, { symbol: symbolFromCoinType(ct), decimals: 9, iconUrl: null });
+    }
+  });
+  const getMeta = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType(ct), decimals: 9, iconUrl: null };
+  let spotsMap = /* @__PURE__ */ new Map();
+  try {
+    spotsMap = await resolveSpots([...allCoinTypes], (ct) => getMeta(ct).symbol);
+  } catch {
+  }
+  const tickFetchResults = /* @__PURE__ */ new Map();
+  await mapPool(openNfts, RPC_CONCURRENCY, async (nft) => {
+    const pos = posData.get(nft.positionId);
+    if (!pos) return;
+    const [lower, upper] = await Promise.all([
+      fetchTurbosTickFeeGrowth(nft.poolId, pos.lowerTickRaw, pos.lowerTick),
+      fetchTurbosTickFeeGrowth(nft.poolId, pos.upperTickRaw, pos.upperTick)
+    ]);
+    tickFetchResults.set(nft.positionId, { lower, upper });
+  });
+  const out = [];
+  for (const nft of openNfts) {
+    const pos = posData.get(nft.positionId);
+    const pool = poolData.get(nft.poolId);
+    if (!pos || !pool) {
+      if (nft.nftId) {
+        out.push({
+          id: nft.nftId,
+          protocol: "turbos",
+          poolId: nft.poolId || "",
+          turbosPositionObjectId: nft.positionId,
+          pair: "\u2014/\u2014",
+          tokenA: "\u2014",
+          tokenB: "\u2014",
+          tokenAAddress: "",
+          tokenBAddress: "",
+          tokenADecimals: 0,
+          tokenBDecimals: 0,
+          fee: 0,
+          tickLower: 0,
+          tickUpper: 0,
+          currentTick: 0,
+          currentSqrtPrice: "0",
+          liquidity: "0",
+          lifecycleStatus: "unknown",
+          status: "out_of_range",
+          tokenAAmount: 0,
+          tokenBAmount: 0,
+          currentPriceA_USD: Number.NaN,
+          currentPriceB_USD: Number.NaN,
+          currentValueUSD: Number.NaN,
+          depositedUSD: Number.NaN,
+          pnlUSD: Number.NaN,
+          pnlPct: Number.NaN,
+          unclaimedFeeA: 0,
+          unclaimedFeeB: 0,
+          unclaimedFeeUSD: Number.NaN,
+          unclaimedRewardUSD: Number.NaN,
+          openedAt: 0,
+          daysOpen: Number.NaN,
+          lifetimeEarningsUSD: Number.NaN,
+          vsHodlDeltaUSD: Number.NaN,
+          aprEstimatePct: Number.NaN,
+          historyPartial: true
+        });
+      }
+      continue;
+    }
+    const rawCtA = nft.coinTypeA ?? pool.coinTypeA ?? "";
+    const rawCtB = nft.coinTypeB ?? pool.coinTypeB ?? "";
+    if (!rawCtA || !rawCtB) {
+      out.push({
+        id: nft.nftId,
+        protocol: "turbos",
+        poolId: nft.poolId,
+        turbosPositionObjectId: nft.positionId,
+        pair: "\u2014/\u2014",
+        tokenA: "\u2014",
+        tokenB: "\u2014",
+        tokenAAddress: rawCtA,
+        tokenBAddress: rawCtB,
+        tokenADecimals: 0,
+        tokenBDecimals: 0,
+        fee: pool.feeRate,
+        tickLower: pos.lowerTick,
+        tickUpper: pos.upperTick,
+        currentTick: pool.currentTick,
+        currentSqrtPrice: pool.sqrtPriceStr,
+        liquidity: pos.liquidity,
+        lifecycleStatus: resolveLifecycleStatus(pos.liquidity),
+        status: "out_of_range",
+        tokenAAmount: 0,
+        tokenBAmount: 0,
+        currentPriceA_USD: Number.NaN,
+        currentPriceB_USD: Number.NaN,
+        currentValueUSD: Number.NaN,
+        depositedUSD: Number.NaN,
+        pnlUSD: Number.NaN,
+        pnlPct: Number.NaN,
+        unclaimedFeeA: 0,
+        unclaimedFeeB: 0,
+        unclaimedFeeUSD: Number.NaN,
+        unclaimedRewardUSD: Number.NaN,
+        openedAt: 0,
+        daysOpen: Number.NaN,
+        lifetimeEarningsUSD: Number.NaN,
+        vsHodlDeltaUSD: Number.NaN,
+        aprEstimatePct: Number.NaN,
+        historyPartial: true
+      });
+      continue;
+    }
+    const metaA = getMeta(rawCtA);
+    const metaB = getMeta(rawCtB);
+    const liqBn = /^\d+$/.test(pos.liquidity) ? new BN(pos.liquidity, 10) : new BN(0);
+    const curSqrtBn = /^\d+$/.test(pool.sqrtPriceStr) && pool.sqrtPriceStr !== "0" ? new BN(pool.sqrtPriceStr, 10) : new BN(0);
+    let humA = 0;
+    let humB = 0;
+    if (!liqBn.isZero() && !curSqrtBn.isZero()) {
+      try {
+        const lowerSqrt = TickMath.tickIndexToSqrtPriceX64(pos.lowerTick);
+        const upperSqrt = TickMath.tickIndexToSqrtPriceX64(pos.upperTick);
+        const { coinA, coinB } = Utils.getCoinAmountFromLiquidity(
+          liqBn,
+          curSqrtBn,
+          lowerSqrt,
+          upperSqrt,
+          false
+        );
+        humA = safeHumanFromBnRaw(coinA, metaA.decimals);
+        humB = safeHumanFromBnRaw(coinB, metaB.decimals);
+      } catch {
+      }
+    }
+    const tickResult = tickFetchResults.get(nft.positionId);
+    let rawUnclA;
+    let rawUnclB;
+    if (tickResult?.lower && tickResult?.upper) {
+      try {
+        const fggA = BigInt(pool.feeGrowthGlobalA || "0");
+        const fggB = BigInt(pool.feeGrowthGlobalB || "0");
+        const fgiNowA = computeFeeGrowthInside(
+          fggA,
+          tickResult.lower.feeGrowthOutsideA,
+          tickResult.upper.feeGrowthOutsideA,
+          pos.lowerTick,
+          pos.upperTick,
+          pool.currentTick
+        );
+        const fgiNowB = computeFeeGrowthInside(
+          fggB,
+          tickResult.lower.feeGrowthOutsideB,
+          tickResult.upper.feeGrowthOutsideB,
+          pos.lowerTick,
+          pos.upperTick,
+          pool.currentTick
+        );
+        rawUnclA = computeTotalOwed(
+          pos.tokensOwedA,
+          fgiNowA,
+          BigInt(pos.feeGrowthInsideA || "0"),
+          pos.liquidity
+        );
+        rawUnclB = computeTotalOwed(
+          pos.tokensOwedB,
+          fgiNowB,
+          BigInt(pos.feeGrowthInsideB || "0"),
+          pos.liquidity
+        );
+      } catch {
+        rawUnclA = pos.tokensOwedA;
+        rawUnclB = pos.tokensOwedB;
+      }
+    } else {
+      rawUnclA = pos.tokensOwedA;
+      rawUnclB = pos.tokensOwedB;
+    }
+    const unclFeeA = rawToHuman(rawUnclA, metaA.decimals);
+    const unclFeeB = rawToHuman(rawUnclB, metaB.decimals);
+    let unclRewardUsd = 0;
+    for (let i = 0; i < pool.rewardCoinTypes.length; i++) {
+      const rct = pool.rewardCoinTypes[i];
+      const rMeta = getMeta(rct);
+      let rRaw = pos.rewardAmounts[i] ?? "0";
+      if (tickResult?.lower && tickResult?.upper) {
+        try {
+          const rewardGlobal = BigInt(pool.rewardGrowthGlobals[i] ?? "0");
+          const lowerRewardOutside = tickResult.lower.rewardGrowthOutsides[i] ?? 0n;
+          const upperRewardOutside = tickResult.upper.rewardGrowthOutsides[i] ?? 0n;
+          const rewardInsideLast = BigInt(pos.rewardGrowthInsides[i] ?? "0");
+          const rewardInsideNow = computeFeeGrowthInside(
+            rewardGlobal,
+            lowerRewardOutside,
+            upperRewardOutside,
+            pos.lowerTick,
+            pos.upperTick,
+            pool.currentTick
+          );
+          rRaw = computeTotalRewardOwed(rRaw, rewardInsideNow, rewardInsideLast, pos.liquidity);
+        } catch {
+        }
+      }
+      const rHum = rawToHuman(rRaw, rMeta.decimals);
+      const rPx = spotPriceSafe(spotsMap.get(rct)?.price);
+      if (rPx > 0) unclRewardUsd += rHum * rPx;
+    }
+    const pxARaw = spotsMap.get(rawCtA)?.price;
+    const pxBRaw = spotsMap.get(rawCtB)?.price;
+    const pxA = pxARaw != null && Number.isFinite(pxARaw) && pxARaw > 0 && pxARaw <= 1e8 ? pxARaw : Number.NaN;
+    const pxB = pxBRaw != null && Number.isFinite(pxBRaw) && pxBRaw > 0 && pxBRaw <= 1e8 ? pxBRaw : Number.NaN;
+    const pricePartial = !Number.isFinite(pxA) || !Number.isFinite(pxB);
+    let valueUsd;
+    if (pricePartial) {
+      valueUsd = Number.NaN;
+    } else {
+      valueUsd = clampUsd(humA * pxA + humB * pxB);
+    }
+    const feeUsd = (Number.isFinite(pxA) ? unclFeeA * pxA : 0) + (Number.isFinite(pxB) ? unclFeeB * pxB : 0);
+    const inRange = bluefinTickInRange(pool.currentTick, pos.lowerTick, pos.upperTick);
+    const lifecycleStatus = resolveLifecycleStatus(pos.liquidity);
+    const aIsStable = STABLECOIN_SYMS.has(metaA.symbol.toUpperCase());
+    const bIsStable = STABLECOIN_SYMS.has(metaB.symbol.toUpperCase());
+    const swap = aIsStable && !bIsStable;
+    const symA = swap ? metaB.symbol : metaA.symbol;
+    const symB = swap ? metaA.symbol : metaB.symbol;
+    const ctA = swap ? rawCtB : rawCtA;
+    const ctB = swap ? rawCtA : rawCtB;
+    const dMetaA = swap ? metaB : metaA;
+    const dMetaB = swap ? metaA : metaB;
+    const dPxA = swap ? pxB : pxA;
+    const dPxB = swap ? pxA : pxB;
+    const dHumA = swap ? humB : humA;
+    const dHumB = swap ? humA : humB;
+    const dFeeA = swap ? unclFeeB : unclFeeA;
+    const dFeeB = swap ? unclFeeA : unclFeeB;
+    const dTickLower = swap ? -pos.upperTick : pos.lowerTick;
+    const dTickUpper = swap ? -pos.lowerTick : pos.upperTick;
+    let sqrtPriceOut = pool.sqrtPriceStr;
+    if (swap) {
+      try {
+        const orig = BigInt(pool.sqrtPriceStr);
+        if (orig > 0n) sqrtPriceOut = (2n ** 128n / orig).toString();
+      } catch {
+      }
+    }
+    const feeLabelPct = `${(pool.feeRate * 100).toFixed(3)}%`;
+    const pair = `${symA}/${symB} \xB7 ${feeLabelPct}`;
+    out.push({
+      id: nft.nftId,
+      protocol: "turbos",
+      poolId: nft.poolId,
+      turbosPositionObjectId: nft.positionId,
+      turbosSwapped: swap,
+      turbosOriginalDecimalsA: metaA.decimals,
+      turbosOriginalDecimalsB: metaB.decimals,
+      pair,
+      tokenA: symA,
+      tokenB: symB,
+      tokenAAddress: ctA,
+      tokenBAddress: ctB,
+      tokenAIconUrl: dMetaA.iconUrl,
+      tokenBIconUrl: dMetaB.iconUrl,
+      tokenADecimals: dMetaA.decimals,
+      tokenBDecimals: dMetaB.decimals,
+      fee: pool.feeRate,
+      tickLower: dTickLower,
+      tickUpper: dTickUpper,
+      currentTick: pool.currentTick,
+      currentSqrtPrice: sqrtPriceOut,
+      liquidity: pos.liquidity,
+      lifecycleStatus,
+      status: lifecycleStatus === "empty" ? "out_of_range" : inRange ? "in_range" : "out_of_range",
+      tokenAAmount: dHumA,
+      tokenBAmount: dHumB,
+      currentPriceA_USD: dPxA,
+      currentPriceB_USD: dPxB,
+      currentValueUSD: valueUsd,
+      depositedUSD: 0,
+      // set by enrichment
+      pnlUSD: 0,
+      // set by enrichment
+      pnlPct: 0,
+      // set by enrichment
+      unclaimedFeeA: dFeeA,
+      unclaimedFeeB: dFeeB,
+      unclaimedFeeUSD: feeUsd,
+      unclaimedRewardUSD: unclRewardUsd,
+      openedAt: 0,
+      // set by enrichment
+      daysOpen: 0,
+      // set by enrichment
+      lifetimeEarningsUSD: 0,
+      // set by enrichment
+      vsHodlDeltaUSD: 0,
+      // set by enrichment
+      aprEstimatePct: 0,
+      // set by enrichment
+      historyPartial: pricePartial
+    });
+  }
+  out.sort((a, b) => {
+    const av = Number.isFinite(a.currentValueUSD) ? a.currentValueUSD : -1;
+    const bv = Number.isFinite(b.currentValueUSD) ? b.currentValueUSD : -1;
+    return bv - av;
+  });
+  return out;
+}
+
+// src/services/scallopLendingService.ts
+import { normalizeSuiAddress as normalizeSuiAddress4 } from "@mysten/sui/utils";
+var SCALLOP_PROTOCOL_PKG = "0xefe8b36d5b2e43728cc323298626b83177803521d195cfb11e15b910e892fddf";
+var SCALLOP_OBLIGATION_KEY = `${SCALLOP_PROTOCOL_PKG}::obligation::ObligationKey`;
+var DEFAULT_LT = 0.8;
+var EMPTY_SCALLOP_SNAP = {
+  supplies: [],
+  borrows: [],
+  totalSuppliedUSD: 0,
+  totalBorrowedUSD: 0,
+  netValueUSD: 0,
+  healthFactor: null,
+  rewardsToClaim: [],
+  protocol: "Scallop"
+};
+function contentFields(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  const o = obj;
+  const data = o.data ?? o;
+  const content = data.content;
+  if (!content) return null;
+  return content.fields ?? content;
+}
+function unwrap(val) {
+  if (!val || typeof val !== "object") return null;
+  const o = val;
+  if (o.fields && typeof o.fields === "object") return o.fields;
+  return o;
+}
+function tableId(wrapper) {
+  const f = unwrap(wrapper);
+  if (!f) return null;
+  const idW = f.id;
+  const id = idW?.id ?? f.id;
+  return typeof id === "string" && id.startsWith("0x") ? id : null;
+}
+function readU64(v) {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && /^\d+$/.test(v)) return Number(v);
+  return 0;
+}
+async function readWitTableEntries(parentId) {
+  const out = [];
+  let cursor;
+  for (let page = 0; page < 20; page++) {
+    const res = await suiClient.getDynamicFields({
+      parentId,
+      cursor: cursor ?? void 0,
+      limit: 50
+    });
+    const ids = res.data.map((d) => d.objectId).filter(Boolean);
+    if (ids.length) {
+      const objs = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), ids);
+      for (const obj of objs) {
+        const f = contentFields(obj);
+        if (!f) continue;
+        const name = f.name;
+        const coinType = extractTypeName(name) ?? (typeof name === "string" ? name : null) ?? extractTypeName(f.value?.name);
+        const value = unwrap(f.value) ?? f;
+        const amount = readU64(value.amount) || readU64(value.value) || readU64(value.debt) || readU64(value.borrow_amount);
+        if (coinType && amount > 0) out.push({ coinType, amountRaw: amount });
+      }
+    }
+    if (!res.hasNextPage || !res.nextCursor) break;
+    cursor = res.nextCursor;
+  }
+  return out;
+}
+function obligationIdFromKey(fields) {
+  const ownership = unwrap(fields.ownership);
+  if (!ownership) return null;
+  const of = ownership.of ?? ownership.of_id ?? ownership.id;
+  if (typeof of === "string" && of.startsWith("0x")) return of;
+  const nested = unwrap(of);
+  const id = nested?.id;
+  if (typeof id === "string" && id.startsWith("0x")) return id;
+  return null;
+}
+async function getScallopPositions(walletAddress) {
+  let owner;
+  try {
+    owner = normalizeSuiAddress4(walletAddress.trim());
+  } catch {
+    owner = walletAddress.trim();
+  }
+  const keys = await listOwnedMoveObjects(asRpcObjectClient(suiClient), {
+    owner,
+    filter: { StructType: SCALLOP_OBLIGATION_KEY }
+  });
+  if (!keys.length) return EMPTY_SCALLOP_SNAP;
+  const obligationIds = [];
+  for (const k of keys) {
+    const f = contentFields(k);
+    if (!f) continue;
+    const oid = obligationIdFromKey(f);
+    if (oid) {
+      try {
+        obligationIds.push(normalizeSuiAddress4(oid));
+      } catch {
+        obligationIds.push(oid);
+      }
+    }
+  }
+  if (!obligationIds.length) return EMPTY_SCALLOP_SNAP;
+  const oblObjs = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), obligationIds);
+  const supplies = [];
+  const borrows = [];
+  let totalSuppliedUSD = 0;
+  let totalBorrowedUSD = 0;
+  const obligationHfs = [];
+  const allCoinTypes = /* @__PURE__ */ new Set();
+  const pending = [];
+  for (let i = 0; i < oblObjs.length; i++) {
+    const f = contentFields(oblObjs[i]);
+    if (!f) continue;
+    const oblId = obligationIds[i];
+    const colTable = tableId(f.collaterals);
+    const debtTable = tableId(f.debts);
+    const collaterals = colTable ? await readWitTableEntries(colTable) : [];
+    const debts = debtTable ? await readWitTableEntries(debtTable) : [];
+    for (const c of collaterals) allCoinTypes.add(c.coinType);
+    for (const d of debts) allCoinTypes.add(d.coinType);
+    pending.push({ oblId, collaterals, debts });
+  }
+  if (!pending.some((p) => p.collaterals.length || p.debts.length)) {
+    return { ...EMPTY_SCALLOP_SNAP };
+  }
+  const meta = /* @__PURE__ */ new Map();
+  await Promise.all(
+    [...allCoinTypes].map(async (ct) => {
+      try {
+        const m = await suiClient.getCoinMetadata({ coinType: ct });
+        meta.set(ct, {
+          symbol: m?.symbol ?? ct.split("::").pop() ?? "?",
+          decimals: m?.decimals ?? 9
+        });
+      } catch {
+        meta.set(ct, { symbol: ct.split("::").pop() ?? "?", decimals: 9 });
+      }
+    })
+  );
+  let spots = /* @__PURE__ */ new Map();
+  try {
+    spots = await resolveSpots([...allCoinTypes], (ct) => meta.get(ct)?.symbol ?? ct);
+  } catch {
+  }
+  const px = (ct) => {
+    const hit = spots.get(ct)?.price;
+    if (hit != null && hit > 0) return hit;
+    for (const [k, v] of spots) {
+      if (k.toLowerCase() === ct.toLowerCase() && v.price > 0) return v.price;
+    }
+    return Number.NaN;
+  };
+  const ltFactor = normalizeLiquidationThresholdFactor(DEFAULT_LT);
+  let liquidationUSD = 0;
+  for (const p of pending) {
+    let oblBorrow = 0;
+    let oblLiq = 0;
+    for (const c of p.collaterals) {
+      const m = meta.get(c.coinType) ?? { symbol: "?", decimals: 9 };
+      const amount = c.amountRaw / 10 ** m.decimals;
+      const price = px(c.coinType);
+      const valueUSD = Number.isFinite(price) ? amount * price : Number.NaN;
+      if (Number.isFinite(valueUSD)) {
+        totalSuppliedUSD += valueUSD;
+        oblLiq += valueUSD * ltFactor;
+        liquidationUSD += valueUSD * ltFactor;
+      }
+      supplies.push({
+        id: `scallop-supply-${p.oblId.slice(2, 10)}-${m.symbol}`,
+        asset: m.symbol,
+        coinType: c.coinType,
+        sCoinType: "",
+        suppliedAmount: amount,
+        currentAmount: amount,
+        earnedInterest: 0,
+        earnedInterestUSD: 0,
+        supplyAPR: 0,
+        currentValueUSD: valueUSD,
+        liquidationThresholdFactor: ltFactor,
+        startedAt: 0,
+        daysActive: 0,
+        events: [],
+        protocol: "Scallop",
+        iconUrl: null
+      });
+    }
+    for (const d of p.debts) {
+      const m = meta.get(d.coinType) ?? { symbol: "?", decimals: 9 };
+      const amount = d.amountRaw / 10 ** m.decimals;
+      const price = px(d.coinType);
+      const debtUSD = Number.isFinite(price) ? amount * price : Number.NaN;
+      if (Number.isFinite(debtUSD)) {
+        oblBorrow += debtUSD;
+        totalBorrowedUSD += debtUSD;
+      }
+      borrows.push({
+        id: `scallop-borrow-${p.oblId.slice(2, 10)}-${m.symbol}`,
+        obligationId: p.oblId,
+        asset: m.symbol,
+        coinType: d.coinType,
+        borrowedAmount: amount,
+        currentDebt: amount,
+        accruedInterest: 0,
+        accruedInterestUSD: 0,
+        borrowAPR: 0,
+        netBorrowCost: 0,
+        currentDebtUSD: debtUSD,
+        collateral: [],
+        healthFactor: 0,
+        liquidationThreshold: 0,
+        startedAt: 0,
+        daysActive: 0,
+        events: [],
+        protocol: "Scallop",
+        iconUrl: null
+      });
+    }
+    if (oblBorrow > 0 && oblLiq > 0) obligationHfs.push(oblLiq / oblBorrow);
+  }
+  const suppliesWithLiq = enrichSupplyLiquidationPrices(supplies, totalBorrowedUSD);
+  const collateral = suppliesWithLiq.map((s) => ({
+    asset: s.asset,
+    amount: s.currentAmount,
+    valueUSD: Number.isFinite(s.currentValueUSD) ? s.currentValueUSD : 0,
+    collateralWeight: 0,
+    effectiveValueUSD: Number.isFinite(s.currentValueUSD) ? s.currentValueUSD : 0
+  }));
+  const healthFactor = obligationHfs.length > 0 ? Math.min(...obligationHfs) : totalBorrowedUSD > 0 && liquidationUSD > 0 ? liquidationUSD / totalBorrowedUSD : null;
+  for (const b of borrows) {
+    b.healthFactor = healthFactor ?? 0;
+    b.liquidationThreshold = liquidationUSD;
+    b.collateral = collateral;
+  }
+  return {
+    supplies: suppliesWithLiq,
+    borrows,
+    totalSuppliedUSD,
+    totalBorrowedUSD,
+    netValueUSD: totalSuppliedUSD - totalBorrowedUSD,
+    healthFactor,
+    rewardsToClaim: [],
+    protocol: "Scallop"
+  };
+}
+
+// src/config/junkTokens.ts
+var JUNK_COIN_TYPE_DENYLIST = /* @__PURE__ */ new Set([
+  // Приклад: додай пакети/типи, які не хочеш бачити
+]);
+
 // src/services/tokenClassifier.ts
 init_constants();
 
@@ -6493,7 +7887,7 @@ init_hardcodedVerifiedCoins();
 init_aftermathSpot();
 init_constants();
 init_http();
-import { normalizeSuiAddress as normalizeSuiAddress2 } from "@mysten/sui/utils";
+import { normalizeSuiAddress as normalizeSuiAddress5 } from "@mysten/sui/utils";
 var LS_VERIFIED = "suiet_verified_coins";
 var LS_BLOCK = "suiet_blocklist_coins";
 var LS_TS = (k) => `${k}_at`;
@@ -6508,7 +7902,7 @@ function normalizeCoinType(coinType) {
   const parts = t.split("::");
   if (parts.length !== 3) return t;
   try {
-    const addr = normalizeSuiAddress2(parts[0]);
+    const addr = normalizeSuiAddress5(parts[0]);
     return `${addr}::${parts[1]}::${parts[2]}`;
   } catch {
     return t;
@@ -7082,18 +8476,18 @@ async function devTime(label, fn) {
 // src/services/momentumService.ts
 init_suiClient();
 init_jsonRpcCompat();
-import { MmtSDK, TickMath as TickMath2, Utils as Utils2 } from "@mmt-finance/clmm-sdk";
+import { MmtSDK, TickMath as TickMath3, Utils as Utils3 } from "@mmt-finance/clmm-sdk";
 
 // src/services/momentumPositionsRpcFallback.ts
 init_constants();
 init_suiClient();
-import { TickMath, Utils } from "@mmt-finance/clmm-sdk";
+import { TickMath as TickMath2, Utils as Utils2 } from "@mmt-finance/clmm-sdk";
 import { convertI32ToSigned } from "@mmt-finance/clmm-sdk/dist/utils/math/tickMath";
-import BN from "bn.js";
-import { normalizeStructTag, normalizeSuiAddress as normalizeSuiAddress4 } from "@mysten/sui/utils";
+import BN2 from "bn.js";
+import { normalizeStructTag as normalizeStructTag2, normalizeSuiAddress as normalizeSuiAddress7 } from "@mysten/sui/utils";
 
 // src/services/momentumOwnedParse.ts
-import { normalizeSuiAddress as normalizeSuiAddress3 } from "@mysten/sui/utils";
+import { normalizeSuiAddress as normalizeSuiAddress6 } from "@mysten/sui/utils";
 function readSuiHexIdFromMoveValue(v) {
   if (typeof v === "string") {
     const t = v.trim();
@@ -7132,7 +8526,7 @@ function readMomentumPositionNftObjectId(opts) {
   const trimmed = opts.rpcObjectId?.trim();
   if (trimmed) {
     try {
-      return normalizeSuiAddress3(trimmed);
+      return normalizeSuiAddress6(trimmed);
     } catch {
       return trimmed;
     }
@@ -7140,7 +8534,7 @@ function readMomentumPositionNftObjectId(opts) {
   const inner = readSuiHexIdFromMoveValue(opts.fields.id);
   if (!inner) return null;
   try {
-    return normalizeSuiAddress3(inner);
+    return normalizeSuiAddress6(inner);
   } catch {
     return inner;
   }
@@ -7150,13 +8544,13 @@ function ensureUidFieldForSdk(idField, fallbackObjectId) {
   const raw = inner?.trim() || fallbackObjectId.trim();
   if (!raw.startsWith("0x")) {
     try {
-      return { id: normalizeSuiAddress3(fallbackObjectId.trim()) };
+      return { id: normalizeSuiAddress6(fallbackObjectId.trim()) };
     } catch {
       return { id: fallbackObjectId.trim() };
     }
   }
   try {
-    return { id: normalizeSuiAddress3(raw) };
+    return { id: normalizeSuiAddress6(raw) };
   } catch {
     return { id: raw };
   }
@@ -7197,6 +8591,71 @@ function ownedRowIsMomentumPosition(row) {
   const typ = ownedObjectDataMoveType(row.data);
   return Boolean(typ.endsWith(POSITION_MOVE_TYPE_SUFFIX));
 }
+async function appendMomentumPositionIdsFromPackagePages(walletAddress, ids, rpc) {
+  const pkgs = uniqueMomentumPackagesForOwnedFallback();
+  const objectOpts = {
+    showContent: false,
+    showType: true,
+    showOwner: true
+  };
+  for (const pkg of pkgs) {
+    let cursor;
+    try {
+      for (let page = 0; page < PKG_OWNED_MAX_PAGES; page++) {
+        const res = await rpc.getOwnedObjects({
+          owner: walletAddress,
+          filter: { Package: pkg },
+          options: objectOpts,
+          cursor
+        });
+        for (const row of res.data) {
+          if (!ownedRowIsMomentumPosition(row)) continue;
+          const id = row.data?.objectId;
+          if (!id) continue;
+          try {
+            ids.add(normalizeSuiAddress7(id));
+          } catch {
+            ids.add(id);
+          }
+        }
+        if (!res.hasNextPage) break;
+        cursor = res.nextCursor ?? null;
+        if (cursor == null) break;
+      }
+    } catch {
+    }
+  }
+}
+async function scanMomentumOwnedPositionIds(walletAddress, rpc = defaultMomentumOwnedRpc(), opts = {}) {
+  const seen = /* @__PURE__ */ new Set();
+  for (const structType of POSITION_STRUCTS) {
+    let cursor;
+    for (; ; ) {
+      const page = await rpc.getOwnedObjects({
+        owner: walletAddress,
+        filter: { StructType: structType },
+        options: { showContent: false, showType: true, showOwner: true },
+        cursor
+      });
+      for (const it of page.data) {
+        const id = it.data?.objectId;
+        if (!id) continue;
+        try {
+          seen.add(normalizeSuiAddress7(id));
+        } catch {
+          seen.add(id);
+        }
+      }
+      if (!page.hasNextPage) break;
+      cursor = page.nextCursor ?? null;
+      if (cursor == null) break;
+    }
+  }
+  if (seen.size === 0 && opts.deep !== false) {
+    await appendMomentumPositionIdsFromPackagePages(walletAddress, seen, rpc);
+  }
+  return seen;
+}
 async function fetchMomentumOwnedPositionBodiesForRewards(walletAddress, rpc = defaultMomentumOwnedRpc()) {
   const seen = /* @__PURE__ */ new Set();
   const out = [];
@@ -7215,7 +8674,7 @@ async function fetchMomentumOwnedPositionBodiesForRewards(walletAddress, rpc = d
         if (!oid || content?.dataType !== "moveObject" || !content.fields) continue;
         let k;
         try {
-          k = normalizeSuiAddress4(oid);
+          k = normalizeSuiAddress7(oid);
         } catch {
           k = oid;
         }
@@ -7235,7 +8694,7 @@ async function fetchMomentumOwnedPositionBodiesForRewards(walletAddress, rpc = d
 }
 function momentumPoolLookupKey(poolIdRaw) {
   try {
-    return normalizeSuiAddress4(poolIdRaw.trim());
+    return normalizeSuiAddress7(poolIdRaw.trim());
   } catch {
     return poolIdRaw.trim();
   }
@@ -7290,7 +8749,7 @@ async function appendBodiesFromMomentumPackagePages(walletAddress, out, seen, rp
           if (!oid || !content || content.dataType !== "moveObject" || !content.fields) continue;
           let k;
           try {
-            k = normalizeSuiAddress4(oid);
+            k = normalizeSuiAddress7(oid);
           } catch {
             k = oid;
           }
@@ -7308,11 +8767,34 @@ async function appendBodiesFromMomentumPackagePages(walletAddress, out, seen, rp
 }
 function rewardEntryForPosition(map, rawId) {
   try {
-    const n2 = normalizeSuiAddress4(rawId);
+    const n2 = normalizeSuiAddress7(rawId);
     return map[rawId] ?? map[n2];
   } catch {
     return map[rawId];
   }
+}
+function readI32TickBits(val) {
+  if (typeof val === "number" && Number.isFinite(val)) return convertI32ToSigned(val >>> 0);
+  if (typeof val === "string" && /^-?\d+$/.test(val)) {
+    const n2 = Number(val);
+    return convertI32ToSigned(n2 >>> 0 & 4294967295);
+  }
+  if (!val || typeof val !== "object") return 0;
+  const obj = val;
+  const bitsDirect = obj.bits;
+  if (bitsDirect != null) {
+    const n2 = typeof bitsDirect === "number" ? bitsDirect : Number(bitsDirect);
+    if (Number.isFinite(n2)) return convertI32ToSigned(n2 >>> 0);
+  }
+  const fields = obj.fields;
+  if (fields && typeof fields === "object") {
+    const bits = fields.bits;
+    if (bits != null) {
+      const n2 = typeof bits === "number" ? bits : Number(bits);
+      if (Number.isFinite(n2)) return convertI32ToSigned(n2 >>> 0);
+    }
+  }
+  return 0;
 }
 function positionRangeStatusLabel(pool, lowerTickSqrtPrice, upperTickSqrtPrice) {
   const cur = Number(pool.currentSqrtPrice);
@@ -7355,59 +8837,76 @@ async function momentumUserRowsFromOwnedRpc(walletAddress, sdk2, poolsData, toke
     if (!objectId || !poolIdRaw) continue;
     let poolIdNorm;
     try {
-      poolIdNorm = normalizeSuiAddress4(poolIdRaw);
+      poolIdNorm = normalizeSuiAddress7(poolIdRaw);
     } catch {
       poolIdNorm = poolIdRaw;
     }
     const pool = poolsByNormLookup.get(poolIdNorm);
     if (!pool) continue;
-    const liquidity = new BN(String(positionData.liquidity ?? 0), 10);
-    const tickUp = positionData.tick_upper_index;
-    const tickLo = positionData.tick_lower_index;
-    const upperBits = Number(tickUp?.fields?.bits ?? 0);
-    const lowerBits = Number(tickLo?.fields?.bits ?? 0);
-    const upperTick = convertI32ToSigned(upperBits);
-    const lowerTick = convertI32ToSigned(lowerBits);
-    const upperTickSqrtPrice = TickMath.tickIndexToSqrtPriceX64(upperTick);
-    const lowerTickSqrtPrice = TickMath.tickIndexToSqrtPriceX64(lowerTick);
-    const { coinA, coinB } = Utils.getCoinAmountFromLiquidity(
-      liquidity,
-      new BN(pool.currentSqrtPrice.toString()),
-      lowerTickSqrtPrice,
-      upperTickSqrtPrice,
-      false
-    );
+    const liquidity = new BN2(String(positionData.liquidity ?? 0), 10);
+    const upperTick = readI32TickBits(positionData.tick_upper_index);
+    const lowerTick = readI32TickBits(positionData.tick_lower_index);
+    const upperTickSqrtPrice = TickMath2.tickIndexToSqrtPriceX64(upperTick);
+    const lowerTickSqrtPrice = TickMath2.tickIndexToSqrtPriceX64(lowerTick);
+    let coinA = new BN2(0);
+    let coinB = new BN2(0);
+    try {
+      const amounts = Utils2.getCoinAmountFromLiquidity(
+        liquidity,
+        new BN2(pool.currentSqrtPrice.toString()),
+        lowerTickSqrtPrice,
+        upperTickSqrtPrice,
+        false
+      );
+      coinA = amounts.coinA;
+      coinB = amounts.coinB;
+    } catch {
+    }
     const calculateUsdValue = (amount, coinLeg) => {
       const dec = pool[coinLeg].decimals ?? 0;
       const ct = pool[coinLeg].coinType;
-      const px = tokenPriceMap.get(ct) ?? 0;
+      const px = tokenPriceMap.get(ct);
+      if (px == null || !Number.isFinite(px) || px <= 0) return null;
       return amount / 10 ** dec * px;
     };
-    const totalUsdValue = calculateUsdValue(Number(coinA), "tokenX") + calculateUsdValue(Number(coinB), "tokenY");
+    const usdX = calculateUsdValue(Number(coinA), "tokenX");
+    const usdY = calculateUsdValue(Number(coinB), "tokenY");
+    const totalUsdValue = usdX == null || usdY == null ? Number.NaN : usdX + usdY;
     const rewardsData = rewardEntryForPosition(
       positionRewardsInfo,
       objectId
     );
-    const feeUsdValue = rewardsData ? calculateUsdValue(rewardsData.feeCollected.amountX, "tokenX") + calculateUsdValue(rewardsData.feeCollected.amountY, "tokenY") : 0;
+    const feeXUsd = rewardsData ? calculateUsdValue(rewardsData.feeCollected.amountX, "tokenX") : 0;
+    const feeYUsd = rewardsData ? calculateUsdValue(rewardsData.feeCollected.amountY, "tokenY") : 0;
+    const feeUsdValue = (feeXUsd ?? 0) + (feeYUsd ?? 0);
     let rewardsUsdValue = 0;
     if (rewardsData?.rewards?.length) {
       for (const reward of rewardsData.rewards) {
         let coinType = reward.coinType.includes("0x2::sui::SUI") ? "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI" : reward.coinType;
         try {
-          coinType = normalizeStructTag(coinType);
+          coinType = normalizeStructTag2(coinType);
         } catch {
         }
         const token = tokensData.find((t) => {
           try {
-            return normalizeStructTag(t.coinType) === coinType;
+            return normalizeStructTag2(t.coinType) === coinType;
           } catch {
             return t.coinType === coinType;
           }
         });
         const dec = token?.decimals ?? 0;
-        rewardsUsdValue += reward.amount / 10 ** dec * (tokenPriceMap.get(token?.coinType ?? coinType) ?? 0);
+        const px = tokenPriceMap.get(token?.coinType ?? coinType);
+        if (px == null || !Number.isFinite(px) || px <= 0) continue;
+        rewardsUsdValue += reward.amount / 10 ** dec * px;
       }
     }
+    const curTick = (() => {
+      const raw = pool.currentTickIndex;
+      const n2 = typeof raw === "string" ? parseInt(raw, 10) : Number(raw);
+      return Number.isFinite(n2) ? convertI32ToSigned(n2 >>> 0) : 0;
+    })();
+    const inRange = curTick >= lowerTick && curTick < upperTick;
+    const statusLabel = liquidity.isZero() ? "Empty" : inRange ? "In Range" : positionRangeStatusLabel(pool, lowerTickSqrtPrice, upperTickSqrtPrice);
     out.push({
       objectId,
       poolId: pool.poolId,
@@ -7415,11 +8914,11 @@ async function momentumUserRowsFromOwnedRpc(walletAddress, sdk2, poolsData, toke
       lowerTick,
       liquidity,
       amount: totalUsdValue,
-      status: positionRangeStatusLabel(pool, lowerTickSqrtPrice, upperTickSqrtPrice),
+      status: statusLabel,
       claimableRewards: rewardsUsdValue + feeUsdValue,
       rewarders: rewardsData ? rewardsData.rewards : [],
-      feeAmountXUsd: rewardsData ? calculateUsdValue(rewardsData.feeCollected.amountX, "tokenX") : 0,
-      feeAmountYUsd: rewardsData ? calculateUsdValue(rewardsData.feeCollected.amountY, "tokenY") : 0,
+      feeAmountXUsd: feeXUsd ?? 0,
+      feeAmountYUsd: feeYUsd ?? 0,
       feeAmountX: rewardsData ? rewardsData.feeCollected.amountX : 0,
       feeAmountY: rewardsData ? rewardsData.feeCollected.amountY : 0
     });
@@ -7448,9 +8947,9 @@ function momentumPoolFeeFraction(lpFeesPercent) {
 }
 
 // src/services/momentumService.ts
-import { normalizeStructTag as normalizeStructTag2, normalizeSuiAddress as normalizeSuiAddress5 } from "@mysten/sui/utils";
-import Decimal4 from "decimal.js";
-import BN2 from "bn.js";
+import { normalizeStructTag as normalizeStructTag3, normalizeSuiAddress as normalizeSuiAddress8 } from "@mysten/sui/utils";
+import Decimal5 from "decimal.js";
+import BN3 from "bn.js";
 function mmtSdkMainnet() {
   try {
     return MmtSDK.NEW({
@@ -7462,7 +8961,7 @@ function mmtSdkMainnet() {
     return null;
   }
 }
-var MAX_SANE_POSITION_USD = 5e7;
+var MAX_SANE_POSITION_USD2 = 5e7;
 var _poolsCache = null;
 var _tokensCache = null;
 var POOLS_CACHE_TTL_MS = 15 * 6e4;
@@ -7478,22 +8977,24 @@ async function getCachedAllTokens(sdk2) {
   _tokensCache = { data, at: Date.now() };
   return data;
 }
-var MAX_SANE_HUMAN_TOKENS = 1e18;
+var MAX_SANE_HUMAN_TOKENS2 = 1e18;
+var MOMENTUM_NO_POSITIONS_TTL_MS = 10 * 6e4;
+var momentumNoPositionsAt = /* @__PURE__ */ new Map();
 function i32ToSigned(n2) {
   if (n2 > 2147483647) return n2 - 4294967296;
   return n2;
 }
-function symbolFromCoinType(coinType) {
+function symbolFromCoinType2(coinType) {
   const parts = coinType.split("::");
   return parts[2] ?? (parts[1] ?? "\u2014");
 }
-function safeHumanFromBnRaw(rawBn, decimals) {
+function safeHumanFromBnRaw2(rawBn, decimals) {
   try {
     const raw = rawBn.toString(10);
     if (!/^\d+$/.test(raw) || !Number.isFinite(decimals) || decimals < 0) return 0;
-    const d = new Decimal4(raw).div(new Decimal4(10).pow(decimals));
+    const d = new Decimal5(raw).div(new Decimal5(10).pow(decimals));
     const n2 = d.toNumber();
-    if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS) return 0;
+    if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS2) return 0;
     return n2;
   } catch {
     return 0;
@@ -7502,7 +9003,7 @@ function safeHumanFromBnRaw(rawBn, decimals) {
 function safeHumanFromNumberRaw(rawNum, decimals) {
   if (!Number.isFinite(rawNum) || rawNum <= 0) return 0;
   try {
-    return safeHumanFromBnRaw(new BN2(Math.floor(rawNum).toString(10), 10), decimals);
+    return safeHumanFromBnRaw2(new BN3(Math.floor(rawNum).toString(10), 10), decimals);
   } catch {
     return 0;
   }
@@ -7511,11 +9012,11 @@ function normRewardCoinType(ct) {
   const t = ct.trim();
   if (!t) return t;
   if (t.includes("0x2::sui::SUI") || t.includes("0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"))
-    return normalizeStructTag2(
+    return normalizeStructTag3(
       "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
     );
   try {
-    return normalizeStructTag2(t);
+    return normalizeStructTag3(t);
   } catch {
     return t;
   }
@@ -7528,13 +9029,13 @@ function momentumStatusToRange(statusLabel) {
   const s = statusLabel.trim().toLowerCase();
   return s === "in range" ? "in_range" : "out_of_range";
 }
-function clampUsd(v) {
+function clampUsd2(v) {
   if (!Number.isFinite(v) || v < 0) return 0;
-  return v <= MAX_SANE_POSITION_USD ? v : 0;
+  return v <= MAX_SANE_POSITION_USD2 ? v : 0;
 }
-function normTypeSafe(raw) {
+function normTypeSafe2(raw) {
   try {
-    return normalizeStructTag2(raw.trim());
+    return normalizeStructTag3(raw.trim());
   } catch {
     return null;
   }
@@ -7543,13 +9044,13 @@ function findMomentumPoolByApiId(pools, poolIdLookup) {
   const raw = poolIdLookup.trim();
   let keyNorm;
   try {
-    keyNorm = normalizeSuiAddress5(raw);
+    keyNorm = normalizeSuiAddress8(raw);
   } catch {
     keyNorm = raw;
   }
   return pools.find((p) => {
     try {
-      return normalizeSuiAddress5(String(p.poolId).trim()) === keyNorm;
+      return normalizeSuiAddress8(String(p.poolId).trim()) === keyNorm;
     } catch {
       return String(p.poolId).trim() === raw;
     }
@@ -7557,7 +9058,7 @@ function findMomentumPoolByApiId(pools, poolIdLookup) {
 }
 function normalizedMomentumPositionKey(objectId) {
   try {
-    return normalizeSuiAddress5(objectId.trim());
+    return normalizeSuiAddress8(objectId.trim());
   } catch {
     return objectId.trim();
   }
@@ -7569,15 +9070,24 @@ async function getMomentumPositions(walletAddress, options) {
   }
   let poolsData;
   let tokensData;
+  let ownedIds;
   try {
     ;
-    [poolsData, tokensData] = await Promise.all([
-      getCachedAllPools(sdk2),
-      getCachedAllTokens(sdk2)
+    [[poolsData, tokensData], ownedIds] = await Promise.all([
+      Promise.all([getCachedAllPools(sdk2), getCachedAllTokens(sdk2)]),
+      devTime(
+        "momentum/owned-probe",
+        () => scanMomentumOwnedPositionIds(walletAddress, sdk2.rpcClient, { deep: false })
+      ).catch(() => null)
     ]);
   } catch (e) {
     console.warn("Momentum Pool.getAllPools/getAllTokens failed", e);
     return [];
+  }
+  const noPosKey = normalizedMomentumPositionKey(walletAddress);
+  if (ownedIds != null && ownedIds.size === 0) {
+    const confirmedAt = momentumNoPositionsAt.get(noPosKey);
+    if (confirmedAt != null && Date.now() - confirmedAt < MOMENTUM_NO_POSITIONS_TTL_MS) return [];
   }
   const [fromSdk, fromRpc] = await Promise.all([
     (async () => {
@@ -7613,7 +9123,11 @@ async function getMomentumPositions(walletAddress, options) {
     if (!mergedById.has(k)) mergedById.set(k, r);
   }
   const rawRows = [...mergedById.values()];
-  if (!rawRows.length) return [];
+  if (!rawRows.length) {
+    momentumNoPositionsAt.set(noPosKey, Date.now());
+    return [];
+  }
+  momentumNoPositionsAt.delete(noPosKey);
   const poolIdsHint = [...new Set(rawRows.map((r) => String(r.poolId).trim()))];
   let poolsHydrated;
   try {
@@ -7628,15 +9142,15 @@ async function getMomentumPositions(walletAddress, options) {
   for (const row of rawRows) {
     const pool = findMomentumPoolByApiId(poolsHydrated, row.poolId);
     if (!pool) continue;
-    const xt = normTypeSafe(pool.tokenX?.coinType ?? pool.tokenXType ?? "");
-    const yt = normTypeSafe(pool.tokenY?.coinType ?? pool.tokenYType ?? "");
+    const xt = normTypeSafe2(pool.tokenX?.coinType ?? pool.tokenXType ?? "");
+    const yt = normTypeSafe2(pool.tokenY?.coinType ?? pool.tokenYType ?? "");
     if (!xt || !yt) continue;
     allSpotTypes.add(xt);
     allSpotTypes.add(yt);
     for (const r of row.rewarders ?? []) {
       if (typeof r.coinType === "string" && r.coinType.trim()) {
         const n2 = normRewardCoinType(r.coinType.trim());
-        const nn = normTypeSafe(n2);
+        const nn = normTypeSafe2(n2);
         if (nn) allSpotTypes.add(nn);
       }
     }
@@ -7647,17 +9161,17 @@ async function getMomentumPositions(walletAddress, options) {
       [...allSpotTypes],
       (ct) => {
         try {
-          const u = normalizeStructTag2(ct);
+          const u = normalizeStructTag3(ct);
           const hit = tokensData.find((tok) => {
             try {
-              return normalizeStructTag2(tok.coinType) === u;
+              return normalizeStructTag3(tok.coinType) === u;
             } catch {
               return false;
             }
           });
-          return hit?.ticker ?? symbolFromCoinType(u);
+          return hit?.ticker ?? symbolFromCoinType2(u);
         } catch {
-          return symbolFromCoinType(ct);
+          return symbolFromCoinType2(ct);
         }
       },
       spotOpts
@@ -7667,291 +9181,164 @@ async function getMomentumPositions(walletAddress, options) {
   }
   const out = [];
   for (const row of rawRows) {
-    const posId = typeof row.objectId === "string" ? row.objectId.trim() : "";
-    const poolId = typeof row.poolId === "string" ? row.poolId.trim() : "";
-    if (!posId || !poolId) continue;
-    const pool = findMomentumPoolByApiId(poolsHydrated, poolId);
-    if (!pool) continue;
-    const tX = pool.tokenX?.coinType?.trim() ?? pool.tokenXType?.trim() ?? "";
-    const tY = pool.tokenY?.coinType?.trim() ?? pool.tokenYType?.trim() ?? "";
-    if (!tX || !tY) continue;
-    const tANorm = normTypeSafe(tX);
-    const tBNorm = normTypeSafe(tY);
-    if (!tANorm || !tBNorm) continue;
-    const decA = typeof pool.tokenX?.decimals === "number" ? pool.tokenX.decimals : 0;
-    const decB = typeof pool.tokenY?.decimals === "number" ? pool.tokenY.decimals : 0;
-    const symA = pool.tokenX?.ticker?.trim() || symbolFromCoinType(tANorm);
-    const symB = pool.tokenY?.ticker?.trim() || symbolFromCoinType(tBNorm);
-    const iconA = typeof pool.tokenX?.iconUrl === "string" && pool.tokenX.iconUrl.startsWith("https://") ? pool.tokenX.iconUrl : null;
-    const iconB = typeof pool.tokenY?.iconUrl === "string" && pool.tokenY.iconUrl.startsWith("https://") ? pool.tokenY.iconUrl : null;
-    const lowerTick = Number.isFinite(row.lowerTick) ? row.lowerTick : 0;
-    const upperTick = Number.isFinite(row.upperTick) ? row.upperTick : 0;
-    const liqBn = row.liquidity instanceof BN2 ? row.liquidity : new BN2(String(row.liquidity ?? 0), 10);
-    const sqrtStr = pool.currentSqrtPrice != null && `${pool.currentSqrtPrice}`.length > 0 ? `${pool.currentSqrtPrice}`.trim() : "0";
-    const curSqrtBn = sqrtStr.match(/^\d+$/) ? new BN2(sqrtStr, 10) : new BN2(0);
-    let humA = 0;
-    let humB = 0;
-    if (!liqBn.isZero() && !curSqrtBn.isZero()) {
-      try {
-        const lowerSqrt = TickMath2.tickIndexToSqrtPriceX64(lowerTick);
-        const upperSqrt = TickMath2.tickIndexToSqrtPriceX64(upperTick);
-        const { coinA, coinB } = Utils2.getCoinAmountFromLiquidity(
-          liqBn,
-          curSqrtBn,
-          lowerSqrt,
-          upperSqrt,
-          false
-        );
-        humA = safeHumanFromBnRaw(coinA, decA);
-        humB = safeHumanFromBnRaw(coinB, decB);
-      } catch {
-      }
-    }
-    const pxaRaw = spotsMap.get(tANorm)?.price;
-    const pxbRaw = spotsMap.get(tBNorm)?.price;
-    const pxaPool = Number(pool.tokenX?.price);
-    const pxbPool = Number(pool.tokenY?.price);
-    const pxaF = pxaRaw != null && Number.isFinite(pxaRaw) && pxaRaw > 0 && pxaRaw <= 1e8 ? pxaRaw : Number.isFinite(pxaPool) && pxaPool > 0 && pxaPool <= 1e8 ? pxaPool : null;
-    const pxbF = pxbRaw != null && Number.isFinite(pxbRaw) && pxbRaw > 0 && pxbRaw <= 1e8 ? pxbRaw : Number.isFinite(pxbPool) && pxbPool > 0 && pxbPool <= 1e8 ? pxbPool : null;
-    const partA = pxaF != null ? humA * pxaF : 0;
-    const partB = pxbF != null ? humB * pxbF : 0;
-    let valueUsd = clampUsd(partA + partB);
-    if (valueUsd <= 0 && Number.isFinite(row.amount) && row.amount > 0) {
-      valueUsd = clampUsd(row.amount);
-    }
-    const feeFraction = momentumPoolFeeFraction(pool.lpFeesPercent ?? "0");
-    const statusLabel = typeof row.status === "string" ? row.status.trim() : "";
-    const inRangeResolved = momentumStatusToRange(statusLabel || "out of range") === "in_range";
-    const feeLabelPct = `${(feeFraction * 100).toFixed(3)}%`;
-    const pair = `${symA}/${symB} \xB7 ${feeLabelPct}${inRangeResolved ? "" : " \xB7 OUT"}`;
-    const feeHumA = safeHumanFromNumberRaw(Math.floor(row.feeAmountX), decA);
-    const feeHumB = safeHumanFromNumberRaw(Math.floor(row.feeAmountY), decB);
-    let unclaimedFeeUsd = 0;
-    if (pxaF != null) unclaimedFeeUsd += feeHumA * pxaF;
-    else unclaimedFeeUsd += clampUsd(row.feeAmountXUsd);
-    if (pxbF != null) unclaimedFeeUsd += feeHumB * pxbF;
-    else unclaimedFeeUsd += clampUsd(row.feeAmountYUsd);
-    unclaimedFeeUsd = clampUsd(unclaimedFeeUsd);
-    let rewardHumUsdSpot = 0;
-    for (const rew of row.rewarders ?? []) {
-      const ct = rew?.coinType;
-      const amtNum = rew?.amount;
-      if (typeof ct !== "string" || ct.trim() === "" || typeof amtNum !== "number" || !Number.isFinite(amtNum))
-        continue;
-      const nt = normRewardCoinType(ct);
-      const ntNorm = normTypeSafe(nt) ?? nt;
-      const td = tokensData.find((tok) => {
+    try {
+      const posId = typeof row.objectId === "string" ? row.objectId.trim() : "";
+      const poolId = typeof row.poolId === "string" ? row.poolId.trim() : "";
+      if (!posId || !poolId) continue;
+      const pool = findMomentumPoolByApiId(poolsHydrated, poolId);
+      if (!pool) continue;
+      const tX = pool.tokenX?.coinType?.trim() ?? pool.tokenXType?.trim() ?? "";
+      const tY = pool.tokenY?.coinType?.trim() ?? pool.tokenYType?.trim() ?? "";
+      if (!tX || !tY) continue;
+      const tANorm = normTypeSafe2(tX);
+      const tBNorm = normTypeSafe2(tY);
+      if (!tANorm || !tBNorm) continue;
+      const decA = typeof pool.tokenX?.decimals === "number" ? pool.tokenX.decimals : 0;
+      const decB = typeof pool.tokenY?.decimals === "number" ? pool.tokenY.decimals : 0;
+      const symA = pool.tokenX?.ticker?.trim() || symbolFromCoinType2(tANorm);
+      const symB = pool.tokenY?.ticker?.trim() || symbolFromCoinType2(tBNorm);
+      const iconA = typeof pool.tokenX?.iconUrl === "string" && pool.tokenX.iconUrl.startsWith("https://") ? pool.tokenX.iconUrl : null;
+      const iconB = typeof pool.tokenY?.iconUrl === "string" && pool.tokenY.iconUrl.startsWith("https://") ? pool.tokenY.iconUrl : null;
+      const lowerTick = Number.isFinite(row.lowerTick) ? row.lowerTick : 0;
+      const upperTick = Number.isFinite(row.upperTick) ? row.upperTick : 0;
+      const liqBn = row.liquidity instanceof BN3 ? row.liquidity : new BN3(String(row.liquidity ?? 0), 10);
+      const sqrtStr = pool.currentSqrtPrice != null && `${pool.currentSqrtPrice}`.length > 0 ? `${pool.currentSqrtPrice}`.trim() : "0";
+      const curSqrtBn = sqrtStr.match(/^\d+$/) ? new BN3(sqrtStr, 10) : new BN3(0);
+      let humA = 0;
+      let humB = 0;
+      if (!liqBn.isZero() && !curSqrtBn.isZero()) {
         try {
-          return normalizeStructTag2(tok.coinType) === ntNorm;
+          const lowerSqrt = TickMath3.tickIndexToSqrtPriceX64(lowerTick);
+          const upperSqrt = TickMath3.tickIndexToSqrtPriceX64(upperTick);
+          const { coinA, coinB } = Utils3.getCoinAmountFromLiquidity(
+            liqBn,
+            curSqrtBn,
+            lowerSqrt,
+            upperSqrt,
+            false
+          );
+          humA = safeHumanFromBnRaw2(coinA, decA);
+          humB = safeHumanFromBnRaw2(coinB, decB);
         } catch {
-          return false;
         }
-      });
-      const rd = td?.decimals ?? 0;
-      const hum = safeHumanFromNumberRaw(Math.floor(amtNum), rd);
-      const pxRw = spotsMap.get(ntNorm)?.price;
-      const tdPrice = Number(td?.price);
-      const pxRf = pxRw != null && Number.isFinite(pxRw) && pxRw > 0 && pxRw <= 1e8 ? pxRw : Number.isFinite(tdPrice) && tdPrice > 0 && tdPrice <= 1e8 ? tdPrice : null;
-      if (pxRf != null) rewardHumUsdSpot += clampUsd(hum * pxRf);
+      }
+      const pxaRaw = spotsMap.get(tANorm)?.price;
+      const pxbRaw = spotsMap.get(tBNorm)?.price;
+      const pxaPool = Number(pool.tokenX?.price);
+      const pxbPool = Number(pool.tokenY?.price);
+      const pxaF = pxaRaw != null && Number.isFinite(pxaRaw) && pxaRaw > 0 && pxaRaw <= 1e8 ? pxaRaw : Number.isFinite(pxaPool) && pxaPool > 0 && pxaPool <= 1e8 ? pxaPool : null;
+      const pxbF = pxbRaw != null && Number.isFinite(pxbRaw) && pxbRaw > 0 && pxbRaw <= 1e8 ? pxbRaw : Number.isFinite(pxbPool) && pxbPool > 0 && pxbPool <= 1e8 ? pxbPool : null;
+      const pricePartial = pxaF == null || pxbF == null;
+      let valueUsd;
+      if (pricePartial) {
+        valueUsd = Number.isFinite(row.amount) && row.amount > 0 ? clampUsd2(row.amount) : Number.NaN;
+        if (!Number.isFinite(row.amount) || row.amount <= 0) valueUsd = Number.NaN;
+      } else {
+        valueUsd = clampUsd2(humA * pxaF + humB * pxbF);
+      }
+      const feeFraction = momentumPoolFeeFraction(pool.lpFeesPercent ?? "0");
+      const statusLabel = typeof row.status === "string" ? row.status.trim() : "";
+      const currentTick = poolTickCurrent(pool);
+      const inRangeByTicks = currentTick >= lowerTick && currentTick < upperTick;
+      const isEmpty = liqBn.isZero();
+      const rangeStatus = isEmpty ? "out_of_range" : inRangeByTicks ? "in_range" : momentumStatusToRange(statusLabel || "out of range");
+      const feeLabelPct = `${(feeFraction * 100).toFixed(3)}%`;
+      const pair = `${symA}/${symB} \xB7 ${feeLabelPct}`;
+      const feeHumA = safeHumanFromNumberRaw(Math.floor(row.feeAmountX), decA);
+      const feeHumB = safeHumanFromNumberRaw(Math.floor(row.feeAmountY), decB);
+      let unclaimedFeeUsd = 0;
+      if (pxaF != null) unclaimedFeeUsd += feeHumA * pxaF;
+      else unclaimedFeeUsd += clampUsd2(row.feeAmountXUsd);
+      if (pxbF != null) unclaimedFeeUsd += feeHumB * pxbF;
+      else unclaimedFeeUsd += clampUsd2(row.feeAmountYUsd);
+      unclaimedFeeUsd = clampUsd2(unclaimedFeeUsd);
+      let rewardHumUsdSpot = 0;
+      for (const rew of row.rewarders ?? []) {
+        const ct = rew?.coinType;
+        const amtNum = rew?.amount;
+        if (typeof ct !== "string" || ct.trim() === "" || typeof amtNum !== "number" || !Number.isFinite(amtNum))
+          continue;
+        const nt = normRewardCoinType(ct);
+        const ntNorm = normTypeSafe2(nt) ?? nt;
+        const td = tokensData.find((tok) => {
+          try {
+            return normalizeStructTag3(tok.coinType) === ntNorm;
+          } catch {
+            return false;
+          }
+        });
+        const rd = td?.decimals ?? 0;
+        const hum = safeHumanFromNumberRaw(Math.floor(amtNum), rd);
+        const pxRw = spotsMap.get(ntNorm)?.price;
+        const tdPrice = Number(td?.price);
+        const pxRf = pxRw != null && Number.isFinite(pxRw) && pxRw > 0 && pxRw <= 1e8 ? pxRw : Number.isFinite(tdPrice) && tdPrice > 0 && tdPrice <= 1e8 ? tdPrice : null;
+        if (pxRf != null) rewardHumUsdSpot += clampUsd2(hum * pxRf);
+      }
+      const sdkFeeUsdPart = clampUsd2(row.feeAmountXUsd + row.feeAmountYUsd);
+      const sdkClaimUsd = Number.isFinite(row.claimableRewards) ? row.claimableRewards : 0;
+      let unclaimedRewardUsd = rewardHumUsdSpot;
+      if (unclaimedRewardUsd <= 0 && sdkClaimUsd > 0 && sdkFeeUsdPart >= 0) {
+        unclaimedRewardUsd = clampUsd2(Math.max(0, sdkClaimUsd - sdkFeeUsdPart));
+      }
+      unclaimedRewardUsd = clampUsd2(unclaimedRewardUsd);
+      const opened = {
+        id: posId,
+        protocol: "momentum",
+        poolId,
+        pair,
+        tokenA: symA,
+        tokenB: symB,
+        tokenAAddress: tANorm,
+        tokenBAddress: tBNorm,
+        tokenAIconUrl: iconA,
+        tokenBIconUrl: iconB,
+        tokenADecimals: decA,
+        tokenBDecimals: decB,
+        fee: feeFraction,
+        tickLower: lowerTick,
+        tickUpper: upperTick,
+        currentTick,
+        currentSqrtPrice: curSqrtBn.isZero() ? sqrtStr : curSqrtBn.toString(10),
+        liquidity: liqBn.toString(10),
+        lifecycleStatus: isEmpty ? "empty" : "active",
+        status: rangeStatus,
+        tokenAAmount: humA,
+        tokenBAmount: humB,
+        currentPriceA_USD: pxaF ?? Number.NaN,
+        currentPriceB_USD: pxbF ?? Number.NaN,
+        currentValueUSD: valueUsd,
+        depositedUSD: 0,
+        pnlUSD: 0,
+        pnlPct: 0,
+        unclaimedFeeA: feeHumA,
+        unclaimedFeeB: feeHumB,
+        unclaimedFeeUSD: unclaimedFeeUsd,
+        unclaimedRewardUSD: unclaimedRewardUsd,
+        openedAt,
+        daysOpen: 0,
+        lifetimeEarningsUSD: 0,
+        vsHodlDeltaUSD: 0,
+        aprEstimatePct: 0,
+        historyPartial: pricePartial
+      };
+      out.push(opened);
+    } catch (e) {
+      console.warn("[momentum] skip position after parse/math error", row?.objectId, e);
     }
-    const sdkFeeUsdPart = clampUsd(row.feeAmountXUsd + row.feeAmountYUsd);
-    const sdkClaimUsd = Number.isFinite(row.claimableRewards) ? row.claimableRewards : 0;
-    let unclaimedRewardUsd = rewardHumUsdSpot;
-    if (unclaimedRewardUsd <= 0 && sdkClaimUsd > 0 && sdkFeeUsdPart >= 0) {
-      unclaimedRewardUsd = clampUsd(Math.max(0, sdkClaimUsd - sdkFeeUsdPart));
-    }
-    unclaimedRewardUsd = clampUsd(unclaimedRewardUsd);
-    const opened = {
-      id: posId,
-      protocol: "momentum",
-      poolId,
-      pair,
-      tokenA: symA,
-      tokenB: symB,
-      tokenAAddress: tANorm,
-      tokenBAddress: tBNorm,
-      tokenAIconUrl: iconA,
-      tokenBIconUrl: iconB,
-      tokenADecimals: decA,
-      tokenBDecimals: decB,
-      fee: feeFraction,
-      tickLower: lowerTick,
-      tickUpper: upperTick,
-      currentTick: poolTickCurrent(pool),
-      currentSqrtPrice: curSqrtBn.isZero() ? sqrtStr : curSqrtBn.toString(10),
-      liquidity: liqBn.toString(10),
-      status: momentumStatusToRange(statusLabel || (inRangeResolved ? "in range" : "out of range")),
-      tokenAAmount: humA,
-      tokenBAmount: humB,
-      currentPriceA_USD: pxaF ?? 0,
-      currentPriceB_USD: pxbF ?? 0,
-      currentValueUSD: valueUsd,
-      depositedUSD: 0,
-      pnlUSD: 0,
-      pnlPct: 0,
-      unclaimedFeeA: feeHumA,
-      unclaimedFeeB: feeHumB,
-      unclaimedFeeUSD: unclaimedFeeUsd,
-      unclaimedRewardUSD: unclaimedRewardUsd,
-      openedAt,
-      daysOpen: 0,
-      lifetimeEarningsUSD: 0,
-      vsHodlDeltaUSD: 0,
-      aprEstimatePct: 0
-    };
-    out.push(opened);
   }
   return out;
 }
 
 // src/services/bluefinService.ts
 init_suiClient();
-import { TickMath as TickMath3, Utils as Utils3 } from "@mmt-finance/clmm-sdk";
-
-// src/services/objectVersionCache.ts
-function asRpcObjectClient(client) {
-  return client;
-}
-var CHUNK2 = 50;
-function normId(id) {
-  const t = id.trim().toLowerCase();
-  return t.startsWith("0x") ? t : `0x${t}`;
-}
-var ObjectVersionCache = class {
-  map = /* @__PURE__ */ new Map();
-  get(id) {
-    return this.map.get(normId(id));
-  }
-  hasContent(id) {
-    const hit = this.get(id);
-    return hit != null && hit.content != null;
-  }
-  put(data) {
-    if (!data.objectId || data.content == null) return;
-    this.map.set(normId(data.objectId), {
-      objectId: data.objectId,
-      version: String(data.version),
-      digest: data.digest,
-      type: data.type,
-      content: data.content
-    });
-  }
-  putResponses(res) {
-    for (const r of res) {
-      if (r.data?.content != null) this.put(r.data);
-    }
-  }
-  toResponse(id) {
-    const hit = this.get(id);
-    if (!hit) return null;
-    return { data: hit };
-  }
-  clear() {
-    this.map.clear();
-  }
-  size() {
-    return this.map.size;
-  }
-};
-var shared3 = null;
-function getObjectVersionCache() {
-  if (!shared3) shared3 = new ObjectVersionCache();
-  return shared3;
-}
-var CHUNK_CONCURRENCY = 4;
-async function multiGetChunked(client, ids, options) {
-  const parts = [];
-  for (let i = 0; i < ids.length; i += CHUNK2) parts.push(ids.slice(i, i + CHUNK2));
-  const results = new Array(parts.length);
-  let next = 0;
-  const worker = async () => {
-    for (; ; ) {
-      const idx = next++;
-      if (idx >= parts.length) return;
-      results[idx] = await client.multiGetObjects({ ids: parts[idx], options });
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, parts.length) }, worker));
-  return results.flat();
-}
-async function multiGetObjectsHydrated(client, ids, opts) {
-  if (!ids.length) return [];
-  const cache3 = getObjectVersionCache();
-  const showType = opts?.showType !== false;
-  const showContent = opts?.showContent !== false;
-  const incremental = opts?.incremental === true;
-  if (!incremental) {
-    const res = await multiGetChunked(client, ids, { showContent, showType });
-    cache3.putResponses(res);
-    return res;
-  }
-  const needFull = [];
-  const versionCheck = [];
-  for (const id of ids) {
-    if (cache3.hasContent(id)) versionCheck.push(id);
-    else needFull.push(id);
-  }
-  if (versionCheck.length) {
-    const versionRes = await multiGetChunked(client, versionCheck, { showContent: false, showType: false });
-    for (const r of versionRes) {
-      const id = r.data?.objectId;
-      if (!id) continue;
-      const ver = r.data?.version != null ? String(r.data.version) : "";
-      const cached2 = cache3.get(id);
-      if (!cached2 || cached2.version !== ver) needFull.push(id);
-    }
-  }
-  const uniqueFull = [...new Set(needFull.map(normId))];
-  const fullRes = uniqueFull.length ? await multiGetChunked(client, uniqueFull, { showContent: true, showType }) : [];
-  cache3.putResponses(fullRes);
-  const byId = /* @__PURE__ */ new Map();
-  for (const r of fullRes) {
-    if (r.data?.objectId) byId.set(normId(r.data.objectId), r);
-  }
-  return ids.map((id) => {
-    const key = normId(id);
-    const fresh = byId.get(key);
-    if (fresh) return fresh;
-    return cache3.toResponse(key) ?? { data: null };
-  });
-}
-async function listOwnedMoveObjects(client, args) {
-  const cache3 = getObjectVersionCache();
-  const incremental = args.incremental === true;
-  const collected = [];
-  let cursor;
-  for (; ; ) {
-    const page = await client.getOwnedObjects({
-      owner: args.owner,
-      filter: args.filter,
-      options: {
-        showContent: !incremental,
-        showType: true
-      },
-      cursor: cursor ?? null,
-      limit: args.limit ?? 50
-    });
-    collected.push(...page.data);
-    if (!page.hasNextPage) break;
-    cursor = page.nextCursor ?? null;
-  }
-  if (!incremental) {
-    cache3.putResponses(collected);
-    return collected;
-  }
-  const ids = collected.map((r) => r.data?.objectId).filter((id) => Boolean(id));
-  if (!ids.length) return collected;
-  return multiGetObjectsHydrated(client, ids, { incremental: true, showType: true });
-}
-
-// src/services/bluefinService.ts
+import { TickMath as TickMath4, Utils as Utils4 } from "@mmt-finance/clmm-sdk";
 init_resolveSpots();
 
 // src/services/bluefinAccruedInspect.ts
 init_constants();
 import { bcs as bcs3 } from "@mysten/sui/bcs";
 import { Transaction as Transaction2 } from "@mysten/sui/transactions";
-import { normalizeStructTag as normalizeStructTag3, normalizeSuiAddress as normalizeSuiAddress6, SUI_CLOCK_OBJECT_ID } from "@mysten/sui/utils";
+import { normalizeStructTag as normalizeStructTag4, normalizeSuiAddress as normalizeSuiAddress9, SUI_CLOCK_OBJECT_ID } from "@mysten/sui/utils";
 var PKG = PROTOCOL_PACKAGES.BLUEFIN_CLMM;
 var BLUEFIN_POOL = `${PKG}::pool`;
 var DEVINSPECT_SENDER = "0x0000000000000000000000000000000000000000000000000000000000000000";
@@ -7971,7 +9358,7 @@ function u64BytesToString(bytes) {
 function normType(ct) {
   if (!ct) return "";
   try {
-    return normalizeStructTag3(ct);
+    return normalizeStructTag4(ct);
   } catch {
     return ct;
   }
@@ -8055,7 +9442,7 @@ async function fetchBluefinAccruedRaws(client, input) {
   let walletSender = DEVINSPECT_SENDER;
   if (senderOpt) {
     try {
-      walletSender = normalizeSuiAddress6(senderOpt);
+      walletSender = normalizeSuiAddress9(senderOpt);
     } catch {
       walletSender = senderOpt.startsWith("0x") ? senderOpt : DEVINSPECT_SENDER;
     }
@@ -8154,7 +9541,7 @@ function logBluefinUnclaimedDebug(s) {
 }
 
 // src/services/bluefinAccruedSdk.ts
-import Decimal5 from "decimal.js";
+import Decimal6 from "decimal.js";
 init_resolveSpots();
 init_suiClient();
 
@@ -8184,27 +9571,9 @@ function isLocalUnclaimedEnabled() {
 // src/services/bluefinService.ts
 init_constants();
 init_hardcodedVerifiedCoins();
-import { normalizeSuiAddress as normalizeSuiAddress7, normalizeStructTag as normalizeStructTag4 } from "@mysten/sui/utils";
-import Decimal6 from "decimal.js";
-import BN3 from "bn.js";
-
-// src/utils/clmmTickBounds.ts
-function ordered(tickLower, tickUpper) {
-  return {
-    lower: Math.min(tickLower, tickUpper),
-    upper: Math.max(tickLower, tickUpper)
-  };
-}
-function cetusTickInRange(currentTick, tickLower, tickUpper) {
-  const { lower, upper } = ordered(tickLower, tickUpper);
-  return currentTick >= lower && currentTick < upper;
-}
-function bluefinTickInRange(currentTick, tickLower, tickUpper) {
-  const { lower, upper } = ordered(tickLower, tickUpper);
-  return currentTick >= lower && currentTick < upper;
-}
-
-// src/services/bluefinService.ts
+import { normalizeSuiAddress as normalizeSuiAddress10, normalizeStructTag as normalizeStructTag5 } from "@mysten/sui/utils";
+import Decimal7 from "decimal.js";
+import BN4 from "bn.js";
 var _hardcodedSymbol = new Map(
   HARDCODED_VERIFIED.map((c) => [c.type.toLowerCase(), c.symbol])
 );
@@ -8266,11 +9635,11 @@ function readPositionCoinType(fields, key) {
   try {
     const v = fields[key];
     if (typeof v === "string" && v.trim()) {
-      return normCoinType(v.trim());
+      return normCoinType2(v.trim());
     }
     const s = readSuiUtf8String(v).trim();
     if (!s) return "";
-    return normCoinType(s);
+    return normCoinType2(s);
   } catch {
     return "";
   }
@@ -8293,28 +9662,28 @@ function poolRewardSpecList(poolF) {
     if (!r) return { coinType: "", dec: 0 };
     const rawType = r["reward_coin_type"];
     const ct = readSuiUtf8String(rawType).trim();
-    const n2 = ct ? normCoinType(ct) : "";
+    const n2 = ct ? normCoinType2(ct) : "";
     const d = r["reward_coin_decimals"];
     const dec = typeof d === "number" ? d : typeof d === "string" ? parseInt(d, 10) : 0;
     return { coinType: n2, dec: Number.isFinite(dec) ? dec : 0 };
   });
 }
-var MAX_SANE_POSITION_USD2 = 5e7;
-var MAX_SANE_HUMAN_TOKENS2 = 1e18;
+var MAX_SANE_POSITION_USD3 = 5e7;
+var MAX_SANE_HUMAN_TOKENS3 = 1e18;
 function safeHumanFromRaw(raw, decimals) {
   if (!/^\d+$/.test(raw) || !Number.isFinite(decimals) || decimals < 0) return 0;
   try {
-    const d = new Decimal6(raw).div(new Decimal6(10).pow(decimals));
+    const d = new Decimal7(raw).div(new Decimal7(10).pow(decimals));
     const n2 = d.toNumber();
-    if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS2) return 0;
+    if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS3) return 0;
     return n2;
   } catch {
     return 0;
   }
 }
-function normCoinType(raw) {
+function normCoinType2(raw) {
   if (!raw) return raw;
-  return normalizeStructTag4(raw);
+  return normalizeStructTag5(raw);
 }
 function symbolFromType2(coinType) {
   const parts = coinType.split("::");
@@ -8351,7 +9720,7 @@ async function getBluefinSpotPositions(walletAddress, options) {
     const pid = readString(p.fields, "pool_id");
     if (pid) {
       try {
-        poolIdSet.add(normalizeSuiAddress7(pid));
+        poolIdSet.add(normalizeSuiAddress10(pid));
       } catch {
         poolIdSet.add(pid);
       }
@@ -8366,7 +9735,7 @@ async function getBluefinSpotPositions(walletAddress, options) {
   for (const r of poolRes) {
     if (r.data?.objectId) {
       const f = asMoveFields(r.data);
-      if (f) poolMap.set(normalizeSuiAddress7(r.data.objectId), f);
+      if (f) poolMap.set(normalizeSuiAddress10(r.data.objectId), f);
     }
   }
   const meta = /* @__PURE__ */ new Map();
@@ -8408,7 +9777,7 @@ async function getBluefinSpotPositions(walletAddress, options) {
     const px = spots.get(ct)?.price;
     if (px == null || !Number.isFinite(px) || px > 1e8) return 0;
     const v = human * px;
-    return v > 0 && v <= MAX_SANE_POSITION_USD2 ? v : 0;
+    return v > 0 && v <= MAX_SANE_POSITION_USD3 ? v : 0;
   };
   const out = [];
   for (const p of posIds) {
@@ -8416,7 +9785,7 @@ async function getBluefinSpotPositions(walletAddress, options) {
     const poolIdRaw = readString(f, "pool_id");
     let poolKey = poolIdRaw;
     try {
-      if (poolIdRaw) poolKey = normalizeSuiAddress7(poolIdRaw);
+      if (poolIdRaw) poolKey = normalizeSuiAddress10(poolIdRaw);
     } catch {
     }
     const tA = readPositionCoinType(f, "coin_type_a");
@@ -8431,16 +9800,16 @@ async function getBluefinSpotPositions(walletAddress, options) {
     const sqrtField = (poolF && poolF["current_sqrt_price"]) ?? null;
     const curSqrtStr = readMoveUIntString(sqrtField);
     const currentTickI32 = readI32(poolF?.current_tick_index);
-    const lowerSqrt = TickMath3.tickIndexToSqrtPriceX64(lowerT);
-    const upperSqrt = TickMath3.tickIndexToSqrtPriceX64(upperT);
+    const lowerSqrt = TickMath4.tickIndexToSqrtPriceX64(lowerT);
+    const upperSqrt = TickMath4.tickIndexToSqrtPriceX64(upperT);
     let rawA = "0";
     let rawB = "0";
     const hasPool = poolF != null && curSqrtStr !== "0" && /^\d+$/.test(curSqrtStr) && /^\d+$/.test(liqStr);
-    const liqBn = new BN3(liqStr, 10);
-    const curSqrt = new BN3(curSqrtStr, 10);
+    const liqBn = new BN4(liqStr, 10);
+    const curSqrt = new BN4(curSqrtStr, 10);
     if (hasPool && !liqBn.isZero() && !curSqrt.isZero()) {
       try {
-        const { coinA, coinB } = Utils3.getCoinAmountFromLiquidity(
+        const { coinA, coinB } = Utils4.getCoinAmountFromLiquidity(
           liqBn,
           curSqrt,
           lowerSqrt,
@@ -8463,7 +9832,7 @@ async function getBluefinSpotPositions(walletAddress, options) {
     const vA = pxaF != null ? humA * pxaF : 0;
     const vB = pxbF != null ? humB * pxbF : 0;
     let valueUsd = vA + vB;
-    if (!Number.isFinite(valueUsd) || valueUsd < 0 || valueUsd > MAX_SANE_POSITION_USD2) {
+    if (!Number.isFinite(valueUsd) || valueUsd < 0 || valueUsd > MAX_SANE_POSITION_USD3) {
       valueUsd = 0;
     }
     const inRange = bluefinTickInRange(currentTickI32, lowerT, upperT);
@@ -8520,7 +9889,7 @@ async function getBluefinSpotPositions(walletAddress, options) {
       unclaimedFeeUsd += feeUsdB;
     }
     if (!Number.isFinite(unclaimedFeeUsd) || unclaimedFeeUsd < 0) unclaimedFeeUsd = 0;
-    if (unclaimedFeeUsd > MAX_SANE_POSITION_USD2) unclaimedFeeUsd = 0;
+    if (unclaimedFeeUsd > MAX_SANE_POSITION_USD3) unclaimedFeeUsd = 0;
     if (!Number.isFinite(feeUsdA)) feeUsdA = 0;
     if (!Number.isFinite(feeUsdB)) feeUsdB = 0;
     const unclaimed_fees = [];
@@ -8558,7 +9927,7 @@ async function getBluefinSpotPositions(walletAddress, options) {
       let leg;
       if (pRf != null) leg = hum * pRf;
       else leg = getUsd(coinType, rawO);
-      if (leg > 0 && leg <= MAX_SANE_POSITION_USD2) {
+      if (leg > 0 && leg <= MAX_SANE_POSITION_USD3) {
         unclaimedRewardUsd += leg;
         unclaimed_rewards.push({
           token: meta.get(coinType)?.symbol ?? symbolFromType2(coinType),
@@ -8572,7 +9941,6 @@ async function getBluefinSpotPositions(walletAddress, options) {
     if (!Number.isFinite(unclaimedRewardUsd) || unclaimedRewardUsd < 0) unclaimedRewardUsd = 0;
     const openedAt = Date.now() / 1e3;
     const feeLabel = parseFeeMillionthsToPctLabel(feeBps);
-    const rangeLabel = inRange ? "" : " \xB7 OUT";
     const poolIdOut = poolIdRaw || poolKey;
     const bluefinUnclaimed = {
       position_id: p.id,
@@ -8603,7 +9971,7 @@ async function getBluefinSpotPositions(walletAddress, options) {
       id: p.id,
       protocol: "bluefin",
       poolId: poolIdOut,
-      pair: `${symA}+${symB} \xB7 ${feeLabel === "\u2014" ? "\u2014" : feeLabel}${rangeLabel}`,
+      pair: `${symA}+${symB} \xB7 ${feeLabel === "\u2014" ? "\u2014" : feeLabel}`,
       tokenA: symA,
       tokenB: symB,
       tokenAAddress: tA,
@@ -8645,16 +10013,16 @@ async function getBluefinSpotPositions(walletAddress, options) {
 
 // src/services/cetusService.ts
 init_suiClient();
-import { TickMath as TickMath4, Utils as Utils4 } from "@mmt-finance/clmm-sdk";
+import { TickMath as TickMath5, Utils as Utils5 } from "@mmt-finance/clmm-sdk";
 init_resolveSpots();
 init_constants();
 init_concurrency();
 init_coinMetadata();
-import { normalizeStructTag as normalizeStructTag6, normalizeSuiAddress as normalizeSuiAddress10 } from "@mysten/sui/utils";
+import { normalizeStructTag as normalizeStructTag7, normalizeSuiAddress as normalizeSuiAddress13 } from "@mysten/sui/utils";
 
 // src/services/cetusAccruedInspect.ts
 import { Transaction as Transaction3 } from "@mysten/sui/transactions";
-import { normalizeStructTag as normalizeStructTag5, normalizeSuiAddress as normalizeSuiAddress8, SUI_CLOCK_OBJECT_ID as SUI_CLOCK_OBJECT_ID2 } from "@mysten/sui/utils";
+import { normalizeStructTag as normalizeStructTag6, normalizeSuiAddress as normalizeSuiAddress11, SUI_CLOCK_OBJECT_ID as SUI_CLOCK_OBJECT_ID2 } from "@mysten/sui/utils";
 var CETUS_INTEGRATE_AT = "0x9ee0534b703b14457aee7698ea3a07a5080f954ed2b7e9910fbb7a55506824fa";
 var CETUS_GLOBAL_CONFIG = "0xdaa46292632c3c4d8f31f23ea0f9b36a28ff3677e9684980e4438403a67a3d8f";
 var FETCHER_MODULE = "fetcher_script";
@@ -8663,12 +10031,12 @@ var DEVINSPECT_TIMEOUT_MS2 = 2e4;
 function normType2(ct) {
   if (!ct) return "";
   try {
-    return normalizeStructTag5(ct);
+    return normalizeStructTag6(ct);
   } catch {
     return ct;
   }
 }
-function readU64(v) {
+function readU642(v) {
   if (typeof v === "string" && /^\d+$/.test(v)) return v;
   if (typeof v === "number" && Number.isFinite(v) && v >= 0) return String(Math.trunc(v));
   return "0";
@@ -8718,12 +10086,12 @@ async function devInspectCetusOnce(client, input, sender) {
     const pj = evObj.parsedJson && typeof evObj.parsedJson === "object" ? evObj.parsedJson : null;
     if (!pj) continue;
     if (type.includes("FetchPositionFeesEvent")) {
-      feeOwedA = readU64(pj.fee_owned_a);
-      feeOwedB = readU64(pj.fee_owned_b);
+      feeOwedA = readU642(pj.fee_owned_a);
+      feeOwedB = readU642(pj.fee_owned_b);
       feeEventFound = true;
     } else if (type.includes("FetchPositionRewardsEvent")) {
       const data = Array.isArray(pj.data) ? pj.data : [];
-      rewardOweds = data.map(readU64);
+      rewardOweds = data.map(readU642);
     }
   }
   if (!feeEventFound) {
@@ -8743,7 +10111,7 @@ async function fetchCetusAccruedFees(client, input) {
   let walletSender = DEVINSPECT_SENDER2;
   if (input.sender) {
     try {
-      walletSender = normalizeSuiAddress8(input.sender);
+      walletSender = normalizeSuiAddress11(input.sender);
     } catch {
       walletSender = DEVINSPECT_SENDER2;
     }
@@ -8767,35 +10135,11 @@ async function fetchCetusAccruedFees(client, input) {
 
 // src/services/cetusLocalUnclaimed.ts
 init_constants();
-
-// src/clmm/feeGrowth.ts
-var U128_MOD = 2n ** 128n;
-var U64_MAX = 18446744073709551615n;
-function computeFeeGrowthInside(feeGrowthGlobal, lowerFeeGrowthOutside, upperFeeGrowthOutside, lowerTick, upperTick, currentTick) {
-  const feeGrowthBelow = currentTick >= lowerTick ? lowerFeeGrowthOutside : (feeGrowthGlobal - lowerFeeGrowthOutside + U128_MOD) % U128_MOD;
-  const feeGrowthAbove = currentTick < upperTick ? upperFeeGrowthOutside : (feeGrowthGlobal - upperFeeGrowthOutside + U128_MOD) % U128_MOD;
-  return (feeGrowthGlobal - feeGrowthBelow - feeGrowthAbove + 2n * U128_MOD) % U128_MOD;
-}
-function computeTotalOwed(tokensOwedRaw, feeGrowthInsideNow, feeGrowthInsideLast, liquidity, shiftBits = 128) {
-  try {
-    const liq = BigInt(liquidity);
-    if (liq === 0n) return tokensOwedRaw;
-    const owed = BigInt(tokensOwedRaw || "0");
-    const delta = (feeGrowthInsideNow - feeGrowthInsideLast + U128_MOD) % U128_MOD;
-    const live = delta * liq >> BigInt(shiftBits);
-    const total = owed + live > U64_MAX ? owed : owed + live;
-    return total.toString();
-  } catch {
-    return tokensOwedRaw;
-  }
-}
-
-// src/services/cetusLocalUnclaimed.ts
 var I32_TYPES = [
   "0x714a63a0dba6da4fce08a1ec21d39416e734f29654e45d37d1d2023922fca2d0::i32::I32",
   `${PROTOCOL_PACKAGES.CETUS_CLMM}::i32::I32`
 ];
-function unwrap(val) {
+function unwrap2(val) {
   if (!val || typeof val !== "object") return null;
   const o = val;
   if (o.fields && typeof o.fields === "object") return o.fields;
@@ -8820,8 +10164,8 @@ async function readTickOutside(client, ticksHandle, tick) {
         name: { type, value: { bits: tickBits(tick) } }
       });
       const content = obj.data?.content;
-      const fields = unwrap(content?.fields ?? content);
-      const tickFields = unwrap(fields?.value ?? fields);
+      const fields = unwrap2(content?.fields ?? content);
+      const tickFields = unwrap2(fields?.value ?? fields);
       if (!tickFields) continue;
       const a = readU(tickFields.fee_growth_outside_a);
       const b = readU(tickFields.fee_growth_outside_b);
@@ -8841,7 +10185,7 @@ async function fetchCetusLocalAccrued(client, args) {
       name: { type: "0x2::object::ID", value: args.positionId }
     });
     const content = posObj.data?.content;
-    const fields = unwrap(unwrap(content?.fields ?? content)?.value ?? content?.fields);
+    const fields = unwrap2(unwrap2(content?.fields ?? content)?.value ?? content?.fields);
     if (!fields) return { ok: false, error: "position_info_missing" };
     const feeOwnedA = String(fields.fee_owned_a ?? "0");
     const feeOwnedB = String(fields.fee_owned_b ?? "0");
@@ -8883,36 +10227,36 @@ async function fetchCetusLocalAccrued(client, args) {
 // src/services/cetusCompensationLock.ts
 init_concurrency();
 init_constants();
-import { normalizeSuiAddress as normalizeSuiAddress9 } from "@mysten/sui/utils";
+import { normalizeSuiAddress as normalizeSuiAddress12 } from "@mysten/sui/utils";
 var SNAPSHOT_DOF_KEY = "position_liquidity_snapshot";
-function normId2(id) {
+function normId3(id) {
   try {
-    return normalizeSuiAddress9(id);
+    return normalizeSuiAddress12(id);
   } catch {
     return id.toLowerCase();
   }
 }
-function unwrap2(val) {
+function unwrap3(val) {
   if (!val || typeof val !== "object") return null;
   const o = val;
   if (o.fields && typeof o.fields === "object") return o.fields;
   return o;
 }
 function parseUid(raw) {
-  if (typeof raw === "string" && raw.length > 0) return normId2(raw);
+  if (typeof raw === "string" && raw.length > 0) return normId3(raw);
   if (raw && typeof raw === "object") {
     const o = raw;
-    if (typeof o.id === "string") return normId2(o.id);
+    if (typeof o.id === "string") return normId3(o.id);
     if (o.id && typeof o.id === "object" && typeof o.id.id === "string") {
-      return normId2(o.id.id);
+      return normId3(o.id.id);
     }
   }
   return null;
 }
 function snapshotsTableFromContent(content) {
-  const fields = unwrap2(content?.fields ?? content);
+  const fields = unwrap3(content?.fields ?? content);
   if (!fields) return null;
-  return parseUid(unwrap2(fields.snapshots)?.id ?? fields.snapshots);
+  return parseUid(unwrap3(fields.snapshots)?.id ?? fields.snapshots);
 }
 async function resolveSnapshotsTableId(client, poolId) {
   const nameVariants = [
@@ -8928,14 +10272,14 @@ async function resolveSnapshotsTableId(client, poolId) {
       if (!df.data) continue;
       const fromContent = snapshotsTableFromContent(df.data.content);
       if (fromContent) return fromContent;
-      const snapObjId = typeof df.data.objectId === "string" ? normId2(df.data.objectId) : null;
+      const snapObjId = typeof df.data.objectId === "string" ? normId3(df.data.objectId) : null;
       if (!snapObjId) continue;
       const snap = await client.getObject({
         id: snapObjId,
         options: { showContent: true }
       });
-      const tableId = snapshotsTableFromContent(snap.data?.content);
-      if (tableId) return tableId;
+      const tableId2 = snapshotsTableFromContent(snap.data?.content);
+      if (tableId2) return tableId2;
     } catch {
     }
   }
@@ -8956,8 +10300,8 @@ async function resolveSnapshotsTableId(client, poolId) {
           id: f.objectId,
           options: { showContent: true }
         });
-        const tableId = snapshotsTableFromContent(snap.data?.content);
-        if (tableId) return tableId;
+        const tableId2 = snapshotsTableFromContent(snap.data?.content);
+        if (tableId2) return tableId2;
       }
       if (!res.hasNextPage) break;
       cursor = res.nextCursor ?? null;
@@ -8978,13 +10322,19 @@ async function positionListedInSnapshot(client, snapshotsTableId, positionId) {
     return false;
   }
 }
+var SNAPSHOT_TABLE_TTL_MS = 60 * 6e4;
+var SNAPSHOT_MISS_TTL_MS = 5 * 6e4;
+var SNAPSHOT_MEMBER_TTL_MS = 10 * 6e4;
+var SNAPSHOT_NOT_LISTED_TTL_MS = 6e4;
+var snapshotTableCache = /* @__PURE__ */ new Map();
+var snapshotMemberCache = /* @__PURE__ */ new Map();
 async function fetchCetusCloseLockedIds(client, items) {
   const locked = /* @__PURE__ */ new Set();
   if (items.length === 0) return locked;
   const byPool = /* @__PURE__ */ new Map();
   for (const it of items) {
-    const pool = normId2(it.poolId);
-    const pos = normId2(it.positionId);
+    const pool = normId3(it.poolId);
+    const pos = normId3(it.positionId);
     const list = byPool.get(pool) ?? [];
     list.push(pos);
     byPool.set(pool, list);
@@ -8992,45 +10342,42 @@ async function fetchCetusCloseLockedIds(client, items) {
   const poolIds = [...byPool.keys()];
   const tableByPool = /* @__PURE__ */ new Map();
   await mapPool(poolIds, Math.min(RPC_CONCURRENCY, 4), async (poolId) => {
-    tableByPool.set(poolId, await resolveSnapshotsTableId(client, poolId));
+    const hit = snapshotTableCache.get(poolId);
+    if (hit && Date.now() - hit.at < (hit.id ? SNAPSHOT_TABLE_TTL_MS : SNAPSHOT_MISS_TTL_MS)) {
+      tableByPool.set(poolId, hit.id);
+      return;
+    }
+    const id = await resolveSnapshotsTableId(client, poolId);
+    snapshotTableCache.set(poolId, { id, at: Date.now() });
+    tableByPool.set(poolId, id);
   });
   const checks = [];
   for (const [poolId, posIds] of byPool) {
-    const tableId = tableByPool.get(poolId);
-    if (!tableId) continue;
-    for (const positionId of posIds) checks.push({ tableId, positionId });
+    const tableId2 = tableByPool.get(poolId);
+    if (!tableId2) continue;
+    for (const positionId of posIds) checks.push({ tableId: tableId2, positionId });
   }
-  await mapPool(checks, RPC_CONCURRENCY, async ({ tableId, positionId }) => {
-    if (await positionListedInSnapshot(client, tableId, positionId)) {
-      locked.add(positionId);
+  await mapPool(checks, RPC_CONCURRENCY, async ({ tableId: tableId2, positionId }) => {
+    const key = `${tableId2}|${positionId}`;
+    const hit = snapshotMemberCache.get(key);
+    let listed;
+    if (hit && Date.now() - hit.at < (hit.listed ? SNAPSHOT_MEMBER_TTL_MS : SNAPSHOT_NOT_LISTED_TTL_MS)) {
+      listed = hit.listed;
+    } else {
+      listed = await positionListedInSnapshot(client, tableId2, positionId);
+      snapshotMemberCache.set(key, { listed, at: Date.now() });
     }
+    if (listed) locked.add(positionId);
   });
   return locked;
 }
 
-// src/utils/lpLifecycle.ts
-function liquidityRawState(liquidity) {
-  if (liquidity == null || liquidity === "") return "unknown";
-  if (!/^\d+$/.test(liquidity)) return "unknown";
-  try {
-    return BigInt(liquidity) === 0n ? "zero" : "positive";
-  } catch {
-    return "unknown";
-  }
-}
-function resolveLifecycleStatus(liquidity) {
-  const s = liquidityRawState(liquidity);
-  if (s === "zero") return "empty";
-  if (s === "positive") return "active";
-  return "unknown";
-}
-
 // src/services/cetusService.ts
-import Decimal7 from "decimal.js";
-import BN4 from "bn.js";
+import Decimal8 from "decimal.js";
+import BN5 from "bn.js";
 var CETUS_POSITION_TYPE = `${PROTOCOL_PACKAGES.CETUS_CLMM}::position::Position`;
-var MAX_SANE_POSITION_USD3 = 5e7;
-var MAX_SANE_HUMAN_TOKENS3 = 1e18;
+var MAX_SANE_POSITION_USD4 = 5e7;
+var MAX_SANE_HUMAN_TOKENS4 = 1e18;
 var STABLECOIN_SYMS_CETUS = /* @__PURE__ */ new Set([
   "USDC",
   "USDT",
@@ -9045,25 +10392,25 @@ var STABLECOIN_SYMS_CETUS = /* @__PURE__ */ new Set([
   "SUSD",
   "GUSD"
 ]);
-function symbolFromCoinType2(ct) {
+function symbolFromCoinType3(ct) {
   const parts = ct.split("::");
   return parts[2] ?? parts[1] ?? "\u2014";
 }
-function normTypeSafe2(raw) {
+function normTypeSafe3(raw) {
   try {
-    return normalizeStructTag6(raw.trim());
+    return normalizeStructTag7(raw.trim());
   } catch {
     return null;
   }
 }
-function normId3(id) {
+function normId4(id) {
   try {
-    return normalizeSuiAddress10(id.trim());
+    return normalizeSuiAddress13(id.trim());
   } catch {
     return id.trim();
   }
 }
-function unwrapStruct(val) {
+function unwrapStruct2(val) {
   if (!val || typeof val !== "object") return null;
   const obj = val;
   if (obj.fields != null && typeof obj.fields === "object") {
@@ -9075,23 +10422,23 @@ function parseTypeName(val) {
   if (typeof val === "string") {
     const s2 = val.trim();
     if (!s2) return null;
-    return normTypeSafe2(s2.startsWith("0x") ? s2 : `0x${s2}`);
+    return normTypeSafe3(s2.startsWith("0x") ? s2 : `0x${s2}`);
   }
-  const fields = unwrapStruct(val);
+  const fields = unwrapStruct2(val);
   if (!fields) return null;
   const name = fields.name;
   if (typeof name !== "string") return null;
   const s = name.trim();
   if (!s) return null;
-  return normTypeSafe2(s.startsWith("0x") ? s : `0x${s}`);
+  return normTypeSafe3(s.startsWith("0x") ? s : `0x${s}`);
 }
 function parseUID(val) {
   if (typeof val === "string") return val.trim();
-  const f = unwrapStruct(val);
+  const f = unwrapStruct2(val);
   if (!f) return "";
   const inner = f.id;
   if (typeof inner === "string") return inner.trim();
-  const innerFields = unwrapStruct(inner);
+  const innerFields = unwrapStruct2(inner);
   if (!innerFields) return "";
   if (typeof innerFields.bytes === "string") return innerFields.bytes.trim();
   if (typeof innerFields.id === "string") return innerFields.id.trim();
@@ -9100,7 +10447,7 @@ function parseUID(val) {
 function readI322(val) {
   let bits;
   if (val != null && typeof val === "object") {
-    const fields = unwrapStruct(val) ?? val;
+    const fields = unwrapStruct2(val) ?? val;
     bits = Number(fields.bits ?? 0);
   } else {
     bits = Number(val ?? 0);
@@ -9111,7 +10458,7 @@ function readI322(val) {
 function livePoolTick(sqrtPriceStr, parsedTick) {
   if (!/^\d+$/.test(sqrtPriceStr) || sqrtPriceStr === "0") return parsedTick;
   try {
-    const fromSqrt = TickMath4.sqrtPriceX64ToTickIndex(new BN4(sqrtPriceStr, 10));
+    const fromSqrt = TickMath5.sqrtPriceX64ToTickIndex(new BN5(sqrtPriceStr, 10));
     if (!Number.isFinite(fromSqrt)) return parsedTick;
     if (!Number.isFinite(parsedTick) || Math.abs(fromSqrt - parsedTick) > 1) return fromSqrt;
     return parsedTick;
@@ -9119,17 +10466,17 @@ function livePoolTick(sqrtPriceStr, parsedTick) {
     return parsedTick;
   }
 }
-function clampUsd2(v) {
+function clampUsd3(v) {
   if (!Number.isFinite(v) || v < 0) return 0;
-  return v <= MAX_SANE_POSITION_USD3 ? v : 0;
+  return v <= MAX_SANE_POSITION_USD4 ? v : 0;
 }
-function safeHumanFromBnRaw2(rawBn, decimals) {
+function safeHumanFromBnRaw3(rawBn, decimals) {
   try {
     const raw = rawBn.toString(10);
     if (!/^\d+$/.test(raw) || !Number.isFinite(decimals) || decimals < 0) return 0;
-    const d = new Decimal7(raw).div(new Decimal7(10).pow(decimals));
+    const d = new Decimal8(raw).div(new Decimal8(10).pow(decimals));
     const n2 = d.toNumber();
-    if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS3) return 0;
+    if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS4) return 0;
     return n2;
   } catch {
     return 0;
@@ -9139,12 +10486,12 @@ function safeHumanFromStringRaw(raw, decimals) {
   const s = raw?.trim();
   if (!s || !/^\d+$/.test(s)) return 0;
   try {
-    return safeHumanFromBnRaw2(new BN4(s, 10), decimals);
+    return safeHumanFromBnRaw3(new BN5(s, 10), decimals);
   } catch {
     return 0;
   }
 }
-function spotPriceSafe(raw) {
+function spotPriceSafe2(raw) {
   if (raw == null || !Number.isFinite(raw) || raw <= 0 || raw > 1e8) return null;
   return raw;
 }
@@ -9157,7 +10504,7 @@ function cetusUnclaimedRewardRows(rewardOweds, rewarderCoinTypes, metaMap, spots
     const rewCt = rewarderCoinTypes[i];
     if (!rewCt) continue;
     const rewMeta = metaMap.get(rewCt) ?? {
-      symbol: symbolFromCoinType2(rewCt),
+      symbol: symbolFromCoinType3(rewCt),
       decimals: 9,
       iconUrl: null
     };
@@ -9165,18 +10512,18 @@ function cetusUnclaimedRewardRows(rewardOweds, rewarderCoinTypes, metaMap, spots
     const hum = safeHumanFromStringRaw(rawAmt, decimals);
     if (!(hum > 0)) continue;
     const spot = spotsMap.get(rewCt);
-    const px = spotPriceSafe(spot?.price);
-    const amountUsd = px != null ? clampUsd2(hum * px) : 0;
+    const px = spotPriceSafe2(spot?.price);
+    const amountUsd = px != null ? clampUsd3(hum * px) : 0;
     usd += amountUsd;
     rows.push({
-      token: rewMeta.symbol || symbolFromCoinType2(rewCt),
+      token: rewMeta.symbol || symbolFromCoinType3(rewCt),
       coinType: rewCt,
       amount: hum,
       amount_usd: amountUsd,
       price_source: spot?.priceSource ?? "unavailable"
     });
   }
-  return { rows, usd: clampUsd2(usd) };
+  return { rows, usd: clampUsd3(usd) };
 }
 function positionFieldsOf(raw) {
   if (!raw || typeof raw !== "object") return null;
@@ -9215,13 +10562,13 @@ async function fetchPositionNFTs(wallet, incremental = false) {
       console.warn("[cetus] position has null coin types, id:", obj.objectId, "| coin_type_a:", f.coin_type_a, "coin_type_b:", f.coin_type_b);
       continue;
     }
-    const poolId = typeof f.pool === "string" ? normId3(f.pool) : "";
+    const poolId = typeof f.pool === "string" ? normId4(f.pool) : "";
     if (!poolId) {
       console.warn("[cetus] position has no pool id, id:", obj.objectId, "| pool field:", f.pool);
       continue;
     }
     results.push({
-      objectId: normId3(obj.objectId),
+      objectId: normId4(obj.objectId),
       poolId,
       coinTypeA,
       coinTypeB,
@@ -9253,43 +10600,43 @@ async function fetchPools2(poolIds, incremental = false) {
     const obj = item?.data;
     const content = obj?.content;
     if (!obj?.objectId || content?.dataType !== "moveObject") continue;
-    const key = normId3(obj.objectId);
+    const key = normId4(obj.objectId);
     const rawFields = obj.content.fields;
     const f = poolFieldsOf(rawFields);
     if (!f) {
       console.warn("[cetus] fetchPools: no current_sqrt_price in pool", key, "raw keys:", rawFields && typeof rawFields === "object" ? Object.keys(rawFields) : String(rawFields));
       continue;
     }
-    const pmFields = unwrapStruct(f.position_manager);
+    const pmFields = unwrapStruct2(f.position_manager);
     const positionsRaw = pmFields?.positions;
-    const posFields = unwrapStruct(positionsRaw);
+    const posFields = unwrapStruct2(positionsRaw);
     const posHandle = parseUID(posFields?.id ?? pmFields?.positions_handle);
     if (!posHandle) {
       console.warn("[cetus] posHandle empty for pool", key, "| pmFields:", JSON.stringify(pmFields), "| posFields:", JSON.stringify(posFields));
       continue;
     }
-    const rmFields = unwrapStruct(f.rewarder_manager);
+    const rmFields = unwrapStruct2(f.rewarder_manager);
     const rewardersList = Array.isArray(rmFields?.rewarders) ? rmFields.rewarders : [];
     const rewarderCoinTypes = [];
     for (const rew of rewardersList) {
-      const rewFields = unwrapStruct(rew);
+      const rewFields = unwrapStruct2(rew);
       const ct = parseTypeName(rewFields?.reward_coin ?? rew?.reward_coin);
       rewarderCoinTypes.push(ct ?? "");
     }
     const feeRateRaw = Number(f.fee_rate ?? 0);
-    const tmFields = unwrapStruct(f.tick_manager);
-    const ticksTable = unwrapStruct(tmFields?.ticks);
+    const tmFields = unwrapStruct2(f.tick_manager);
+    const ticksTable = unwrapStruct2(tmFields?.ticks);
     const ticksHandleRaw = parseUID(ticksTable?.id ?? tmFields?.ticks_handle);
     const rec = f;
     map.set(key, {
       sqrtPriceStr: String(f.current_sqrt_price),
       currentTick: livePoolTick(String(f.current_sqrt_price), readI322(f.current_tick_index)),
       feeRate: Number.isFinite(feeRateRaw) ? feeRateRaw / 1e6 : 0,
-      positionsHandle: normId3(posHandle),
+      positionsHandle: normId4(posHandle),
       rewarderCoinTypes,
       feeGrowthGlobalA: rec.fee_growth_global_a != null ? String(rec.fee_growth_global_a) : void 0,
       feeGrowthGlobalB: rec.fee_growth_global_b != null ? String(rec.fee_growth_global_b) : void 0,
-      ticksHandle: ticksHandleRaw ? normId3(ticksHandleRaw) : void 0
+      ticksHandle: ticksHandleRaw ? normId4(ticksHandleRaw) : void 0
     });
   }
   return map;
@@ -9336,14 +10683,14 @@ async function getCetusPositions(walletAddress, options) {
       const m = await resolveCoinMetadata(suiClient, ct);
       if (!m) return;
       mm.set(ct, {
-        symbol: m.symbol || symbolFromCoinType2(ct),
+        symbol: m.symbol || symbolFromCoinType3(ct),
         decimals: m.decimals,
         iconUrl: m.iconUrl
       });
     });
     return mm;
   });
-  const getMeta = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType2(ct), decimals: -1, iconUrl: null };
+  const getMeta = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType3(ct), decimals: -1, iconUrl: null };
   const spotOpts = options?.forceRefreshPrices ? { forceRefresh: true } : void 0;
   let spotsMap;
   try {
@@ -9360,7 +10707,7 @@ async function getCetusPositions(walletAddress, options) {
   try {
     closeLockedIds = await closeLockedP;
     if (closeLockedIds.size > 0) {
-      console.info("[cetus] hiding compensation-certificate positions:", closeLockedIds.size);
+      console.info("[cetus] compensation-certificate positions:", closeLockedIds.size);
     }
   } catch (e) {
     console.warn("[cetus] compensation-lock detect failed; Cert NFTs may still show", e);
@@ -9373,40 +10720,40 @@ async function getCetusPositions(walletAddress, options) {
     const metaB = getMeta(pos.coinTypeB);
     const { decimals: decA, symbol: symA, iconUrl: iconA } = metaA;
     const { decimals: decB, symbol: symB, iconUrl: iconB } = metaB;
-    const liqBn = /^\d+$/.test(pos.liquidity) ? new BN4(pos.liquidity, 10) : new BN4(0);
-    const curSqrtBn = /^\d+$/.test(pool.sqrtPriceStr) && pool.sqrtPriceStr !== "0" ? new BN4(pool.sqrtPriceStr, 10) : new BN4(0);
+    const liqBn = /^\d+$/.test(pos.liquidity) ? new BN5(pos.liquidity, 10) : new BN5(0);
+    const curSqrtBn = /^\d+$/.test(pool.sqrtPriceStr) && pool.sqrtPriceStr !== "0" ? new BN5(pool.sqrtPriceStr, 10) : new BN5(0);
     let humA = 0;
     let humB = 0;
     if (!liqBn.isZero() && !curSqrtBn.isZero()) {
       try {
-        const lowerSqrt = TickMath4.tickIndexToSqrtPriceX64(pos.lowerTick);
-        const upperSqrt = TickMath4.tickIndexToSqrtPriceX64(pos.upperTick);
-        const { coinA, coinB } = Utils4.getCoinAmountFromLiquidity(
+        const lowerSqrt = TickMath5.tickIndexToSqrtPriceX64(pos.lowerTick);
+        const upperSqrt = TickMath5.tickIndexToSqrtPriceX64(pos.upperTick);
+        const { coinA, coinB } = Utils5.getCoinAmountFromLiquidity(
           liqBn,
           curSqrtBn,
           lowerSqrt,
           upperSqrt,
           false
         );
-        humA = safeHumanFromBnRaw2(coinA, decA);
-        humB = safeHumanFromBnRaw2(coinB, decB);
+        humA = safeHumanFromBnRaw3(coinA, decA);
+        humB = safeHumanFromBnRaw3(coinB, decB);
       } catch {
       }
     }
-    const pxaF = spotPriceSafe(spotsMap.get(pos.coinTypeA)?.price);
-    const pxbF = spotPriceSafe(spotsMap.get(pos.coinTypeB)?.price);
-    const valueUsd = clampUsd2(
-      (pxaF != null ? humA * pxaF : 0) + (pxbF != null ? humB * pxbF : 0)
-    );
+    const pxaF = spotPriceSafe2(spotsMap.get(pos.coinTypeA)?.price);
+    const pxbF = spotPriceSafe2(spotsMap.get(pos.coinTypeB)?.price);
+    const pricePartial = pxaF == null || pxbF == null;
+    const valueUsd = pricePartial ? Number.NaN : clampUsd3(humA * pxaF + humB * pxbF);
     const inRange = cetusTickInRange(pool.currentTick, pos.lowerTick, pos.upperTick);
     const feeLabelPct = `${(pool.feeRate * 100).toFixed(3)}%`;
-    const pair = `${symA}/${symB} \xB7 ${feeLabelPct}${inRange ? "" : " \xB7 OUT"}`;
+    const pair = `${symA}/${symB} \xB7 ${feeLabelPct}`;
     const lifecycleStatus = resolveLifecycleStatus(pos.liquidity);
-    if (closeLockedIds.has(normId3(pos.objectId))) continue;
+    const isCert = closeLockedIds.has(normId4(pos.objectId));
     out.push({
       id: pos.objectId,
       protocol: "cetus",
       poolId: pos.poolId,
+      cetusCloseLocked: isCert || void 0,
       pair,
       tokenA: symA,
       tokenB: symB,
@@ -9426,8 +10773,8 @@ async function getCetusPositions(walletAddress, options) {
       status: inRange ? "in_range" : "out_of_range",
       tokenAAmount: humA,
       tokenBAmount: humB,
-      currentPriceA_USD: pxaF ?? 0,
-      currentPriceB_USD: pxbF ?? 0,
+      currentPriceA_USD: pxaF ?? Number.NaN,
+      currentPriceB_USD: pxbF ?? Number.NaN,
       currentValueUSD: valueUsd,
       depositedUSD: 0,
       pnlUSD: 0,
@@ -9442,7 +10789,8 @@ async function getCetusPositions(walletAddress, options) {
       lifetimeEarningsUSD: 0,
       vsHodlDeltaUSD: 0,
       // Empty positions do not accrue range APR on zero principal.
-      aprEstimatePct: 0
+      aprEstimatePct: 0,
+      historyPartial: pricePartial
     });
   }
   const useLocal = isLocalUnclaimedEnabled();
@@ -9499,14 +10847,14 @@ async function getCetusPositions(walletAddress, options) {
     }
     const decA = p.tokenADecimals;
     const decB = p.tokenBDecimals;
-    const pxaF = spotPriceSafe(spotsMap.get(p.tokenAAddress)?.price);
-    const pxbF = spotPriceSafe(spotsMap.get(p.tokenBAddress)?.price);
+    const pxaF = spotPriceSafe2(spotsMap.get(p.tokenAAddress)?.price);
+    const pxbF = spotPriceSafe2(spotsMap.get(p.tokenBAddress)?.price);
     const feeHumA = safeHumanFromStringRaw(feeOwedA, decA);
     const feeHumB = safeHumanFromStringRaw(feeOwedB, decB);
     let feeUsd = 0;
     if (pxaF != null) feeUsd += feeHumA * pxaF;
     if (pxbF != null) feeUsd += feeHumB * pxbF;
-    feeUsd = clampUsd2(feeUsd);
+    feeUsd = clampUsd3(feeUsd);
     const rewards = cetusUnclaimedRewardRows(
       rewardOweds,
       pool?.rewarderCoinTypes ?? [],
@@ -9568,7 +10916,7 @@ async function getCetusPositions(walletAddress, options) {
     p.status = rawInRange ? "in_range" : "out_of_range";
     p.cetusSwapped = true;
     const feeLabelPct = `${(p.fee * 100).toFixed(3)}%`;
-    p.pair = `${p.tokenA}/${p.tokenB} \xB7 ${feeLabelPct}${p.status === "in_range" ? "" : " \xB7 OUT"}`;
+    p.pair = `${p.tokenA}/${p.tokenB} \xB7 ${feeLabelPct}`;
   }
   return out;
 }
@@ -9581,17 +10929,17 @@ async function getCetusDlmmPositions2(...args) {
 
 // src/services/cetusVaultsService.ts
 init_suiClient();
-import BN5 from "bn.js";
-import Decimal9 from "decimal.js";
-import { TickMath as TickMath5, Utils as Utils5 } from "@mmt-finance/clmm-sdk";
-import { normalizeStructTag as normalizeStructTag9, normalizeSuiAddress as normalizeSuiAddress12 } from "@mysten/sui/utils";
+import BN6 from "bn.js";
+import Decimal10 from "decimal.js";
+import { TickMath as TickMath6, Utils as Utils6 } from "@mmt-finance/clmm-sdk";
+import { normalizeStructTag as normalizeStructTag10, normalizeSuiAddress as normalizeSuiAddress15 } from "@mysten/sui/utils";
 init_resolveSpots();
 init_constants();
 init_concurrency();
 
 // src/services/vaultLpStakeService.ts
 init_suiClient();
-import { normalizeStructTag as normalizeStructTag7 } from "@mysten/sui/utils";
+import { normalizeStructTag as normalizeStructTag8 } from "@mysten/sui/utils";
 
 // src/utils/haedalVault.ts
 var HAEDAL_VAULTS_V2_POOLS_HANDLE = "0xc88e97a3a3bb71dfcf8cc90e6383d7e3e1dee0170fa07c9365d233568659fc8f";
@@ -9604,10 +10952,10 @@ init_rpcBackoff();
 var STAKE_CACHE_TTL_MS = 45e3;
 var stakeCache = null;
 function currentRewardRate(cfg, nowSec) {
-  const changeAt = readU642(cfg.rate_change_at);
-  return nowSec < changeAt ? readU642(cfg.reward_rate_before) : readU642(cfg.reward_rate_after);
+  const changeAt = readU643(cfg.rate_change_at);
+  return nowSec < changeAt ? readU643(cfg.reward_rate_before) : readU643(cfg.reward_rate_after);
 }
-function unwrap3(val) {
+function unwrap4(val) {
   if (!val || typeof val !== "object") return null;
   const o = val;
   if (o.fields && typeof o.fields === "object") return o.fields;
@@ -9617,7 +10965,7 @@ function normType3(raw) {
   try {
     const s = raw.trim();
     const with0x4 = s.startsWith("0x") ? s : `0x${s}`;
-    return normalizeStructTag7(with0x4);
+    return normalizeStructTag8(with0x4);
   } catch {
     return null;
   }
@@ -9629,28 +10977,28 @@ function addRaw(a, b) {
     return a || "0";
   }
 }
-function readU642(v) {
+function readU643(v) {
   if (typeof v === "string" && /^\d+$/.test(v)) return BigInt(v);
   if (typeof v === "number" && Number.isFinite(v) && v >= 0) return BigInt(Math.floor(v));
   return 0n;
 }
 function readTypeName(v) {
   if (typeof v === "string") return normType3(v);
-  const f = unwrap3(v);
+  const f = unwrap4(v);
   if (typeof f?.name === "string") return normType3(f.name);
   return null;
 }
-function symbolFromCoinType4(ct) {
+function symbolFromCoinType5(ct) {
   const parts = ct.split("::");
   return parts[2] ?? parts[1] ?? "REWARD";
 }
 function vecMapEntries(raw) {
-  const f = unwrap3(raw);
+  const f = unwrap4(raw);
   const contents = f?.contents;
   if (!Array.isArray(contents)) return [];
   const out = [];
   for (const item of contents) {
-    const row = unwrap3(item);
+    const row = unwrap4(item);
     if (!row) continue;
     out.push({ key: row.key, value: row.value });
   }
@@ -9665,12 +11013,12 @@ function emittedBetween(fromSec, toSec, rateChangeAt, rateBefore, rateAfter) {
   return rateBefore * (rateChangeAt - fromSec) + rateAfter * (toSec - rateChangeAt);
 }
 function updatedPerShare(cfg, totalShare, nowSec) {
-  const ps = readU642(cfg.per_share);
+  const ps = readU643(cfg.per_share);
   if (totalShare <= 0n) return ps;
-  const last = readU642(cfg.last_update_time);
-  const changeAt = readU642(cfg.rate_change_at);
-  const rateBefore = readU642(cfg.reward_rate_before);
-  const rateAfter = readU642(cfg.reward_rate_after);
+  const last = readU643(cfg.last_update_time);
+  const changeAt = readU643(cfg.rate_change_at);
+  const rateBefore = readU643(cfg.reward_rate_before);
+  const rateAfter = readU643(cfg.reward_rate_after);
   const emitted = emittedBetween(last, nowSec, changeAt, rateBefore, rateAfter);
   if (emitted <= 0n) return ps;
   return ps + emitted * VAULT_LP_INCENTIVE_ACC / totalShare;
@@ -9697,7 +11045,7 @@ async function getStakedVaultLpByType(owner) {
     for (const item of page.data ?? []) {
       const type = item.data?.type ?? "";
       const lpType = firstTypeArgument(type);
-      const fields = unwrap3(
+      const fields = unwrap4(
         item.data?.content?.fields
       );
       const depositRaw = fields?.deposit;
@@ -9719,7 +11067,7 @@ async function getStakedVaultLpByType(owner) {
     const id = item?.data?.objectId;
     const content = item?.data?.content;
     if (!id || content?.dataType !== "moveObject") continue;
-    const f = unwrap3(content.fields);
+    const f = unwrap4(content.fields);
     const amount = typeof f?.amount === "string" ? f.amount : null;
     if (!amount || !/^\d+$/.test(amount)) continue;
     amountByDeposit.set(id, amount);
@@ -9758,7 +11106,7 @@ async function getVaultStakeIncentiveSnapshot(owner) {
     for (const item of page.data ?? []) {
       const type = item.data?.type ?? "";
       const lpType = firstTypeArgument(type);
-      const fields = unwrap3(
+      const fields = unwrap4(
         item.data?.content?.fields
       );
       const depositRaw = fields?.deposit;
@@ -9782,7 +11130,7 @@ async function getVaultStakeIncentiveSnapshot(owner) {
     const id = item?.data?.objectId;
     const content = item?.data?.content;
     if (!id || content?.dataType !== "moveObject") continue;
-    const f = unwrap3(content.fields);
+    const f = unwrap4(content.fields);
     if (f) byId.set(id, f);
   }
   const nowSec = BigInt(Math.floor(Date.now() / 1e3));
@@ -9793,13 +11141,13 @@ async function getVaultStakeIncentiveSnapshot(owner) {
     try {
       const m = await suiClient.getCoinMetadata({ coinType });
       const row = {
-        symbol: m?.symbol ?? symbolFromCoinType4(coinType),
+        symbol: m?.symbol ?? symbolFromCoinType5(coinType),
         decimals: typeof m?.decimals === "number" ? m.decimals : 9
       };
       metaCache.set(coinType, row);
       return row;
     } catch {
-      const row = { symbol: symbolFromCoinType4(coinType), decimals: 9 };
+      const row = { symbol: symbolFromCoinType5(coinType), decimals: 9 };
       metaCache.set(coinType, row);
       return row;
     }
@@ -9808,22 +11156,22 @@ async function getVaultStakeIncentiveSnapshot(owner) {
     const deposit = byId.get(info.depositId);
     const pool = byId.get(info.poolId);
     if (!deposit || !pool) continue;
-    const share = readU642(deposit.share);
-    const depositLpAmount = readU642(deposit.amount);
-    const totalShare = readU642(pool.total_share);
+    const share = readU643(deposit.share);
+    const depositLpAmount = readU643(deposit.amount);
+    const totalShare = readU643(pool.total_share);
     const sharePerLp = depositLpAmount > 0n && share >= depositLpAmount ? share / depositLpAmount : 1000n;
     const lpStakedRaw = sharePerLp > 0n ? totalShare / sharePerLp : 0n;
     const debts = /* @__PURE__ */ new Map();
     for (const e of vecMapEntries(deposit.debts)) {
       const ct = readTypeName(e.key);
       if (!ct) continue;
-      debts.set(ct, readU642(e.value));
+      debts.set(ct, readU643(e.value));
     }
     const pendingRows = [];
     const emissions = [];
     for (const e of vecMapEntries(pool.reward_configs)) {
       const rewardType = readTypeName(e.key);
-      const cfg = unwrap3(e.value);
+      const cfg = unwrap4(e.value);
       if (!rewardType || !cfg) continue;
       const meta = await rewardMeta(rewardType);
       const rate = currentRewardRate(
@@ -9887,7 +11235,7 @@ async function getVaultStakeIncentiveSnapshot(owner) {
 
 // src/services/cetusPoolStats.ts
 init_externalFetchUrl();
-import { normalizeStructTag as normalizeStructTag8, normalizeSuiAddress as normalizeSuiAddress11 } from "@mysten/sui/utils";
+import { normalizeStructTag as normalizeStructTag9, normalizeSuiAddress as normalizeSuiAddress14 } from "@mysten/sui/utils";
 var STATS_URL = "https://api-sui.cetus.zone/v2/sui/stats_pools?limit=200";
 var CACHE_TTL_MS2 = 5 * 6e4;
 var HAEDAL_VAULT_PERFORMANCE_FEE = 0.16;
@@ -9907,14 +11255,14 @@ var cache = null;
 var inflight = null;
 function normPoolId(id) {
   try {
-    return normalizeSuiAddress11(id);
+    return normalizeSuiAddress14(id);
   } catch {
     return null;
   }
 }
-function normCoinType2(ct) {
+function normCoinType3(ct) {
   try {
-    return normalizeStructTag8(ct);
+    return normalizeStructTag9(ct);
   } catch {
     return null;
   }
@@ -9934,7 +11282,7 @@ function parseFractionToPct(raw) {
 function parseCoin(raw) {
   if (!raw || typeof raw !== "object") return null;
   const o = raw;
-  const type = typeof o.address === "string" ? normCoinType2(o.address) : null;
+  const type = typeof o.address === "string" ? normCoinType3(o.address) : null;
   const symbol = typeof o.symbol === "string" ? o.symbol : "";
   const balance = typeof o.balance === "number" ? o.balance : Number(o.balance);
   if (!type || !symbol || !(balance > 0) || !Number.isFinite(balance)) return null;
@@ -10050,7 +11398,7 @@ function isStableSymbol2(sym) {
 async function getCetusStatsUsdByCoinType(coinTypes) {
   const wanted = /* @__PURE__ */ new Map();
   for (const ct of coinTypes) {
-    const n2 = normCoinType2(ct);
+    const n2 = normCoinType3(ct);
     if (n2) wanted.set(n2, ct);
   }
   const out = /* @__PURE__ */ new Map();
@@ -10136,11 +11484,11 @@ async function overlayCetusStatsSpots(spots, coinTypes) {
 
 // src/services/cetusVaultsService.ts
 init_rpcBackoff();
-var MAX_SANE_POSITION_USD5 = 5e7;
-var MAX_SANE_HUMAN_TOKENS5 = 1e18;
+var MAX_SANE_POSITION_USD6 = 5e7;
+var MAX_SANE_HUMAN_TOKENS6 = 1e18;
 var VAULT_LIST_TTL_MS = 60 * 6e4;
 var vaultListCache = null;
-function unwrap4(val) {
+function unwrap5(val) {
   if (!val || typeof val !== "object") return null;
   const o = val;
   if (o.fields && typeof o.fields === "object") return o.fields;
@@ -10148,14 +11496,14 @@ function unwrap4(val) {
 }
 function parseUid2(val) {
   if (typeof val === "string" && val.startsWith("0x")) return val;
-  const f = unwrap4(val);
+  const f = unwrap5(val);
   if (typeof f?.id === "string") return f.id;
   return null;
 }
 function readI323(val) {
   let bits;
   if (val != null && typeof val === "object") {
-    const fields = unwrap4(val) ?? val;
+    const fields = unwrap5(val) ?? val;
     bits = Number(fields.bits ?? 0);
   } else {
     bits = Number(val ?? 0);
@@ -10167,42 +11515,42 @@ function normType4(raw) {
   try {
     const s = raw.trim();
     const with0x4 = s.startsWith("0x") ? s : `0x${s}`;
-    return normalizeStructTag9(with0x4);
+    return normalizeStructTag10(with0x4);
   } catch {
     return null;
   }
 }
 function parseTypeName2(val) {
   if (typeof val === "string") return normType4(val);
-  const f = unwrap4(val);
+  const f = unwrap5(val);
   if (typeof f?.name === "string") return normType4(f.name);
   return null;
 }
-function symbolFromCoinType5(ct) {
+function symbolFromCoinType6(ct) {
   const parts = ct.split("::");
   return parts[2] ?? parts[1] ?? "\u2014";
 }
-function clampUsd4(v) {
+function clampUsd5(v) {
   if (!Number.isFinite(v) || v < 0) return 0;
-  return v <= MAX_SANE_POSITION_USD5 ? v : 0;
+  return v <= MAX_SANE_POSITION_USD6 ? v : 0;
 }
 function humanFromRaw2(raw, decimals) {
   try {
     if (!/^\d+$/.test(raw) || !Number.isFinite(decimals) || decimals < 0) return 0;
-    const n2 = new Decimal9(raw).div(new Decimal9(10).pow(decimals)).toNumber();
-    if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS5) return 0;
+    const n2 = new Decimal10(raw).div(new Decimal10(10).pow(decimals)).toNumber();
+    if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS6) return 0;
     return n2;
   } catch {
     return 0;
   }
 }
 function parseFarmsNft(raw) {
-  const f = unwrap4(raw);
+  const f = unwrap5(raw);
   if (!f) return null;
   if (f.value != null && f.clmm_postion == null && f.clmm_position == null) {
     return parseFarmsNft(f.value);
   }
-  const clmm = unwrap4(f.clmm_postion) ?? unwrap4(f.clmm_position);
+  const clmm = unwrap5(f.clmm_postion) ?? unwrap5(f.clmm_position);
   if (!clmm) return null;
   const coinA = parseTypeName2(clmm.coin_type_a);
   const coinB = parseTypeName2(clmm.coin_type_b);
@@ -10215,13 +11563,13 @@ function parseFarmsNft(raw) {
   };
 }
 function parseVaultObject(objectId, typeStr, fields) {
-  const f = unwrap4(fields);
+  const f = unwrap5(fields);
   if (!f) return null;
   const id = parseUid2(f.id) ?? objectId;
   const poolId = typeof f.pool === "string" ? f.pool : null;
   const liquidity = f.liquidity != null ? String(f.liquidity) : "0";
-  const treasury = unwrap4(f.lp_token_treasury);
-  const supplyWrap = unwrap4(treasury?.total_supply);
+  const treasury = unwrap5(f.lp_token_treasury);
+  const supplyWrap = unwrap5(treasury?.total_supply);
   const totalSupply = supplyWrap?.value != null ? String(supplyWrap.value) : "0";
   const lpFromType = typeStr ? firstTypeArgument(typeStr) : null;
   const lpTokenType = lpFromType ? normType4(lpFromType) : null;
@@ -10230,8 +11578,8 @@ function parseVaultObject(objectId, typeStr, fields) {
   const fromVec = positions.length > 0 ? parseFarmsNft(positions[0]) : null;
   try {
     return {
-      id: normalizeSuiAddress12(id),
-      poolId: normalizeSuiAddress12(poolId),
+      id: normalizeSuiAddress15(id),
+      poolId: normalizeSuiAddress15(poolId),
       lpTokenType,
       liquidity,
       totalSupply,
@@ -10426,15 +11774,15 @@ async function getCetusVaultPositions(walletAddress, options) {
     try {
       const m = await suiClient.getCoinMetadata({ coinType: ct });
       metaMap.set(ct, {
-        symbol: m?.symbol ?? symbolFromCoinType5(ct),
+        symbol: m?.symbol ?? symbolFromCoinType6(ct),
         decimals: m?.decimals ?? 0,
         iconUrl: typeof m?.iconUrl === "string" && m.iconUrl.startsWith("https://") ? m.iconUrl : null
       });
     } catch {
-      metaMap.set(ct, { symbol: symbolFromCoinType5(ct), decimals: 0, iconUrl: null });
+      metaMap.set(ct, { symbol: symbolFromCoinType6(ct), decimals: 0, iconUrl: null });
     }
   });
-  const getMeta = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType5(ct), decimals: 0, iconUrl: null };
+  const getMeta = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType6(ct), decimals: 0, iconUrl: null };
   const spotOpts = options?.forceRefreshPrices ? { forceRefresh: true } : void 0;
   let spots;
   try {
@@ -10460,15 +11808,15 @@ async function getCetusVaultPositions(walletAddress, options) {
     const lpMeta = getMeta(v.lpTokenType);
     let humA = 0;
     let humB = 0;
-    const liqBn = /^\d+$/.test(shareLiq) ? new BN5(shareLiq, 10) : new BN5(0);
-    const curSqrtBn = /^\d+$/.test(pool.sqrtPriceStr) && pool.sqrtPriceStr !== "0" ? new BN5(pool.sqrtPriceStr, 10) : new BN5(0);
+    const liqBn = /^\d+$/.test(shareLiq) ? new BN6(shareLiq, 10) : new BN6(0);
+    const curSqrtBn = /^\d+$/.test(pool.sqrtPriceStr) && pool.sqrtPriceStr !== "0" ? new BN6(pool.sqrtPriceStr, 10) : new BN6(0);
     if (!liqBn.isZero() && !curSqrtBn.isZero()) {
       try {
-        const { coinA, coinB } = Utils5.getCoinAmountFromLiquidity(
+        const { coinA, coinB } = Utils6.getCoinAmountFromLiquidity(
           liqBn,
           curSqrtBn,
-          TickMath5.tickIndexToSqrtPriceX64(v.tickLower),
-          TickMath5.tickIndexToSqrtPriceX64(v.tickUpper),
+          TickMath6.tickIndexToSqrtPriceX64(v.tickLower),
+          TickMath6.tickIndexToSqrtPriceX64(v.tickUpper),
           true
         );
         humA = humanFromRaw2(coinA.toString(10), metaA.decimals);
@@ -10480,13 +11828,13 @@ async function getCetusVaultPositions(walletAddress, options) {
     const pxb = spots.get(v.coinTypeB)?.price;
     const pxaF = typeof pxa === "number" && Number.isFinite(pxa) ? pxa : 0;
     const pxbF = typeof pxb === "number" && Number.isFinite(pxb) ? pxb : 0;
-    const valueUsd = clampUsd4(humA * pxaF + humB * pxbF);
-    const inRange = pool.currentTick >= v.tickLower && pool.currentTick <= v.tickUpper;
+    const valueUsd = clampUsd5(humA * pxaF + humB * pxbF);
+    const inRange = pool.currentTick >= v.tickLower && pool.currentTick < v.tickUpper;
     const feeLabelPct = `${(pool.feeRate * 100).toFixed(3)}%`;
     const sharePct = vaultLpSharePct(lpRaw, v.totalSupply) ?? void 0;
     let vaultTvlUsd;
     if (sharePct != null && sharePct > 0 && valueUsd > 0) {
-      vaultTvlUsd = clampUsd4(valueUsd / (sharePct / 100));
+      vaultTvlUsd = clampUsd5(valueUsd / (sharePct / 100));
     }
     const farm = farmByLp.get(v.lpTokenType);
     const rewardApr = farm && vaultTvlUsd != null && vaultTvlUsd > 0 ? vaultFarmRewardAprPct({
@@ -10562,10 +11910,10 @@ async function getCetusVaultPositions(walletAddress, options) {
 
 // src/services/haedalVaultsService.ts
 init_suiClient();
-import BN6 from "bn.js";
-import Decimal10 from "decimal.js";
-import { TickMath as TickMath6, Utils as Utils6 } from "@mmt-finance/clmm-sdk";
-import { normalizeStructTag as normalizeStructTag10, normalizeSuiAddress as normalizeSuiAddress13 } from "@mysten/sui/utils";
+import BN7 from "bn.js";
+import Decimal11 from "decimal.js";
+import { TickMath as TickMath7, Utils as Utils7 } from "@mmt-finance/clmm-sdk";
+import { normalizeStructTag as normalizeStructTag11, normalizeSuiAddress as normalizeSuiAddress16 } from "@mysten/sui/utils";
 init_resolveSpots();
 init_constants();
 init_concurrency();
@@ -10640,8 +11988,8 @@ async function overlayHaedalOracleSpots(spots, coinTypes, symbolOf) {
 
 // src/services/haedalVaultsService.ts
 init_rpcBackoff();
-var MAX_SANE_POSITION_USD6 = 5e7;
-var MAX_SANE_HUMAN_TOKENS6 = 1e18;
+var MAX_SANE_POSITION_USD7 = 5e7;
+var MAX_SANE_HUMAN_TOKENS7 = 1e18;
 var VAULT_LIST_TTL_MS2 = 60 * 6e4;
 var VAULT_LIST_STORAGE_KEY = "haedal-vaults-v2-registry-v2";
 var vaultListCache2 = null;
@@ -10714,7 +12062,7 @@ function rememberVaultList(vaults) {
   writeStoredVaultList(vaultListCache2);
   return vaults;
 }
-function unwrap5(val) {
+function unwrap6(val) {
   if (!val || typeof val !== "object") return null;
   const o = val;
   if (o.fields && typeof o.fields === "object") return o.fields;
@@ -10722,7 +12070,7 @@ function unwrap5(val) {
 }
 function parseUid3(val) {
   if (typeof val === "string" && val.startsWith("0x")) return val;
-  const f = unwrap5(val);
+  const f = unwrap6(val);
   if (typeof f?.id === "string") return f.id;
   if (typeof f?.bytes === "string") return f.bytes;
   return null;
@@ -10730,7 +12078,7 @@ function parseUid3(val) {
 function readI324(val) {
   let bits;
   if (val != null && typeof val === "object") {
-    const fields = unwrap5(val) ?? val;
+    const fields = unwrap6(val) ?? val;
     bits = Number(fields.bits ?? 0);
   } else {
     bits = Number(val ?? 0);
@@ -10742,14 +12090,14 @@ function normType5(raw) {
   try {
     const s = raw.trim();
     const with0x4 = s.startsWith("0x") ? s : `0x${s}`;
-    return normalizeStructTag10(with0x4);
+    return normalizeStructTag11(with0x4);
   } catch {
     return null;
   }
 }
 function parseTypeName3(val) {
   if (typeof val === "string") return normType5(val);
-  const f = unwrap5(val);
+  const f = unwrap6(val);
   if (typeof f?.name === "string") return normType5(f.name);
   if (typeof f?.pos0 === "string") return parseTypeName3(f.pos0);
   return null;
@@ -10759,7 +12107,7 @@ function parseQuoteCoinType(val, coinA, coinB) {
   if (direct) return direct;
   if (!val || typeof val !== "object") return null;
   const o = val;
-  const fields = unwrap5(o.fields) ?? unwrap5(val);
+  const fields = unwrap6(o.fields) ?? unwrap6(val);
   const fromPos = fields ? parseTypeName3(fields.pos0) : null;
   if (fromPos) return fromPos;
   const variant = typeof o.variant === "string" ? o.variant.toLowerCase() : "";
@@ -10767,19 +12115,19 @@ function parseQuoteCoinType(val, coinA, coinB) {
   if (variant === "quote") return coinB;
   return null;
 }
-function symbolFromCoinType6(ct) {
+function symbolFromCoinType7(ct) {
   const parts = ct.split("::");
   return parts[2] ?? parts[1] ?? "\u2014";
 }
-function clampUsd5(v) {
+function clampUsd6(v) {
   if (!Number.isFinite(v) || v < 0) return 0;
-  return v <= MAX_SANE_POSITION_USD6 ? v : 0;
+  return v <= MAX_SANE_POSITION_USD7 ? v : 0;
 }
 function humanFromRaw3(raw, decimals) {
   try {
     if (!/^\d+$/.test(raw) || !Number.isFinite(decimals) || decimals < 0) return 0;
-    const n2 = new Decimal10(raw).div(new Decimal10(10).pow(decimals)).toNumber();
-    if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS6) return 0;
+    const n2 = new Decimal11(raw).div(new Decimal11(10).pow(decimals)).toNumber();
+    if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS7) return 0;
     return n2;
   } catch {
     return 0;
@@ -10795,12 +12143,12 @@ function addAmt(map, coin, raw) {
 }
 function readBagAmounts(raw) {
   const out = /* @__PURE__ */ new Map();
-  const f = unwrap5(raw);
+  const f = unwrap6(raw);
   if (!f) return out;
-  const balances = unwrap5(f.balances) ?? f;
+  const balances = unwrap6(f.balances) ?? f;
   const contents = Array.isArray(balances?.contents) ? balances.contents : Array.isArray(f.contents) ? f.contents : [];
   for (const item of contents) {
-    const row = unwrap5(item);
+    const row = unwrap6(item);
     if (!row) continue;
     const key = parseTypeName3(row.key);
     if (!key || row.value == null) continue;
@@ -10809,22 +12157,22 @@ function readBagAmounts(raw) {
   return out;
 }
 function parseVaultObject2(objectId, typeStr, fields) {
-  const f = unwrap5(fields);
+  const f = unwrap6(fields);
   if (!f) return null;
   const id = parseUid3(f.id) ?? objectId;
   const lpFromType = typeStr ? firstTypeArgument(typeStr) : null;
   const lpTokenType = lpFromType ? normType5(lpFromType) : null;
   const coinA = parseTypeName3(f.coin_type_a);
   const coinB = parseTypeName3(f.coin_type_b);
-  const treasury = unwrap5(f.lp_token_treasury);
-  const supplyWrap = unwrap5(treasury?.total_supply);
+  const treasury = unwrap6(f.lp_token_treasury);
+  const supplyWrap = unwrap6(treasury?.total_supply);
   const totalSupply = supplyWrap?.value != null ? String(supplyWrap.value) : "0";
-  const markets = unwrap5(f.markets);
+  const markets = unwrap6(f.markets);
   const marketsHandle = parseUid3(markets?.id);
   if (!lpTokenType || !coinA || !coinB || !marketsHandle) return null;
   try {
     return {
-      id: normalizeSuiAddress13(id),
+      id: normalizeSuiAddress16(id),
       lpTokenType,
       totalSupply,
       coinTypeA: coinA,
@@ -10832,7 +12180,7 @@ function parseVaultObject2(objectId, typeStr, fields) {
       quoteType: parseQuoteCoinType(f.quote_type, coinA, coinB) ?? void 0,
       lastAum: f.last_aum != null ? String(f.last_aum) : "0",
       buffer: readBagAmounts(f.buffer_assets),
-      marketsHandle: normalizeSuiAddress13(marketsHandle)
+      marketsHandle: normalizeSuiAddress16(marketsHandle)
     };
   } catch {
     return null;
@@ -10929,23 +12277,23 @@ async function listVaults2(forceRefresh) {
   }
 }
 function parseMarketOrPosition(raw, typeStr) {
-  const f = unwrap5(raw);
+  const f = unwrap6(raw);
   if (!f) return null;
   if (f.value != null && f.positions == null && f.position == null && f.amounts == null) {
-    const inner = unwrap5(f.value) ?? f.value;
+    const inner = unwrap6(f.value) ?? f.value;
     const innerType = inner && typeof inner === "object" && "type" in inner ? String(inner.type ?? "") : typeStr;
     return parseMarketOrPosition(inner, innerType);
   }
   const type = typeStr ?? "";
-  const posHandle = parseUid3(unwrap5(f.positions)?.id);
+  const posHandle = parseUid3(unwrap6(f.positions)?.id);
   if (posHandle) {
     return {
       kind: "market",
-      positionsHandle: normalizeSuiAddress13(posHandle),
+      positionsHandle: normalizeSuiAddress16(posHandle),
       isClmm: /CLMMMarket/i.test(type)
     };
   }
-  const pos = unwrap5(f.position) ?? f;
+  const pos = unwrap6(f.position) ?? f;
   const amounts = readBagAmounts(f.amounts);
   const pool = typeof pos.pool === "string" ? pos.pool : typeof pos.pool_id === "string" ? pos.pool_id : void 0;
   const liqRaw = pos.liquidity != null ? String(pos.liquidity) : void 0;
@@ -10958,7 +12306,7 @@ function parseMarketOrPosition(raw, typeStr) {
       amounts,
       tickLower,
       tickUpper,
-      poolId: pool ? normalizeSuiAddress13(pool) : void 0,
+      poolId: pool ? normalizeSuiAddress16(pool) : void 0,
       liquidity: liqRaw && /^\d+$/.test(liqRaw) ? liqRaw : void 0,
       isClmm
     }
@@ -11027,14 +12375,14 @@ async function collectVaultAmounts(vault) {
 }
 function clmmRawAmounts(liquidity, sqrtPriceStr, tickLower, tickUpper) {
   try {
-    const liqBn = /^\d+$/.test(liquidity) ? new BN6(liquidity, 10) : new BN6(0);
-    const curSqrtBn = /^\d+$/.test(sqrtPriceStr) && sqrtPriceStr !== "0" ? new BN6(sqrtPriceStr, 10) : new BN6(0);
+    const liqBn = /^\d+$/.test(liquidity) ? new BN7(liquidity, 10) : new BN7(0);
+    const curSqrtBn = /^\d+$/.test(sqrtPriceStr) && sqrtPriceStr !== "0" ? new BN7(sqrtPriceStr, 10) : new BN7(0);
     if (liqBn.isZero() || curSqrtBn.isZero()) return null;
-    const { coinA, coinB } = Utils6.getCoinAmountFromLiquidity(
+    const { coinA, coinB } = Utils7.getCoinAmountFromLiquidity(
       liqBn,
       curSqrtBn,
-      TickMath6.tickIndexToSqrtPriceX64(tickLower),
-      TickMath6.tickIndexToSqrtPriceX64(tickUpper),
+      TickMath7.tickIndexToSqrtPriceX64(tickLower),
+      TickMath7.tickIndexToSqrtPriceX64(tickUpper),
       false
     );
     return { rawA: coinA.toString(10), rawB: coinB.toString(10) };
@@ -11157,15 +12505,15 @@ async function getHaedalVaultPositions(walletAddress, options) {
     try {
       const m = await suiClient.getCoinMetadata({ coinType: ct });
       metaMap.set(ct, {
-        symbol: m?.symbol ?? symbolFromCoinType6(ct),
+        symbol: m?.symbol ?? symbolFromCoinType7(ct),
         decimals: m?.decimals ?? 0,
         iconUrl: typeof m?.iconUrl === "string" && m.iconUrl.startsWith("https://") ? m.iconUrl : null
       });
     } catch {
-      metaMap.set(ct, { symbol: symbolFromCoinType6(ct), decimals: 0, iconUrl: null });
+      metaMap.set(ct, { symbol: symbolFromCoinType7(ct), decimals: 0, iconUrl: null });
     }
   });
-  const getMeta = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType6(ct), decimals: 0, iconUrl: null };
+  const getMeta = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType7(ct), decimals: 0, iconUrl: null };
   const feeAprByVault = /* @__PURE__ */ new Map();
   await mapPool(held, Math.min(4, RPC_CONCURRENCY), async (v) => {
     const sl = slices.get(v.id);
@@ -11226,7 +12574,7 @@ async function getHaedalVaultPositions(walletAddress, options) {
     const pxb = spots.get(v.coinTypeB)?.price;
     const pxaF = typeof pxa === "number" && Number.isFinite(pxa) ? pxa : 0;
     const pxbF = typeof pxb === "number" && Number.isFinite(pxb) ? pxb : 0;
-    const bagUsd = clampUsd5(humA * pxaF + humB * pxbF);
+    const bagUsd = clampUsd6(humA * pxaF + humB * pxbF);
     const quoteCoin = v.quoteType ?? (metaA.symbol.toUpperCase() === "USDC" || metaA.symbol.toUpperCase() === "USDT" ? v.coinTypeA : v.coinTypeB);
     const dlmmOnly = sl.clmmLegs.length === 0;
     let aumVaultTvlUsd = 0;
@@ -11236,15 +12584,15 @@ async function getHaedalVaultPositions(walletAddress, options) {
       const qPx = spots.get(quoteCoin)?.price;
       const qPxF = typeof qPx === "number" && Number.isFinite(qPx) ? qPx : 0;
       const qPxUse = qPxF > 0 ? qPxF : /^(USDC|USDT|USDCsui|suiUSDT|AUSD|FDUSD)$/i.test(qMeta.symbol) ? 1 : 0;
-      aumVaultTvlUsd = clampUsd5(humanFromRaw3(v.lastAum, qMeta.decimals) * qPxUse);
+      aumVaultTvlUsd = clampUsd6(humanFromRaw3(v.lastAum, qMeta.decimals) * qPxUse);
       const aumShare = shareLiquidityByLpAmount(lpRaw, v.lastAum, v.totalSupply);
-      aumUsd = clampUsd5(humanFromRaw3(aumShare, qMeta.decimals) * qPxUse);
+      aumUsd = clampUsd6(humanFromRaw3(aumShare, qMeta.decimals) * qPxUse);
     }
     let vaultTvlUsd;
     {
       const vaultHumA = humanFromRaw3(vaultRaw.get(v.coinTypeA) ?? "0", metaA.decimals);
       const vaultHumB = humanFromRaw3(vaultRaw.get(v.coinTypeB) ?? "0", metaB.decimals);
-      vaultTvlUsd = clampUsd5(vaultHumA * pxaF + vaultHumB * pxbF);
+      vaultTvlUsd = clampUsd6(vaultHumA * pxaF + vaultHumB * pxbF);
     }
     const compositionOk = vaultTvlUsd > 0 && bagUsd > 0;
     if (aumVaultTvlUsd > 0 && (dlmmOnly || !compositionOk)) {
@@ -11257,7 +12605,7 @@ async function getHaedalVaultPositions(walletAddress, options) {
       valueUsd = aumUsd;
     } else if (!(bagUsd > 0)) {
       if (sharePct != null && sharePct > 0 && vaultTvlUsd > 0) {
-        valueUsd = clampUsd5(vaultTvlUsd * (sharePct / 100));
+        valueUsd = clampUsd6(vaultTvlUsd * (sharePct / 100));
       }
     }
     if (bagsUnderreportAum && valueUsd > 0 && pxaF > 0 && pxbF > 0) {
@@ -11286,10 +12634,10 @@ async function getHaedalVaultPositions(walletAddress, options) {
         symbol: r.symbol,
         coinType: r.rewardCoinType,
         amount: r.amount,
-        amountUSD: clampUsd5(r.amount * pxF)
+        amountUSD: clampUsd6(r.amount * pxF)
       };
     });
-    const unclaimedRewardUSD = clampUsd5(
+    const unclaimedRewardUSD = clampUsd6(
       pendingStakeRewards.reduce((s, r) => s + r.amountUSD, 0)
     );
     const farm = farmByLp.get(v.lpTokenType);
@@ -11369,8 +12717,8 @@ async function getHaedalVaultPositions(walletAddress, options) {
 
 // src/services/haedalLendingVaultsService.ts
 init_suiClient();
-import Decimal11 from "decimal.js";
-import { normalizeStructTag as normalizeStructTag11, normalizeSuiAddress as normalizeSuiAddress14 } from "@mysten/sui/utils";
+import Decimal12 from "decimal.js";
+import { normalizeStructTag as normalizeStructTag12, normalizeSuiAddress as normalizeSuiAddress17 } from "@mysten/sui/utils";
 init_resolveSpots();
 init_rpcBackoff();
 
@@ -11426,9 +12774,9 @@ function pendingLendingFarmRewardRaw(opts) {
 }
 
 // src/services/haedalLendingVaultsService.ts
-var MAX_SANE_POSITION_USD7 = 5e7;
+var MAX_SANE_POSITION_USD8 = 5e7;
 var MAX_SANE_HUMAN = 1e18;
-function unwrap6(val) {
+function unwrap7(val) {
   if (!val || typeof val !== "object") return null;
   const o = val;
   if (o.fields && typeof o.fields === "object") return o.fields;
@@ -11449,27 +12797,27 @@ function asBig(val) {
     return 0n;
   }
 }
-function clampUsd6(v) {
+function clampUsd7(v) {
   if (!Number.isFinite(v) || v < 0) return 0;
-  return v <= MAX_SANE_POSITION_USD7 ? v : 0;
+  return v <= MAX_SANE_POSITION_USD8 ? v : 0;
 }
 function humanFromRaw4(raw, decimals) {
   if (decimals < 0 || !Number.isFinite(decimals)) return 0;
   try {
-    const n2 = new Decimal11(raw.toString()).div(new Decimal11(10).pow(decimals)).toNumber();
+    const n2 = new Decimal12(raw.toString()).div(new Decimal12(10).pow(decimals)).toNumber();
     if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN) return 0;
     return n2;
   } catch {
     return 0;
   }
 }
-function symbolFromCoinType7(ct) {
+function symbolFromCoinType8(ct) {
   const parts = ct.split("::");
   return parts[2] ?? parts[1] ?? "\u2014";
 }
 function normCoin(ct) {
   try {
-    return normalizeStructTag11(ct.startsWith("0x") ? ct : `0x${ct}`);
+    return normalizeStructTag12(ct.startsWith("0x") ? ct : `0x${ct}`);
   } catch {
     return ct;
   }
@@ -11491,7 +12839,7 @@ async function listStakeInfos(owner) {
       const type = item.data?.type ?? "";
       const shareType = lendingStakeShareType(type);
       if (!shareType) continue;
-      const fields = unwrap6(item.data?.content?.fields);
+      const fields = unwrap7(item.data?.content?.fields);
       const poolId = typeof fields?.pool === "string" ? fields.pool : "";
       const objectId = item.data?.objectId;
       if (!poolId || !objectId) continue;
@@ -11503,15 +12851,15 @@ async function listStakeInfos(owner) {
   return out;
 }
 function parseRewardConfigs(raw) {
-  const f = unwrap6(raw);
+  const f = unwrap7(raw);
   const contents = f?.contents;
   if (!Array.isArray(contents)) return [];
   const out = [];
   for (const row of contents) {
-    const entry = unwrap6(row);
-    const key = unwrap6(entry?.key);
+    const entry = unwrap7(row);
+    const key = unwrap7(entry?.key);
     const name = typeof key?.name === "string" ? key.name : "";
-    const value = unwrap6(entry?.value);
+    const value = unwrap7(entry?.value);
     if (!name || !value) continue;
     out.push({
       coinType: normCoin(normalizeTypeName(name)),
@@ -11527,14 +12875,14 @@ function parseRewardConfigs(raw) {
 function parseFarmPool(objectId, type, fields) {
   const shareType = splitMoveTypeArgs(type)[0];
   const vaultId = typeof fields.source_addr === "string" ? fields.source_addr : "";
-  const positions = unwrap6(fields.positions);
-  const tableId = unwrap6(positions?.id)?.id;
-  if (!shareType || !vaultId || typeof tableId !== "string") return null;
+  const positions = unwrap7(fields.positions);
+  const tableId2 = unwrap7(positions?.id)?.id;
+  if (!shareType || !vaultId || typeof tableId2 !== "string") return null;
   return {
     id: objectId,
     vaultId,
     shareType: normCoin(shareType),
-    tableId,
+    tableId: tableId2,
     totalShares: asBig(fields.total_shares),
     paused: fields.is_paused === true,
     rewards: parseRewardConfigs(fields.reward_configs)
@@ -11543,11 +12891,11 @@ function parseFarmPool(objectId, type, fields) {
 function debtFor(fields, coinType) {
   const want = normCoin(coinType);
   const read2 = (bag) => {
-    const contents = unwrap6(bag)?.contents;
+    const contents = unwrap7(bag)?.contents;
     if (!Array.isArray(contents)) return 0n;
     for (const row of contents) {
-      const entry = unwrap6(row);
-      const name = unwrap6(entry?.key)?.name;
+      const entry = unwrap7(row);
+      const name = unwrap7(entry?.key)?.name;
       if (typeof name !== "string") continue;
       if (normCoin(normalizeTypeName(name)) === want) return asBig(entry?.value);
     }
@@ -11556,7 +12904,7 @@ function debtFor(fields, coinType) {
   return { debt: read2(fields.debts), stored: read2(fields.pending_rewards) };
 }
 async function getHaedalLendingVaultPositions(owner, options) {
-  const ownerNorm = normalizeSuiAddress14(owner);
+  const ownerNorm = normalizeSuiAddress17(owner);
   const stakes = await listStakeInfos(ownerNorm);
   if (stakes.length === 0) return [];
   const poolIds = [...new Set(stakes.map((s) => s.poolId))];
@@ -11592,8 +12940,8 @@ async function getHaedalLendingVaultPositions(owner, options) {
         }),
         { label: "haedal-lending-position", retries: 3, baseMs: 500 }
       );
-      const value = unwrap6(
-        unwrap6(pos.data?.content?.fields)?.value
+      const value = unwrap7(
+        unwrap7(pos.data?.content?.fields)?.value
       );
       if (!value) return;
       const shares = asBig(value.shares);
@@ -11649,8 +12997,8 @@ async function getHaedalLendingVaultPositions(owner, options) {
     const farm = farmByVault.get(obj.objectId);
     if (!assetType || !farm) continue;
     const shareType = normCoin(shareFromType || farm.shareType);
-    const treasury = unwrap6(fields.share_treasury);
-    const totalSupply = asBig(unwrap6(treasury?.total_supply)?.value);
+    const treasury = unwrap7(fields.share_treasury);
+    const totalSupply = asBig(unwrap7(treasury?.total_supply)?.value);
     const staked = stakedByVault.get(obj.objectId) ?? 0n;
     const wallet = walletByShare.get(shareType) ?? 0n;
     const userShares = staked + wallet;
@@ -11681,16 +13029,16 @@ async function getHaedalLendingVaultPositions(owner, options) {
       try {
         const m = await suiClient.getCoinMetadata({ coinType: ct });
         metaMap.set(ct, {
-          symbol: m?.symbol?.trim() || symbolFromCoinType7(ct),
+          symbol: m?.symbol?.trim() || symbolFromCoinType8(ct),
           decimals: typeof m?.decimals === "number" ? m.decimals : 0,
           iconUrl: typeof m?.iconUrl === "string" && m.iconUrl.startsWith("https://") ? m.iconUrl : null
         });
       } catch {
-        metaMap.set(ct, { symbol: symbolFromCoinType7(ct), decimals: 0, iconUrl: null });
+        metaMap.set(ct, { symbol: symbolFromCoinType8(ct), decimals: 0, iconUrl: null });
       }
     })
   );
-  const metaOf = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType7(ct), decimals: 0, iconUrl: null };
+  const metaOf = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType8(ct), decimals: 0, iconUrl: null };
   const spotOpts = options?.forceRefreshPrices ? { forceRefresh: true } : void 0;
   const spots = await resolveSpots([...coinTypes], (ct) => metaOf(ct).symbol, spotOpts);
   const out = [];
@@ -11702,8 +13050,8 @@ async function getHaedalLendingVaultPositions(owner, options) {
     const humanAssets = humanFromRaw4(userAssetsRaw, decimals);
     const px = spots.get(row.assetType)?.price;
     const pxF = typeof px === "number" && Number.isFinite(px) ? px : 0;
-    const valueUsd = clampUsd6(humanAssets * pxF);
-    const vaultTvlUsd = clampUsd6(humanFromRaw4(row.totalAssets, decimals) * pxF);
+    const valueUsd = clampUsd7(humanAssets * pxF);
+    const vaultTvlUsd = clampUsd7(humanFromRaw4(row.totalAssets, decimals) * pxF);
     const sharePct = vaultLpSharePct(row.userShares.toString(), row.totalSupply.toString()) ?? void 0;
     const pendingStakeRewards = [...pendingByVault.get(row.vaultId)?.entries() ?? []].map(
       ([coinType, raw]) => {
@@ -11715,11 +13063,11 @@ async function getHaedalLendingVaultPositions(owner, options) {
           symbol: m.symbol,
           coinType,
           amount,
-          amountUSD: clampUsd6(amount * rpxF)
+          amountUSD: clampUsd7(amount * rpxF)
         };
       }
     );
-    const unclaimedRewardUSD = clampUsd6(
+    const unclaimedRewardUSD = clampUsd7(
       pendingStakeRewards.reduce((s, r) => s + r.amountUSD, 0)
     );
     let rewardApr = vaultFarmRewardAprPct({
@@ -11800,21 +13148,21 @@ init_suiClient();
 init_externalFetchUrl();
 
 // src/services/server/advisorWalletCacheKey.ts
-import { normalizeSuiAddress as normalizeSuiAddress15 } from "@mysten/sui/utils";
+import { normalizeSuiAddress as normalizeSuiAddress18 } from "@mysten/sui/utils";
 function advisorWalletCacheKey(wallet) {
-  return normalizeSuiAddress15(wallet).toLowerCase();
+  return normalizeSuiAddress18(wallet).toLowerCase();
 }
 
 // src/services/currentMultiplyClaims.ts
 init_suiClient();
-import { normalizeSuiAddress as normalizeSuiAddress16 } from "@mysten/sui/utils";
+import { normalizeSuiAddress as normalizeSuiAddress19 } from "@mysten/sui/utils";
 var CURRENT_EVENT_PKG = "0xfe1d8929d13b00aaecd7642dec1c6d41cab82882a1b139efa46bf61dfd6380bf";
 var CLAIM_STRUCT = "::liquidity_mining::RewardClaimedEvent";
 var MAX_PAGES = 12;
 var PAGE_SIZE = 50;
-function normId4(id) {
+function normId5(id) {
   try {
-    return normalizeSuiAddress16(id);
+    return normalizeSuiAddress19(id);
   } catch {
     return id.trim().toLowerCase();
   }
@@ -11834,7 +13182,7 @@ function historicalClaimUsd(amount, quote) {
   return amount * px;
 }
 function claimsForObligation(events, obligationId) {
-  const want = normId4(obligationId);
+  const want = normId5(obligationId);
   const eventsOut = [];
   const sums = /* @__PURE__ */ new Map();
   for (const event of events) {
@@ -11843,7 +13191,7 @@ function claimsForObligation(events, obligationId) {
     const json = asRecord(event.parsedJson);
     if (!json) continue;
     const obligation = typeof json.obligation === "string" ? json.obligation : "";
-    if (!obligation || normId4(obligation) !== want) continue;
+    if (!obligation || normId5(obligation) !== want) continue;
     const coin = typeof json.reward_coin_type === "string" ? json.reward_coin_type : "";
     const raw = typeof json.reward_amount === "string" ? json.reward_amount : "";
     if (!coin || !/^\d+$/.test(raw) || raw === "0") continue;
@@ -11860,7 +13208,7 @@ function claimsForObligation(events, obligationId) {
   return { events: eventsOut, totals };
 }
 async function readWalletRewardClaims(owner, obligationIds) {
-  const wanted = new Set(obligationIds.map(normId4));
+  const wanted = new Set(obligationIds.map(normId5));
   const byObligation = /* @__PURE__ */ new Map();
   if (wanted.size === 0) return { status: "complete", byObligation };
   const bucket = /* @__PURE__ */ new Map();
@@ -11876,7 +13224,7 @@ async function readWalletRewardClaims(owner, obligationIds) {
     return { status: "unavailable", byObligation };
   }
   for (const id of obligationIds) {
-    const key = normId4(id);
+    const key = normId5(id);
     byObligation.set(key, claimsForObligation(bucket.get(key) ?? [], id));
   }
   return { status: scanned.partial ? "partial" : "complete", byObligation };
@@ -11894,7 +13242,7 @@ async function scanClaims(query, wanted, bucket) {
       });
       for (const event of res.data) {
         const json = asRecord(event.parsedJson);
-        const obligation = typeof json?.obligation === "string" ? normId4(json.obligation) : "";
+        const obligation = typeof json?.obligation === "string" ? normId5(json.obligation) : "";
         if (!wanted.has(obligation)) continue;
         const list = bucket.get(obligation) ?? [];
         list.push({
@@ -11920,7 +13268,7 @@ async function scanClaims(query, wanted, bucket) {
 
 // src/services/currentMultiplyVaultsService.ts
 init_concurrency();
-import { normalizeSuiAddress as normalizeSuiAddress17 } from "@mysten/sui/utils";
+import { normalizeSuiAddress as normalizeSuiAddress20 } from "@mysten/sui/utils";
 import { Transaction as Transaction4 } from "@mysten/sui/transactions";
 import { bcs as bcs4 } from "@mysten/sui/bcs";
 var API2 = "https://api.current.finance";
@@ -12329,7 +13677,7 @@ async function loadCurrentMultiplyVaultPositionsOnce(walletAddress, _opts) {
     }
     let claimKey = obligationId;
     try {
-      claimKey = normalizeSuiAddress17(obligationId);
+      claimKey = normalizeSuiAddress20(obligationId);
     } catch {
     }
     const claimed = await mt(
@@ -12487,516 +13835,6 @@ async function loadCurrentMultiplyVaultPositionsOnce(walletAddress, _opts) {
     };
   }));
   return built;
-}
-
-// src/services/turbosService.ts
-init_suiClient();
-import { TickMath as TickMath7, Utils as Utils7 } from "@mmt-finance/clmm-sdk";
-init_resolveSpots();
-init_concurrency();
-init_constants();
-import { normalizeStructTag as normalizeStructTag12, normalizeSuiAddress as normalizeSuiAddress18 } from "@mysten/sui/utils";
-import Decimal12 from "decimal.js";
-import BN7 from "bn.js";
-var TURBOS_POSITION_TYPE = `${PROTOCOL_PACKAGES.TURBOS}::position_nft::TurbosPositionNFT`;
-var MAX_SANE_POSITION_USD8 = 5e7;
-var MAX_SANE_HUMAN_TOKENS7 = 1e18;
-var STABLECOIN_SYMS2 = /* @__PURE__ */ new Set([
-  "USDC",
-  "USDT",
-  "DAI",
-  "BUSD",
-  "TUSD",
-  "FDUSD",
-  "PYUSD",
-  "USDD",
-  "FRAX",
-  "LUSD",
-  "SUSD",
-  "GUSD"
-]);
-function unwrapStruct2(val) {
-  if (!val || typeof val !== "object") return null;
-  const obj = val;
-  if (obj.fields != null && typeof obj.fields === "object") {
-    return obj.fields;
-  }
-  return obj;
-}
-function normTypeSafe3(raw) {
-  try {
-    return normalizeStructTag12(raw.trim());
-  } catch {
-    return null;
-  }
-}
-function normCoinType3(raw) {
-  if (typeof raw !== "string" || !raw) return null;
-  const s = raw.trim();
-  const full = s.startsWith("0x") ? s : `0x${s}`;
-  return normTypeSafe3(full);
-}
-function extractTypeName(val) {
-  if (!val || typeof val !== "object") return null;
-  const obj = val;
-  const f = obj.fields ?? obj;
-  const name = f.name;
-  if (typeof name !== "string" || !name) return null;
-  return normCoinType3(name);
-}
-function normId5(raw) {
-  if (typeof raw !== "string") return "";
-  try {
-    return normalizeSuiAddress18(raw.trim());
-  } catch {
-    return raw.trim();
-  }
-}
-function i32FromBits(bits) {
-  const n2 = typeof bits === "number" ? bits : typeof bits === "string" ? Number(bits) : NaN;
-  if (!Number.isFinite(n2)) return 0;
-  const u = Math.floor(n2) & 4294967295;
-  return u > 2147483647 ? u - 4294967296 : u;
-}
-function readTick(val) {
-  const s = unwrapStruct2(val);
-  if (!s) return 0;
-  return i32FromBits(s.bits);
-}
-function safeHumanFromBnRaw3(rawBn, decimals) {
-  try {
-    const raw = rawBn.toString(10);
-    if (!/^\d+$/.test(raw) || !Number.isFinite(decimals) || decimals < 0) return 0;
-    const d = new Decimal12(raw).div(new Decimal12(10).pow(decimals));
-    const n2 = d.toNumber();
-    if (!Number.isFinite(n2) || n2 < 0 || n2 > MAX_SANE_HUMAN_TOKENS7) return 0;
-    return n2;
-  } catch {
-    return 0;
-  }
-}
-function rawToHuman(raw, decimals) {
-  const s = typeof raw === "string" ? raw : typeof raw === "number" ? String(raw) : "0";
-  if (!/^\d+$/.test(s)) return 0;
-  try {
-    return safeHumanFromBnRaw3(new BN7(s, 10), decimals);
-  } catch {
-    return 0;
-  }
-}
-function spotPriceSafe3(raw) {
-  if (raw == null || !Number.isFinite(raw) || raw <= 0 || raw > 1e8) return 0;
-  return raw;
-}
-function clampUsd7(v) {
-  return Number.isFinite(v) && v >= 0 && v <= MAX_SANE_POSITION_USD8 ? v : 0;
-}
-function symbolFromCoinType8(ct) {
-  const p = ct.split("::");
-  return p[2] ?? p[1] ?? "\u2014";
-}
-function parseNftObject(obj) {
-  if (!obj || typeof obj !== "object") return null;
-  const o = obj;
-  const data = o.data ?? o;
-  const content = data.content;
-  if (!content) return null;
-  const fields = content.fields ?? content;
-  const nftId = normId5(data.objectId ?? data.id?.id);
-  const poolId = normId5(fields.pool_id);
-  const positionId = normId5(fields.position_id);
-  if (!nftId || !poolId || !positionId) return null;
-  const coinTypeA = extractTypeName(fields.coin_type_a);
-  const coinTypeB = extractTypeName(fields.coin_type_b);
-  return { nftId, poolId, positionId, coinTypeA, coinTypeB };
-}
-function parsePositionObject(obj) {
-  if (!obj || typeof obj !== "object") return null;
-  const o = obj;
-  const data = o.data ?? o;
-  const content = data.content;
-  if (!content) return null;
-  const f = content.fields ?? content;
-  const liquidity = String(f.liquidity ?? "0");
-  const lowerTick = readTick(f.tick_lower_index);
-  const upperTick = readTick(f.tick_upper_index);
-  const lowerTickRaw = f.tick_lower_index;
-  const upperTickRaw = f.tick_upper_index;
-  const tokensOwedA = String(f.tokens_owed_a ?? "0");
-  const tokensOwedB = String(f.tokens_owed_b ?? "0");
-  const feeGrowthInsideA = String(f.fee_growth_inside_a ?? "0");
-  const feeGrowthInsideB = String(f.fee_growth_inside_b ?? "0");
-  const rewardAmounts = [];
-  const rewardGrowthInsides = [];
-  if (Array.isArray(f.reward_infos)) {
-    for (const ri of f.reward_infos) {
-      const rif = unwrapStruct2(ri);
-      rewardAmounts.push(String(rif?.amount_owed ?? "0"));
-      rewardGrowthInsides.push(String(rif?.reward_growth_inside ?? "0"));
-    }
-  }
-  return { liquidity, lowerTick, upperTick, lowerTickRaw, upperTickRaw, tokensOwedA, tokensOwedB, feeGrowthInsideA, feeGrowthInsideB, rewardAmounts, rewardGrowthInsides };
-}
-function parsePoolObject(obj) {
-  if (!obj || typeof obj !== "object") return null;
-  const o = obj;
-  const data = o.data ?? o;
-  const content = data.content;
-  if (!content) return null;
-  const f = content.fields ?? content;
-  const sqrtPriceStr = String(f.sqrt_price ?? "0");
-  const currentTick = readTick(f.tick_current_index);
-  const rawFee = typeof f.fee === "number" ? f.fee : Number(f.fee) || 0;
-  const feeRate = rawFee / 1e6;
-  const rewardCoinTypes = [];
-  const rewardGrowthGlobals = [];
-  const rewardEmissionsPerSecond = [];
-  if (Array.isArray(f.reward_infos)) {
-    for (const ri of f.reward_infos) {
-      const rif = unwrapStruct2(ri);
-      const ct = normCoinType3(rif?.vault_coin_type);
-      if (ct) rewardCoinTypes.push(ct);
-      rewardGrowthGlobals.push(String(rif?.growth_global ?? "0"));
-      rewardEmissionsPerSecond.push(String(rif?.emissions_per_second ?? "0"));
-    }
-  }
-  const poolLiquidity = String(f.liquidity ?? "0");
-  const feeGrowthGlobalA = String(f.fee_growth_global_a ?? "0");
-  const feeGrowthGlobalB = String(f.fee_growth_global_b ?? "0");
-  let ticksTableId = null;
-  try {
-    const tm = unwrapStruct2(f.tick_manager);
-    const ticks = tm?.ticks;
-    const ticksF = ticks?.fields ?? ticks;
-    const idW = ticksF?.id;
-    const rawId = idW?.id ?? idW;
-    if (typeof rawId === "string" && rawId.startsWith("0x")) {
-      ticksTableId = rawId;
-    }
-  } catch {
-  }
-  return { sqrtPriceStr, currentTick, feeRate, rewardCoinTypes, feeGrowthGlobalA, feeGrowthGlobalB, rewardGrowthGlobals, rewardEmissionsPerSecond, poolLiquidity, ticksTableId };
-}
-async function fetchTurbosTickFeeGrowth(poolId, tickRaw, tickIndex) {
-  let nameType;
-  let nameValue;
-  const rawObj = tickRaw;
-  if (rawObj && typeof rawObj.type === "string" && rawObj.fields) {
-    nameType = rawObj.type;
-    nameValue = rawObj.fields;
-  } else {
-    nameType = `${PROTOCOL_PACKAGES.TURBOS}::i32::I32`;
-    nameValue = { bits: tickIndex >>> 0 };
-  }
-  try {
-    const obj = await suiClient.getDynamicFieldObject({
-      parentId: poolId,
-      name: { type: nameType, value: nameValue }
-    });
-    if (!obj?.data?.content) return null;
-    const c = obj.data.content;
-    const fields = c.fields ?? c;
-    const tickFields = unwrapStruct2(fields.value ?? fields);
-    if (!tickFields) return null;
-    const readU128 = (v) => {
-      const s = typeof v === "string" ? v : typeof v === "number" ? String(v) : "0";
-      try {
-        return BigInt(s);
-      } catch {
-        return 0n;
-      }
-    };
-    const feeGrowthOutsideA = readU128(tickFields.fee_growth_outside_a);
-    const feeGrowthOutsideB = readU128(tickFields.fee_growth_outside_b);
-    const rewardGrowthOutsides = [];
-    if (Array.isArray(tickFields.reward_growths_outside)) {
-      for (const r of tickFields.reward_growths_outside) rewardGrowthOutsides.push(readU128(r));
-    }
-    return { feeGrowthOutsideA, feeGrowthOutsideB, rewardGrowthOutsides };
-  } catch (e) {
-    console.warn("[turbos-tick] fetch failed poolId", poolId.slice(0, 16), "tick", tickIndex, e?.message);
-    return null;
-  }
-}
-function computeTotalRewardOwed(amountOwedRaw, rewardGrowthInsideNow, rewardGrowthInsideLast, liquidity) {
-  try {
-    const liq = BigInt(liquidity);
-    if (liq === 0n) return amountOwedRaw;
-    const owed = BigInt(amountOwedRaw);
-    const delta = (rewardGrowthInsideNow - rewardGrowthInsideLast + U128_MOD) % U128_MOD;
-    const live = delta * liq >> 64n;
-    const total = owed + live > U64_MAX ? owed : owed + live;
-    return total.toString();
-  } catch {
-    return amountOwedRaw;
-  }
-}
-async function getTurbosPositions(walletAddress, options) {
-  const incremental = options?.incremental === true;
-  const owned = await listOwnedMoveObjects(asRpcObjectClient(suiClient), {
-    owner: walletAddress,
-    filter: { StructType: TURBOS_POSITION_TYPE },
-    incremental
-  });
-  const nfts = [];
-  for (const item of owned) {
-    const parsed = parseNftObject(item);
-    if (parsed) nfts.push(parsed);
-  }
-  if (nfts.length === 0) return [];
-  const positionObjs = await multiGetObjectsHydrated(
-    asRpcObjectClient(suiClient),
-    nfts.map((n2) => n2.positionId),
-    { incremental }
-  );
-  const posData = /* @__PURE__ */ new Map();
-  for (let i = 0; i < nfts.length; i++) {
-    const raw = positionObjs[i];
-    if (!raw) continue;
-    const parsed = parsePositionObject(raw);
-    if (!parsed) continue;
-    if (parsed.liquidity === "0" || !parsed.liquidity) continue;
-    posData.set(nfts[i].positionId, parsed);
-  }
-  const openNfts = nfts.filter((n2) => posData.has(n2.positionId));
-  if (openNfts.length === 0) return [];
-  const uniquePoolIds = [...new Set(openNfts.map((n2) => n2.poolId))];
-  const poolObjs = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), uniquePoolIds, { incremental });
-  const poolData = /* @__PURE__ */ new Map();
-  for (let i = 0; i < uniquePoolIds.length; i++) {
-    const raw = poolObjs[i];
-    if (!raw) continue;
-    const parsed = parsePoolObject(raw);
-    if (!parsed) continue;
-    poolData.set(uniquePoolIds[i], parsed);
-  }
-  const allCoinTypes = /* @__PURE__ */ new Set();
-  for (const n2 of openNfts) {
-    const pool = poolData.get(n2.poolId);
-    if (!pool) continue;
-    if (n2.coinTypeA) allCoinTypes.add(n2.coinTypeA);
-    if (n2.coinTypeB) allCoinTypes.add(n2.coinTypeB);
-    for (const ct of pool.rewardCoinTypes) allCoinTypes.add(ct);
-  }
-  const metaMap = /* @__PURE__ */ new Map();
-  await mapPool([...allCoinTypes], RPC_CONCURRENCY, async (ct) => {
-    try {
-      const m = await suiClient.getCoinMetadata({ coinType: ct });
-      metaMap.set(ct, {
-        symbol: m?.symbol ?? symbolFromCoinType8(ct),
-        decimals: m?.decimals ?? 9,
-        iconUrl: typeof m?.iconUrl === "string" && m.iconUrl.startsWith("https://") ? m.iconUrl : null
-      });
-    } catch {
-      metaMap.set(ct, { symbol: symbolFromCoinType8(ct), decimals: 9, iconUrl: null });
-    }
-  });
-  const getMeta = (ct) => metaMap.get(ct) ?? { symbol: symbolFromCoinType8(ct), decimals: 9, iconUrl: null };
-  let spotsMap = /* @__PURE__ */ new Map();
-  try {
-    spotsMap = await resolveSpots([...allCoinTypes], (ct) => getMeta(ct).symbol);
-  } catch {
-  }
-  const tickFetchResults = /* @__PURE__ */ new Map();
-  await mapPool(openNfts, RPC_CONCURRENCY, async (nft) => {
-    const pos = posData.get(nft.positionId);
-    if (!pos) return;
-    const [lower, upper] = await Promise.all([
-      fetchTurbosTickFeeGrowth(nft.poolId, pos.lowerTickRaw, pos.lowerTick),
-      fetchTurbosTickFeeGrowth(nft.poolId, pos.upperTickRaw, pos.upperTick)
-    ]);
-    tickFetchResults.set(nft.positionId, { lower, upper });
-  });
-  const out = [];
-  for (const nft of openNfts) {
-    const pos = posData.get(nft.positionId);
-    const pool = poolData.get(nft.poolId);
-    if (!pos || !pool) continue;
-    const rawCtA = nft.coinTypeA ?? "";
-    const rawCtB = nft.coinTypeB ?? "";
-    if (!rawCtA || !rawCtB) continue;
-    const metaA = getMeta(rawCtA);
-    const metaB = getMeta(rawCtB);
-    const liqBn = /^\d+$/.test(pos.liquidity) ? new BN7(pos.liquidity, 10) : new BN7(0);
-    const curSqrtBn = /^\d+$/.test(pool.sqrtPriceStr) && pool.sqrtPriceStr !== "0" ? new BN7(pool.sqrtPriceStr, 10) : new BN7(0);
-    let humA = 0;
-    let humB = 0;
-    if (!liqBn.isZero() && !curSqrtBn.isZero()) {
-      try {
-        const lowerSqrt = TickMath7.tickIndexToSqrtPriceX64(pos.lowerTick);
-        const upperSqrt = TickMath7.tickIndexToSqrtPriceX64(pos.upperTick);
-        const { coinA, coinB } = Utils7.getCoinAmountFromLiquidity(
-          liqBn,
-          curSqrtBn,
-          lowerSqrt,
-          upperSqrt,
-          false
-        );
-        humA = safeHumanFromBnRaw3(coinA, metaA.decimals);
-        humB = safeHumanFromBnRaw3(coinB, metaB.decimals);
-      } catch {
-      }
-    }
-    const tickResult = tickFetchResults.get(nft.positionId);
-    let rawUnclA;
-    let rawUnclB;
-    if (tickResult?.lower && tickResult?.upper) {
-      try {
-        const fggA = BigInt(pool.feeGrowthGlobalA || "0");
-        const fggB = BigInt(pool.feeGrowthGlobalB || "0");
-        const fgiNowA = computeFeeGrowthInside(
-          fggA,
-          tickResult.lower.feeGrowthOutsideA,
-          tickResult.upper.feeGrowthOutsideA,
-          pos.lowerTick,
-          pos.upperTick,
-          pool.currentTick
-        );
-        const fgiNowB = computeFeeGrowthInside(
-          fggB,
-          tickResult.lower.feeGrowthOutsideB,
-          tickResult.upper.feeGrowthOutsideB,
-          pos.lowerTick,
-          pos.upperTick,
-          pool.currentTick
-        );
-        rawUnclA = computeTotalOwed(
-          pos.tokensOwedA,
-          fgiNowA,
-          BigInt(pos.feeGrowthInsideA || "0"),
-          pos.liquidity
-        );
-        rawUnclB = computeTotalOwed(
-          pos.tokensOwedB,
-          fgiNowB,
-          BigInt(pos.feeGrowthInsideB || "0"),
-          pos.liquidity
-        );
-      } catch {
-        rawUnclA = pos.tokensOwedA;
-        rawUnclB = pos.tokensOwedB;
-      }
-    } else {
-      rawUnclA = pos.tokensOwedA;
-      rawUnclB = pos.tokensOwedB;
-    }
-    const unclFeeA = rawToHuman(rawUnclA, metaA.decimals);
-    const unclFeeB = rawToHuman(rawUnclB, metaB.decimals);
-    let unclRewardUsd = 0;
-    for (let i = 0; i < pool.rewardCoinTypes.length; i++) {
-      const rct = pool.rewardCoinTypes[i];
-      const rMeta = getMeta(rct);
-      let rRaw = pos.rewardAmounts[i] ?? "0";
-      if (tickResult?.lower && tickResult?.upper) {
-        try {
-          const rewardGlobal = BigInt(pool.rewardGrowthGlobals[i] ?? "0");
-          const lowerRewardOutside = tickResult.lower.rewardGrowthOutsides[i] ?? 0n;
-          const upperRewardOutside = tickResult.upper.rewardGrowthOutsides[i] ?? 0n;
-          const rewardInsideLast = BigInt(pos.rewardGrowthInsides[i] ?? "0");
-          const rewardInsideNow = computeFeeGrowthInside(
-            rewardGlobal,
-            lowerRewardOutside,
-            upperRewardOutside,
-            pos.lowerTick,
-            pos.upperTick,
-            pool.currentTick
-          );
-          rRaw = computeTotalRewardOwed(rRaw, rewardInsideNow, rewardInsideLast, pos.liquidity);
-        } catch {
-        }
-      }
-      const rHum = rawToHuman(rRaw, rMeta.decimals);
-      const rPx = spotPriceSafe3(spotsMap.get(rct)?.price);
-      if (rPx > 0) unclRewardUsd += rHum * rPx;
-    }
-    const pxA = spotPriceSafe3(spotsMap.get(rawCtA)?.price);
-    const pxB = spotPriceSafe3(spotsMap.get(rawCtB)?.price);
-    const valueUsd = clampUsd7(
-      (pxA > 0 ? humA * pxA : 0) + (pxB > 0 ? humB * pxB : 0)
-    );
-    const feeUsd = (pxA > 0 ? unclFeeA * pxA : 0) + (pxB > 0 ? unclFeeB * pxB : 0);
-    const inRange = pool.currentTick >= pos.lowerTick && pool.currentTick <= pos.upperTick;
-    const aIsStable = STABLECOIN_SYMS2.has(metaA.symbol.toUpperCase());
-    const bIsStable = STABLECOIN_SYMS2.has(metaB.symbol.toUpperCase());
-    const swap = aIsStable && !bIsStable;
-    const symA = swap ? metaB.symbol : metaA.symbol;
-    const symB = swap ? metaA.symbol : metaB.symbol;
-    const ctA = swap ? rawCtB : rawCtA;
-    const ctB = swap ? rawCtA : rawCtB;
-    const dMetaA = swap ? metaB : metaA;
-    const dMetaB = swap ? metaA : metaB;
-    const dPxA = swap ? pxB : pxA;
-    const dPxB = swap ? pxA : pxB;
-    const dHumA = swap ? humB : humA;
-    const dHumB = swap ? humA : humB;
-    const dFeeA = swap ? unclFeeB : unclFeeA;
-    const dFeeB = swap ? unclFeeA : unclFeeB;
-    const dTickLower = swap ? -pos.upperTick : pos.lowerTick;
-    const dTickUpper = swap ? -pos.lowerTick : pos.upperTick;
-    let sqrtPriceOut = pool.sqrtPriceStr;
-    if (swap) {
-      try {
-        const orig = BigInt(pool.sqrtPriceStr);
-        if (orig > 0n) sqrtPriceOut = (2n ** 128n / orig).toString();
-      } catch {
-      }
-    }
-    const feeLabelPct = `${(pool.feeRate * 100).toFixed(3)}%`;
-    const pair = `${symA}/${symB} \xB7 ${feeLabelPct}${inRange ? "" : " \xB7 OUT"}`;
-    out.push({
-      id: nft.nftId,
-      protocol: "turbos",
-      poolId: nft.poolId,
-      turbosPositionObjectId: nft.positionId,
-      turbosSwapped: swap,
-      turbosOriginalDecimalsA: metaA.decimals,
-      turbosOriginalDecimalsB: metaB.decimals,
-      pair,
-      tokenA: symA,
-      tokenB: symB,
-      tokenAAddress: ctA,
-      tokenBAddress: ctB,
-      tokenAIconUrl: dMetaA.iconUrl,
-      tokenBIconUrl: dMetaB.iconUrl,
-      tokenADecimals: dMetaA.decimals,
-      tokenBDecimals: dMetaB.decimals,
-      fee: pool.feeRate,
-      tickLower: dTickLower,
-      tickUpper: dTickUpper,
-      currentTick: pool.currentTick,
-      currentSqrtPrice: sqrtPriceOut,
-      liquidity: pos.liquidity,
-      status: inRange ? "in_range" : "out_of_range",
-      tokenAAmount: dHumA,
-      tokenBAmount: dHumB,
-      currentPriceA_USD: dPxA,
-      currentPriceB_USD: dPxB,
-      currentValueUSD: valueUsd,
-      depositedUSD: 0,
-      // set by enrichment
-      pnlUSD: 0,
-      // set by enrichment
-      pnlPct: 0,
-      // set by enrichment
-      unclaimedFeeA: dFeeA,
-      unclaimedFeeB: dFeeB,
-      unclaimedFeeUSD: feeUsd,
-      unclaimedRewardUSD: unclRewardUsd,
-      openedAt: 0,
-      // set by enrichment
-      daysOpen: 0,
-      // set by enrichment
-      lifetimeEarningsUSD: 0,
-      // set by enrichment
-      vsHodlDeltaUSD: 0,
-      // set by enrichment
-      aprEstimatePct: 0,
-      // set by enrichment
-      historyPartial: false
-    });
-  }
-  out.sort((a, b) => (b.currentValueUSD ?? 0) - (a.currentValueUSD ?? 0));
-  return out;
 }
 
 // src/services/aftermathService.ts
@@ -13336,6 +14174,100 @@ async function getAftermathFarmsPositions(walletAddress) {
   return result;
 }
 
+// src/services/unsupportedLpService.ts
+init_suiClient();
+import { normalizeSuiAddress as normalizeSuiAddress21 } from "@mysten/sui/utils";
+var STRUCT_FILTERS = [
+  "AlphaFiReceipt",
+  "WrappedPositionNFT",
+  "CetusVaultVester",
+  "LBPosition",
+  "PyPosition",
+  "MarketPosition"
+];
+function stubRow(id, typeLabel) {
+  return {
+    id,
+    protocol: "unsupported",
+    poolId: "",
+    pair: `Unsupported (${typeLabel})`,
+    tokenA: "\u2014",
+    tokenB: "\u2014",
+    tokenAAddress: "",
+    tokenBAddress: "",
+    tokenADecimals: 0,
+    tokenBDecimals: 0,
+    fee: 0,
+    tickLower: 0,
+    tickUpper: 0,
+    currentTick: 0,
+    currentSqrtPrice: "0",
+    liquidity: "0",
+    lifecycleStatus: "unknown",
+    status: "out_of_range",
+    tokenAAmount: 0,
+    tokenBAmount: 0,
+    currentPriceA_USD: Number.NaN,
+    currentPriceB_USD: Number.NaN,
+    currentValueUSD: Number.NaN,
+    depositedUSD: Number.NaN,
+    pnlUSD: Number.NaN,
+    pnlPct: Number.NaN,
+    unclaimedFeeA: 0,
+    unclaimedFeeB: 0,
+    unclaimedFeeUSD: Number.NaN,
+    unclaimedRewardUSD: Number.NaN,
+    openedAt: 0,
+    daysOpen: Number.NaN,
+    lifetimeEarningsUSD: Number.NaN,
+    vsHodlDeltaUSD: Number.NaN,
+    aprEstimatePct: Number.NaN,
+    historyPartial: true
+  };
+}
+function typeTail(typeStr) {
+  const bare = typeStr.includes("<") ? typeStr.slice(0, typeStr.indexOf("<")) : typeStr;
+  const parts = bare.split("::");
+  return parts[parts.length - 1] ?? bare;
+}
+async function getUnsupportedLpStubs(walletAddress) {
+  let owner;
+  try {
+    owner = normalizeSuiAddress21(walletAddress.trim());
+  } catch {
+    owner = walletAddress.trim();
+  }
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  let cursor;
+  for (let page = 0; page < 8; page++) {
+    try {
+      const res = await suiClient.getOwnedObjects({
+        owner,
+        cursor: cursor ?? void 0,
+        limit: 50,
+        options: { showType: true }
+      });
+      for (const row of res.data) {
+        const typ = row.data?.type;
+        const id = row.data?.objectId;
+        if (!typ || !id || seen.has(id)) continue;
+        const tail = typeTail(typ);
+        if (!STRUCT_FILTERS.some((s) => tail === s)) continue;
+        seen.add(id);
+        out.push(stubRow(id, tail));
+      }
+      if (!res.hasNextPage || !res.nextCursor) break;
+      cursor = res.nextCursor;
+    } catch {
+      break;
+    }
+  }
+  void listOwnedMoveObjects;
+  void asRpcObjectClient;
+  return out;
+}
+
 // src/services/portfolioLpSources.ts
 init_concurrency();
 function readEnv2(name) {
@@ -13359,7 +14291,8 @@ var PORTFOLIO_LP_SOURCE_IDS = [
   "haedal-lending-vaults",
   "current-multiply",
   "turbos",
-  "aftermath"
+  "aftermath",
+  "unsupported"
 ];
 var LOADERS = {
   momentum: (w) => getMomentumPositions(w),
@@ -13371,7 +14304,8 @@ var LOADERS = {
   "haedal-lending-vaults": (w, o) => getHaedalLendingVaultPositions(w, { forceRefreshPrices: o?.forceRefreshPrices }),
   "current-multiply": (w, o) => getCurrentMultiplyVaultPositions(w, { forceRefreshPrices: o?.forceRefreshPrices }),
   turbos: (w) => getTurbosPositions(w),
-  aftermath: (w) => getAftermathFarmsPositions(w)
+  aftermath: (w) => getAftermathFarmsPositions(w),
+  unsupported: (w) => getUnsupportedLpStubs(w)
 };
 function timingEnabled() {
   return readEnv2("VITEST") !== "true" && readEnv2("SUI_LP_ADVISOR_DEV_TIMING") === "1";
@@ -13409,8 +14343,19 @@ async function loadAllPortfolioLpSources(wallet, opts) {
     error: l.error,
     count: l.ok ? l.positions.length : 0
   }));
-  const incomplete = loads.some((l) => !l.ok);
+  let incomplete = loads.some((l) => !l.ok);
   const positions = loads.filter((l) => l.ok).flatMap((l) => l.positions);
+  for (const p of positions) {
+    const liq = typeof p.liquidity === "string" ? p.liquidity : "0";
+    if (liq !== "0" && liq !== "") {
+      const val = p.currentValueUSD;
+      const pxOk = Number.isFinite(p.currentPriceA_USD) && Number.isFinite(p.currentPriceB_USD) && (p.currentPriceA_USD > 0 || p.currentPriceB_USD > 0);
+      if (pxOk && (!Number.isFinite(val) || val === 0)) {
+        incomplete = true;
+        p.historyPartial = true;
+      }
+    }
+  }
   return { loads, statuses, positions, incomplete };
 }
 
@@ -13433,7 +14378,7 @@ async function loadPortfolioSnapshotDetailed(rawAddress) {
   return loadPortfolioSnapshotDetailedOnce(rawAddress);
 }
 async function loadPortfolioSnapshotDetailedOnce(rawAddress) {
-  const walletAddr = normalizeSuiAddress19(rawAddress).toLowerCase();
+  const walletAddr = normalizeSuiAddress22(rawAddress).toLowerCase();
   const client = createServerSuiClient();
   const lendingSources = [];
   let balanceOk = true;
@@ -13481,6 +14426,32 @@ async function loadPortfolioSnapshotDetailedOnce(rawAddress) {
       status: "unavailable"
     });
   }
+  let suilend = EMPTY_SUILEND_SNAP;
+  try {
+    suilend = await getSuilendPositions(walletAddr);
+    lendingSources.push({ id: "suilend", ok: true, status: "ok" });
+  } catch (e) {
+    logSnapErr("suilend", e);
+    lendingSources.push({
+      id: "suilend",
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+      status: "unavailable"
+    });
+  }
+  let scallop = EMPTY_SCALLOP_SNAP;
+  try {
+    scallop = await getScallopPositions(walletAddr);
+    lendingSources.push({ id: "scallop", ok: true, status: "ok" });
+  } catch (e) {
+    logSnapErr("scallop", e);
+    lendingSources.push({
+      id: "scallop",
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+      status: "unavailable"
+    });
+  }
   const lp = await loadAllPortfolioLpSources(walletAddr);
   let walletVisibleUSD = 0;
   let classifyOk = true;
@@ -13501,7 +14472,7 @@ async function loadPortfolioSnapshotDetailedOnce(rawAddress) {
     positions: lp.positions,
     lendingSources,
     lendingNetUSD: finiteUsd(
-      finiteUsd(lend.netValueUSD) + finiteUsd(navi.netValueUSD) + finiteUsd(current.netValueUSD)
+      finiteUsd(lend.netValueUSD) + finiteUsd(navi.netValueUSD) + finiteUsd(current.netValueUSD) + finiteUsd(suilend.netValueUSD) + finiteUsd(scallop.netValueUSD)
     ),
     current
   });

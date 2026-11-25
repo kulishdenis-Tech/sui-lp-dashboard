@@ -214,13 +214,24 @@ function Protocol({
 
 /** Мобільний Lending: плитки, шкала ліміту, рядки supply/borrow замість таблиць. */
 export function LendingPage() {
-	const { snapshot, naviSnapshot, currentSnapshot, isLoading, error, lastUpdated } = useLendingPositions()
+	const {
+		snapshot,
+		naviSnapshot,
+		currentSnapshot,
+		suilendSnapshot,
+		scallopSnapshot,
+		isLoading,
+		error,
+		lastUpdated,
+	} = useLendingPositions()
 	const [hideDust, setHideDust] = useState(true)
 
 	const books: { snap: LendingSnapshot; title: string }[] = []
 	if (snapshot) books.push({ snap: snapshot, title: 'AlphaLend' })
 	if (naviSnapshot) books.push({ snap: naviSnapshot, title: 'Navi' })
 	if (currentSnapshot) books.push({ snap: currentSnapshot, title: 'Current' })
+	if (suilendSnapshot) books.push({ snap: suilendSnapshot, title: 'Suilend' })
+	if (scallopSnapshot) books.push({ snap: scallopSnapshot, title: 'Scallop' })
 	const visible = books.filter(
 		(b) =>
 			(b.snap.supplies.length > 0 || b.snap.borrows.length > 0) &&

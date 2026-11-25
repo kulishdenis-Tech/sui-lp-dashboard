@@ -13,6 +13,7 @@ import { getHaedalLendingVaultPositions } from '@/services/haedalLendingVaultsSe
 import { getCurrentMultiplyVaultPositions } from '@/services/currentMultiplyVaultsService'
 import { getTurbosPositions } from '@/services/turbosService'
 import { getAftermathFarmsPositions } from '@/services/aftermathService'
+import { getUnsupportedLpStubs } from '@/services/unsupportedLpService'
 import { mapPool } from '@/utils/concurrency'
 
 function readEnv(name: string): string | undefined {
@@ -40,6 +41,7 @@ export const PORTFOLIO_LP_SOURCE_IDS = [
 	'current-multiply',
 	'turbos',
 	'aftermath',
+	'unsupported',
 ] as const
 
 export type PortfolioLpSourceId = (typeof PORTFOLIO_LP_SOURCE_IDS)[number]
@@ -87,6 +89,7 @@ const LOADERS: Record<PortfolioLpSourceId, Loader> = {
 		getCurrentMultiplyVaultPositions(w, { forceRefreshPrices: o?.forceRefreshPrices }),
 	turbos: (w) => getTurbosPositions(w),
 	aftermath: (w) => getAftermathFarmsPositions(w),
+	unsupported: (w) => getUnsupportedLpStubs(w),
 }
 
 export function portfolioLpSourceIds(): readonly PortfolioLpSourceId[] {
@@ -151,7 +154,22 @@ export async function loadAllPortfolioLpSources(
 		error: l.error,
 		count: l.ok ? l.positions.length : 0,
 	}))
-	const incomplete = loads.some((l) => !l.ok)
+	let incomplete = loads.some((l) => !l.ok)
 	const positions = loads.filter((l) => l.ok).flatMap((l) => l.positions)
+	// Sanity (P1-8): liq>0 but value 0/NaN with known prices → incomplete/partial
+	for (const p of positions) {
+		const liq = typeof p.liquidity === 'string' ? p.liquidity : '0'
+		if (liq !== '0' && liq !== '') {
+			const val = p.currentValueUSD
+			const pxOk =
+				Number.isFinite(p.currentPriceA_USD) &&
+				Number.isFinite(p.currentPriceB_USD) &&
+				(p.currentPriceA_USD > 0 || p.currentPriceB_USD > 0)
+			if (pxOk && (!Number.isFinite(val) || val === 0)) {
+				incomplete = true
+				p.historyPartial = true
+			}
+		}
+	}
 	return { loads, statuses, positions, incomplete }
 }

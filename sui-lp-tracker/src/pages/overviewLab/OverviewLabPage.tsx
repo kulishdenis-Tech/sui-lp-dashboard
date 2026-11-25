@@ -335,6 +335,8 @@ export function OverviewLabPage() {
 		lendingSnapshot,
 		naviSnapshot,
 		currentSnapshot,
+		suilendSnapshot,
+		scallopSnapshot,
 		isLoadingLending,
 		isLoadingPositions,
 		lastLoadError,
@@ -351,6 +353,8 @@ export function OverviewLabPage() {
 			lendingSnapshot: s.lendingSnapshot,
 			naviSnapshot: s.naviSnapshot,
 			currentSnapshot: s.currentSnapshot,
+			suilendSnapshot: s.suilendSnapshot,
+			scallopSnapshot: s.scallopSnapshot,
 			isLoadingLending: s.isLoadingLending,
 			isLoadingPositions: s.isLoadingPositions,
 			lastLoadError: s.lastLoadError,
@@ -533,7 +537,7 @@ export function OverviewLabPage() {
 	}, [openPositions, lpFilter])
 
 	/** Lending totals — sum only present snapshots; null when none loaded and not loading. */
-	const lendingSnaps = [lendingSnapshot, naviSnapshot, currentSnapshot]
+	const lendingSnaps = [lendingSnapshot, naviSnapshot, currentSnapshot, suilendSnapshot, scallopSnapshot]
 	const anyLendingLoaded = lendingSnaps.some((s) => s != null)
 
 	function sumLendingField(getter: (s: typeof lendingSnapshot) => number | null | undefined): number | null {
@@ -591,14 +595,20 @@ export function OverviewLabPage() {
 				buildLendingAttentionItems([
 					{ snap: lendingSnapshot, label: 'AlphaLend', protocol: 'AlphaLend' },
 					{ snap: naviSnapshot, label: 'Navi', protocol: 'Navi' },
+					{ snap: suilendSnapshot, label: 'Suilend', protocol: 'Suilend' },
+					{ snap: scallopSnapshot, label: 'Scallop', protocol: 'Scallop' },
 				]),
 				buildRangeExceptionItems(openPositions),
 			),
 		)
-	}, [riskRows, openPositions, lendingSnapshot, naviSnapshot, addrEpoch])
+	}, [riskRows, openPositions, lendingSnapshot, naviSnapshot, suilendSnapshot, scallopSnapshot, addrEpoch])
 	const debtParts = useMemo(
-		() => overviewDebtParts([lendingSnapshot, naviSnapshot, currentSnapshot], riskPositions),
-		[lendingSnapshot, naviSnapshot, currentSnapshot, riskPositions],
+		() =>
+			overviewDebtParts(
+				[lendingSnapshot, naviSnapshot, currentSnapshot, suilendSnapshot, scallopSnapshot],
+				riskPositions,
+			),
+		[lendingSnapshot, naviSnapshot, currentSnapshot, suilendSnapshot, scallopSnapshot, riskPositions],
 	)
 	const totalDebt = overviewTotalDebt(lendingDebt, debtParts.multiplyUSD)
 	const staleLine = staleAttentionLabel(sources)

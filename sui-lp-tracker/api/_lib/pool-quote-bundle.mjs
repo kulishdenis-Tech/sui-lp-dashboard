@@ -536,6 +536,10 @@ function effectivePrice(amountInHuman, amountOutHuman) {
   return amountOutHuman / amountInHuman;
 }
 
+// src/services/suiData/jsonRpcCompat.ts
+import { TypeTagSerializer } from "@mysten/sui/bcs";
+import { deriveDynamicFieldID } from "@mysten/sui/utils";
+
 // src/services/suiData/createGrpcClient.ts
 import { SuiGrpcClient } from "@mysten/sui/grpc";
 
@@ -893,6 +897,14 @@ function writeStoredCoinMeta(coinType, meta) {
 var DF_CACHE_TTL_MS = 3e4;
 var dfObjectCache = /* @__PURE__ */ new Map();
 var plainDfParents = /* @__PURE__ */ new Set();
+var derivedVerifiedParents = /* @__PURE__ */ new Set();
+function deriveFieldId(parentId, name) {
+  try {
+    return deriveDynamicFieldID(parentId, TypeTagSerializer.parseFromStr(name.type), name.bcs);
+  } catch {
+    return null;
+  }
+}
 function asOwner(input) {
   return typeof input === "string" ? input : input.owner;
 }
@@ -1213,6 +1225,20 @@ function createJsonRpcCompatClient(grpc = getDashboardGrpcClient()) {
       const promise = (async () => {
         const name = encodeLegacyDfName(input.name);
         const include = { json: true, type: true };
+        if (derivedVerifiedParents.has(input.parentId)) {
+          const derivedId = deriveFieldId(input.parentId, name);
+          if (derivedId) {
+            try {
+              const { object } = await withSuiDataThrottle(() => grpc.getObject({ objectId: derivedId, include }));
+              return legacyObjectResponse(object);
+            } catch (e) {
+              return {
+                data: null,
+                error: { code: "dynamicFieldNotFound", message: e instanceof Error ? e.message : String(e) }
+              };
+            }
+          }
+        }
         if (!plainDfParents.has(input.parentId)) {
           try {
             const { object } = await withSuiDataThrottle(
@@ -1231,6 +1257,8 @@ function createJsonRpcCompatClient(grpc = getDashboardGrpcClient()) {
             return { data: null, error: { code: "dynamicFieldNotFound", message: "missing fieldId" } };
           }
           plainDfParents.add(input.parentId);
+          const derived = deriveFieldId(input.parentId, name);
+          if (derived && derived.toLowerCase() === fieldId.toLowerCase()) derivedVerifiedParents.add(input.parentId);
           const { object } = await withSuiDataThrottle(
             () => grpc.getObject({ objectId: fieldId, include })
           );

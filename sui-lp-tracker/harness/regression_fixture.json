@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "description": "Review acceptance wallets W01–W11 (TZ 25.11.2026). Values are brackets for ±2% value checks; null means structure-only.",
+  "wallets": [
+    {
+      "id": "W01",
+      "note": "Baseline empty / smoke",
+      "expect": { "ok": true }
+    },
+    {
+      "id": "W02",
+      "note": "8 Turbos + Suilend + Bluefin history",
+      "expect": {
+        "turbosOpenMin": 8,
+        "suilendVisible": true,
+        "bluefin": { "depositedUSD_gt": 0, "daysOpen_gt": 16 }
+      }
+    },
+    {
+      "id": "W03",
+      "note": "Suilend ~$4.3k / $2.5k + HF",
+      "expect": {
+        "suilendSuppliedUsd": { "approx": 4300, "tolPct": 2 },
+        "suilendBorrowedUsd": { "approx": 2500, "tolPct": 2 },
+        "healthFactor": { "present": true }
+      }
+    },
+    {
+      "id": "W05",
+      "note": "No absurd PnL without full history",
+      "expect": { "historyPartialOrNullPnl": true }
+    },
+    {
+      "id": "W07",
+      "note": "Momentum ~$2.18k in_range; closed ≥342",
+      "expect": {
+        "momentumValueUsd": { "approx": 2180, "tolPct": 2 },
+        "momentumInRange": true,
+        "momentumClosedMin": 342
+      }
+    },
+    {
+      "id": "W08",
+      "note": "Empty Momentum NFT → empty; closed ≥75",
+      "expect": {
+        "momentumEmptyStatus": true,
+        "momentumClosedMin": 75
+      }
+    },
+    {
+      "id": "W09",
+      "note": "Cetus closed ≥442",
+      "expect": { "cetusClosedMin": 442 }
+    },
+    {
+      "id": "W10",
+      "note": "2 Turbos in-range ≈ $2.3k",
+      "expect": {
+        "turbosOpenMin": 2,
+        "turbosInRangeMin": 2,
+        "turbosValueUsd": { "approx": 2300, "tolPct": 2 }
+      }
+    },
+    {
+      "id": "W11",
+      "note": "Sanity / incomplete flags",
+      "expect": { "ok": true }
+    }
+  ]
+}

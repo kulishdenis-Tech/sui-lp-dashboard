@@ -43,12 +43,15 @@ export function protocolTickInRange(
 ): boolean {
 	if (protocol === 'cetus') return cetusTickInRange(currentTick, tickLower, tickUpper)
 	if (protocol === 'bluefin') return bluefinTickInRange(currentTick, tickLower, tickUpper)
+	if (protocol === 'turbos' || protocol === 'momentum') {
+		return bluefinTickInRange(currentTick, tickLower, tickUpper)
+	}
 	return inclusiveTickInRange(currentTick, tickLower, tickUpper)
 }
 
 /** True when `current == tickUpper` is already outside the active interval. */
 export function protocolExcludesUpperTick(protocol: string): boolean {
-	return protocol === 'cetus' || protocol === 'bluefin'
+	return protocol === 'cetus' || protocol === 'bluefin' || protocol === 'turbos' || protocol === 'momentum'
 }
 
 export type ClmmTickSide = 'in' | 'above' | 'below'
@@ -77,7 +80,11 @@ export function clmmTickBand(input: {
 		return currentTick <= lower ? 'above' : 'below'
 	}
 	const halfOpen =
-		input.protocol == null || input.protocol === 'cetus' || input.protocol === 'bluefin'
+		input.protocol == null ||
+		input.protocol === 'cetus' ||
+		input.protocol === 'bluefin' ||
+		input.protocol === 'turbos' ||
+		input.protocol === 'momentum'
 	if (halfOpen) {
 		if (currentTick >= lower && currentTick < upper) return 'in'
 		return currentTick >= upper ? 'above' : 'below'
