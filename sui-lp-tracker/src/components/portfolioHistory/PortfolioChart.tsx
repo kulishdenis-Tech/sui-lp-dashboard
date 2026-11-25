@@ -316,7 +316,6 @@ export const PortfolioChart = forwardRef<PortfolioChartHandle, Props>(function P
 					})
 				},
 			},
-			handleScroll: true,
 			handleScale: true,
 		})
 
