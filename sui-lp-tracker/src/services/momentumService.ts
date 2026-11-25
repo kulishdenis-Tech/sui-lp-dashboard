@@ -294,6 +294,7 @@ export async function getMomentumPositions(
 
 	const out: OpenPosition[] = []
 	for (const row of rawRows) {
+		try {
 		const posId = typeof row.objectId === 'string' ? row.objectId.trim() : ''
 		const poolId = typeof row.poolId === 'string' ? row.poolId.trim() : ''
 		if (!posId || !poolId) continue
@@ -371,16 +372,26 @@ export async function getMomentumPositions(
 					? pxbPool
 					: null
 
-		const partA = pxaF != null ? humA * pxaF : 0
-		const partB = pxbF != null ? humB * pxbF : 0
-		let valueUsd = clampUsd(partA + partB)
-		if (valueUsd <= 0 && Number.isFinite(row.amount) && row.amount > 0) {
-			valueUsd = clampUsd(row.amount)
+		const pricePartial = pxaF == null || pxbF == null
+		let valueUsd: number
+		if (pricePartial) {
+			valueUsd = Number.isFinite(row.amount) && row.amount > 0 ? clampUsd(row.amount) : Number.NaN
+			if (!Number.isFinite(row.amount) || row.amount <= 0) valueUsd = Number.NaN
+		} else {
+			valueUsd = clampUsd(humA * pxaF + humB * pxbF)
 		}
 
 		const feeFraction = momentumPoolFeeFraction(pool.lpFeesPercent ?? '0')
 		const statusLabel = typeof row.status === 'string' ? row.status.trim() : ''
-		const inRangeResolved = momentumStatusToRange(statusLabel || 'out of range') === 'in_range'
+		const currentTick = poolTickCurrent(pool)
+		// CLMM: lower ≤ tick < upper (ignore SDK text label when ticks are known)
+		const inRangeByTicks = currentTick >= lowerTick && currentTick < upperTick
+		const isEmpty = liqBn.isZero()
+		const rangeStatus: 'in_range' | 'out_of_range' = isEmpty
+			? 'out_of_range'
+			: inRangeByTicks
+				? 'in_range'
+				: momentumStatusToRange(statusLabel || 'out of range')
 		const feeLabelPct = `${(feeFraction * 100).toFixed(3)}%`
 		const pair = `${symA}/${symB} · ${feeLabelPct}`
 
@@ -446,14 +457,15 @@ export async function getMomentumPositions(
 			fee: feeFraction,
 			tickLower: lowerTick,
 			tickUpper: upperTick,
-			currentTick: poolTickCurrent(pool),
+			currentTick,
 			currentSqrtPrice: curSqrtBn.isZero() ? sqrtStr : curSqrtBn.toString(10),
 			liquidity: liqBn.toString(10),
-			status: momentumStatusToRange(statusLabel || (inRangeResolved ? 'in range' : 'out of range')),
+			lifecycleStatus: isEmpty ? 'empty' : 'active',
+			status: rangeStatus,
 			tokenAAmount: humA,
 			tokenBAmount: humB,
-			currentPriceA_USD: pxaF ?? 0,
-			currentPriceB_USD: pxbF ?? 0,
+			currentPriceA_USD: pxaF ?? Number.NaN,
+			currentPriceB_USD: pxbF ?? Number.NaN,
 			currentValueUSD: valueUsd,
 			depositedUSD: 0,
 			pnlUSD: 0,
@@ -467,8 +479,13 @@ export async function getMomentumPositions(
 			lifetimeEarningsUSD: 0,
 			vsHodlDeltaUSD: 0,
 			aprEstimatePct: 0,
+			historyPartial: pricePartial,
 		}
 		out.push(opened)
+		} catch (e) {
+			// Isolate per-position failures so one bad pool/SDK row cannot drop the wallet.
+			console.warn('[momentum] skip position after parse/math error', row?.objectId, e)
+		}
 	}
 
 	return out

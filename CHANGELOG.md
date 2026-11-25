@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.5.0
+
+- Review TZ 25.11.2026: Turbos TypeName (string/gRPC) + pool generic fallback; Momentum tick `bits` + CLMM `[lower,upper)`; GraphQL `SenderAndMoveEventType` per-protocol history; Partial/null замість фейкового `$0`.
+- Lending: Suilend + Scallop adapters (HF у Net Worth / Risk); AlphaLend сумує всі portfolios.
+- Cetus compensation certificates як Empty/Certificate; PnL decomposition fields; unsupported LP stubs; watch wallets лише з env.
+- `npm run review:fixture` harness (W01–W11 schema / optional live dump).
+
 ## 2.4.0
 
 - Спільна кнопка Back (шеврон + назва секції) для деталей LP і Activity drawer.

@@ -40,6 +40,9 @@ import { normalizeStructTag, normalizeSuiAddress } from '@mysten/sui/utils'
 import { mapPool } from '@/utils/concurrency'
 import { PROTOCOL_PACKAGES, RPC_CONCURRENCY } from '@/utils/constants'
 import { computeFeeGrowthInside, computeTotalOwed, U128_MOD, U64_MAX } from '@/clmm/feeGrowth'
+import { typeArguments } from '@/utils/cetusVault'
+import { bluefinTickInRange } from '@/utils/clmmTickBounds'
+import { resolveLifecycleStatus } from '@/utils/lpLifecycle'
 import Decimal from 'decimal.js'
 import BN from 'bn.js'
 
@@ -136,18 +139,42 @@ export function normCoinType(raw: unknown): string | null {
 }
 
 /**
- * Extract a coin type from a Move TypeName struct wrapper:
- * { type: "0x1::type_name::TypeName", fields: { name: "addr::module::STRUCT" } }
- * The address inside is stored WITHOUT the 0x prefix — we add it.
+ * Extract a coin type from a Move TypeName wrapper or raw string.
+ * Accepts: `"addr::mod::T"`, `{ name }`, `{ fields: { name } }` (gRPC / JSON-RPC).
+ * The address inside TypeName is often WITHOUT the 0x prefix — we add it.
  */
-function extractTypeName(val: unknown): string | null {
+export function extractTypeName(val: unknown): string | null {
+	if (typeof val === 'string') return normCoinType(val)
 	if (!val || typeof val !== 'object') return null
 	const obj = val as Record<string, unknown>
-	// Unwrap the fields layer if present
-	const f = (obj.fields as Record<string, unknown>) ?? obj
-	const name = (f as Record<string, unknown>).name
-	if (typeof name !== 'string' || !name) return null
-	return normCoinType(name)
+	if (typeof obj.name === 'string' && obj.name) return normCoinType(obj.name)
+	const f = obj.fields
+	if (f && typeof f === 'object') {
+		const name = (f as Record<string, unknown>).name
+		if (typeof name === 'string' && name) return normCoinType(name)
+	}
+	return null
+}
+
+/** Coin A/B from `Pool<CoinA, CoinB, FeeType>` type string when NFT TypeName fields are empty. */
+export function coinTypesFromPoolType(poolType: string | null | undefined): {
+	coinTypeA: string | null
+	coinTypeB: string | null
+} {
+	if (!poolType || typeof poolType !== 'string') return { coinTypeA: null, coinTypeB: null }
+	const args = typeArguments(poolType)
+	return {
+		coinTypeA: args[0] ? normCoinType(args[0]) : null,
+		coinTypeB: args[1] ? normCoinType(args[1]) : null,
+	}
+}
+
+function objectTypeString(raw: unknown): string | null {
+	if (!raw || typeof raw !== 'object') return null
+	const o = raw as Record<string, unknown>
+	const data = (o.data ?? o) as Record<string, unknown>
+	const t = data.type
+	return typeof t === 'string' && t.includes('<') ? t : null
 }
 
 export function normId(raw: unknown): string {
@@ -315,6 +342,10 @@ export function parsePoolObject(obj: unknown): {
 	rewardEmissionsPerSecond: string[]  // per-reward emissions_per_second (Q64.64 rate)
 	poolLiquidity: string               // current active liquidity (for time-adjusted reward global)
 	ticksTableId: string | null   // dynamic field table ID for tick lookups
+	/** Full Move type incl. generics — fallback for NFT TypeName gaps. */
+	poolType: string | null
+	coinTypeA: string | null
+	coinTypeB: string | null
 } | null {
 	if (!obj || typeof obj !== 'object') return null
 	const o = obj as Record<string, unknown>
@@ -322,6 +353,9 @@ export function parsePoolObject(obj: unknown): {
 	const content = data.content as Record<string, unknown> | undefined
 	if (!content) return null
 	const f = (content.fields ?? content) as TurbosPoolFields
+
+	const poolType = objectTypeString(obj) ?? (typeof data.type === 'string' ? data.type : null)
+	const fromType = coinTypesFromPoolType(poolType)
 
 	const sqrtPriceStr = String(f.sqrt_price ?? '0')
 	const currentTick = readTick(f.tick_current_index)
@@ -335,7 +369,7 @@ export function parsePoolObject(obj: unknown): {
 	if (Array.isArray(f.reward_infos)) {
 		for (const ri of f.reward_infos) {
 			const rif = unwrapStruct(ri)
-			const ct = normCoinType(rif?.vault_coin_type)
+			const ct = extractTypeName(rif?.vault_coin_type) ?? normCoinType(rif?.vault_coin_type)
 			if (ct) rewardCoinTypes.push(ct)
 			rewardGrowthGlobals.push(String(rif?.growth_global ?? '0'))
 			rewardEmissionsPerSecond.push(String(rif?.emissions_per_second ?? '0'))
@@ -360,7 +394,21 @@ export function parsePoolObject(obj: unknown): {
 		}
 	} catch { /* leave null */ }
 
-	return { sqrtPriceStr, currentTick, feeRate, rewardCoinTypes, feeGrowthGlobalA, feeGrowthGlobalB, rewardGrowthGlobals, rewardEmissionsPerSecond, poolLiquidity, ticksTableId }
+	return {
+		sqrtPriceStr,
+		currentTick,
+		feeRate,
+		rewardCoinTypes,
+		feeGrowthGlobalA,
+		feeGrowthGlobalB,
+		rewardGrowthGlobals,
+		rewardEmissionsPerSecond,
+		poolLiquidity,
+		ticksTableId,
+		poolType,
+		coinTypeA: fromType.coinTypeA,
+		coinTypeB: fromType.coinTypeB,
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -507,13 +555,15 @@ export async function getTurbosPositions(
 	}
 
 	// 5. Collect all coin types for metadata + spot price resolution
-	// Coin types come from the NFT's TypeName fields (not pool balance fields)
+	// Prefer NFT TypeName; fall back to Pool<CoinA, CoinB, …> generics.
 	const allCoinTypes = new Set<string>()
 	for (const n of openNfts) {
 		const pool = poolData.get(n.poolId)
 		if (!pool) continue
-		if (n.coinTypeA) allCoinTypes.add(n.coinTypeA)
-		if (n.coinTypeB) allCoinTypes.add(n.coinTypeB)
+		const ctA = n.coinTypeA ?? pool.coinTypeA
+		const ctB = n.coinTypeB ?? pool.coinTypeB
+		if (ctA) allCoinTypes.add(ctA)
+		if (ctB) allCoinTypes.add(ctB)
 		for (const ct of pool.rewardCoinTypes) allCoinTypes.add(ct)
 	}
 
@@ -562,12 +612,96 @@ export async function getTurbosPositions(
 	for (const nft of openNfts) {
 		const pos = posData.get(nft.positionId)
 		const pool = poolData.get(nft.poolId)
-		if (!pos || !pool) continue
+		if (!pos || !pool) {
+			// Missing position/pool parse → surface as partial stub, never silent drop.
+			if (nft.nftId) {
+				out.push({
+					id: nft.nftId,
+					protocol: 'turbos',
+					poolId: nft.poolId || '',
+					turbosPositionObjectId: nft.positionId,
+					pair: '—/—',
+					tokenA: '—',
+					tokenB: '—',
+					tokenAAddress: '',
+					tokenBAddress: '',
+					tokenADecimals: 0,
+					tokenBDecimals: 0,
+					fee: 0,
+					tickLower: 0,
+					tickUpper: 0,
+					currentTick: 0,
+					currentSqrtPrice: '0',
+					liquidity: '0',
+					lifecycleStatus: 'unknown',
+					status: 'out_of_range',
+					tokenAAmount: 0,
+					tokenBAmount: 0,
+					currentPriceA_USD: Number.NaN,
+					currentPriceB_USD: Number.NaN,
+					currentValueUSD: Number.NaN,
+					depositedUSD: Number.NaN,
+					pnlUSD: Number.NaN,
+					pnlPct: Number.NaN,
+					unclaimedFeeA: 0,
+					unclaimedFeeB: 0,
+					unclaimedFeeUSD: Number.NaN,
+					unclaimedRewardUSD: Number.NaN,
+					openedAt: 0,
+					daysOpen: Number.NaN,
+					lifetimeEarningsUSD: Number.NaN,
+					vsHodlDeltaUSD: Number.NaN,
+					aprEstimatePct: Number.NaN,
+					historyPartial: true,
+				})
+			}
+			continue
+		}
 
-		// Coin types come from the NFT's TypeName fields
-		const rawCtA = nft.coinTypeA ?? ''
-		const rawCtB = nft.coinTypeB ?? ''
-		if (!rawCtA || !rawCtB) continue
+		const rawCtA = nft.coinTypeA ?? pool.coinTypeA ?? ''
+		const rawCtB = nft.coinTypeB ?? pool.coinTypeB ?? ''
+		if (!rawCtA || !rawCtB) {
+			out.push({
+				id: nft.nftId,
+				protocol: 'turbos',
+				poolId: nft.poolId,
+				turbosPositionObjectId: nft.positionId,
+				pair: '—/—',
+				tokenA: '—',
+				tokenB: '—',
+				tokenAAddress: rawCtA,
+				tokenBAddress: rawCtB,
+				tokenADecimals: 0,
+				tokenBDecimals: 0,
+				fee: pool.feeRate,
+				tickLower: pos.lowerTick,
+				tickUpper: pos.upperTick,
+				currentTick: pool.currentTick,
+				currentSqrtPrice: pool.sqrtPriceStr,
+				liquidity: pos.liquidity,
+				lifecycleStatus: resolveLifecycleStatus(pos.liquidity),
+				status: 'out_of_range',
+				tokenAAmount: 0,
+				tokenBAmount: 0,
+				currentPriceA_USD: Number.NaN,
+				currentPriceB_USD: Number.NaN,
+				currentValueUSD: Number.NaN,
+				depositedUSD: Number.NaN,
+				pnlUSD: Number.NaN,
+				pnlPct: Number.NaN,
+				unclaimedFeeA: 0,
+				unclaimedFeeB: 0,
+				unclaimedFeeUSD: Number.NaN,
+				unclaimedRewardUSD: Number.NaN,
+				openedAt: 0,
+				daysOpen: Number.NaN,
+				lifetimeEarningsUSD: Number.NaN,
+				vsHodlDeltaUSD: Number.NaN,
+				aprEstimatePct: Number.NaN,
+				historyPartial: true,
+			})
+			continue
+		}
 
 		const metaA = getMeta(rawCtA)
 		const metaB = getMeta(rawCtB)
@@ -658,17 +792,26 @@ export async function getTurbosPositions(
 			if (rPx > 0) unclRewardUsd += rHum * rPx
 		}
 
-		// --- Spot prices ---
-		const pxA = spotPriceSafe(spotsMap.get(rawCtA)?.price)
-		const pxB = spotPriceSafe(spotsMap.get(rawCtB)?.price)
-		const valueUsd = clampUsd(
-			(pxA > 0 ? humA * pxA : 0) + (pxB > 0 ? humB * pxB : 0),
-		)
+		// --- Spot prices (unknown → NaN + partial, never fake $0 value) ---
+		const pxARaw = spotsMap.get(rawCtA)?.price
+		const pxBRaw = spotsMap.get(rawCtB)?.price
+		const pxA =
+			pxARaw != null && Number.isFinite(pxARaw) && pxARaw > 0 && pxARaw <= 1e8 ? pxARaw : Number.NaN
+		const pxB =
+			pxBRaw != null && Number.isFinite(pxBRaw) && pxBRaw > 0 && pxBRaw <= 1e8 ? pxBRaw : Number.NaN
+		const pricePartial = !Number.isFinite(pxA) || !Number.isFinite(pxB)
+		let valueUsd: number
+		if (pricePartial) {
+			valueUsd = Number.NaN
+		} else {
+			valueUsd = clampUsd(humA * pxA + humB * pxB)
+		}
 		const feeUsd =
-			(pxA > 0 ? unclFeeA * pxA : 0) + (pxB > 0 ? unclFeeB * pxB : 0)
+			(Number.isFinite(pxA) ? unclFeeA * pxA : 0) + (Number.isFinite(pxB) ? unclFeeB * pxB : 0)
 
-		// --- Range status ---
-		const inRange = pool.currentTick >= pos.lowerTick && pool.currentTick <= pos.upperTick
+		// --- Range status: CLMM half-open [lower, upper) ---
+		const inRange = bluefinTickInRange(pool.currentTick, pos.lowerTick, pos.upperTick)
+		const lifecycleStatus = resolveLifecycleStatus(pos.liquidity)
 
 		// --- Normalise token order: stablecoin always tokenB ---
 		const aIsStable = STABLECOIN_SYMS.has(metaA.symbol.toUpperCase())
@@ -726,7 +869,13 @@ export async function getTurbosPositions(
 			currentTick: pool.currentTick,
 			currentSqrtPrice: sqrtPriceOut,
 			liquidity: pos.liquidity,
-			status: inRange ? 'in_range' : 'out_of_range',
+			lifecycleStatus,
+			status:
+				lifecycleStatus === 'empty'
+					? 'out_of_range'
+					: inRange
+						? 'in_range'
+						: 'out_of_range',
 			tokenAAmount: dHumA,
 			tokenBAmount: dHumB,
 			currentPriceA_USD: dPxA,
@@ -744,11 +893,15 @@ export async function getTurbosPositions(
 			lifetimeEarningsUSD: 0, // set by enrichment
 			vsHodlDeltaUSD: 0,      // set by enrichment
 			aprEstimatePct: 0,      // set by enrichment
-			historyPartial: false,
+			historyPartial: pricePartial,
 		})
 	}
 
-	out.sort((a, b) => (b.currentValueUSD ?? 0) - (a.currentValueUSD ?? 0))
+	out.sort((a, b) => {
+		const av = Number.isFinite(a.currentValueUSD) ? a.currentValueUSD : -1
+		const bv = Number.isFinite(b.currentValueUSD) ? b.currentValueUSD : -1
+		return bv - av
+	})
 	return out
 }
 

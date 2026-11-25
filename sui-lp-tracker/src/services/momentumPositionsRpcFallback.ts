@@ -294,6 +294,31 @@ function rewardEntryForPosition(
 }
 
 /** Статус діапазону як у `@mmt-finance/clmm-sdk` `getPositionStatus` (за sqrt ціною). */
+/** Read I32 bits from `{ fields: { bits } }`, `{ bits }`, or a bare number/string. */
+export function readI32TickBits(val: unknown): number {
+	if (typeof val === 'number' && Number.isFinite(val)) return convertI32ToSigned(val >>> 0)
+	if (typeof val === 'string' && /^-?\d+$/.test(val)) {
+		const n = Number(val)
+		return convertI32ToSigned((n >>> 0) & 0xffffffff)
+	}
+	if (!val || typeof val !== 'object') return 0
+	const obj = val as Record<string, unknown>
+	const bitsDirect = obj.bits
+	if (bitsDirect != null) {
+		const n = typeof bitsDirect === 'number' ? bitsDirect : Number(bitsDirect)
+		if (Number.isFinite(n)) return convertI32ToSigned(n >>> 0)
+	}
+	const fields = obj.fields
+	if (fields && typeof fields === 'object') {
+		const bits = (fields as Record<string, unknown>).bits
+		if (bits != null) {
+			const n = typeof bits === 'number' ? bits : Number(bits)
+			if (Number.isFinite(n)) return convertI32ToSigned(n >>> 0)
+		}
+	}
+	return 0
+}
+
 function positionRangeStatusLabel(pool: MmtPool, lowerTickSqrtPrice: BN, upperTickSqrtPrice: BN): string {
 	const cur = Number(pool.currentSqrtPrice)
 	const low = Number(lowerTickSqrtPrice.toString())
@@ -364,31 +389,39 @@ export async function momentumUserRowsFromOwnedRpc(
 		if (!pool) continue
 
 		const liquidity = new BN(String(positionData.liquidity ?? 0), 10)
-		const tickUp = positionData.tick_upper_index as { fields?: { bits?: string | number } } | undefined
-		const tickLo = positionData.tick_lower_index as { fields?: { bits?: string | number } } | undefined
-		const upperBits = Number(tickUp?.fields?.bits ?? 0)
-		const lowerBits = Number(tickLo?.fields?.bits ?? 0)
-		const upperTick = convertI32ToSigned(upperBits)
-		const lowerTick = convertI32ToSigned(lowerBits)
+		const upperTick = readI32TickBits(positionData.tick_upper_index)
+		const lowerTick = readI32TickBits(positionData.tick_lower_index)
 
 		const upperTickSqrtPrice = TickMath.tickIndexToSqrtPriceX64(upperTick)
 		const lowerTickSqrtPrice = TickMath.tickIndexToSqrtPriceX64(lowerTick)
-		const { coinA, coinB } = Utils.getCoinAmountFromLiquidity(
-			liquidity,
-			new BN(pool.currentSqrtPrice.toString()),
-			lowerTickSqrtPrice,
-			upperTickSqrtPrice,
-			false,
-		)
+		let coinA = new BN(0)
+		let coinB = new BN(0)
+		try {
+			const amounts = Utils.getCoinAmountFromLiquidity(
+				liquidity,
+				new BN(pool.currentSqrtPrice.toString()),
+				lowerTickSqrtPrice,
+				upperTickSqrtPrice,
+				false,
+			)
+			coinA = amounts.coinA
+			coinB = amounts.coinB
+		} catch {
+			/* leave zero — caller marks partial via NaN prices/value */
+		}
 
-		const calculateUsdValue = (amount: number, coinLeg: 'tokenX' | 'tokenY'): number => {
+		const calculateUsdValue = (amount: number, coinLeg: 'tokenX' | 'tokenY'): number | null => {
 			const dec = pool[coinLeg].decimals ?? 0
 			const ct = pool[coinLeg].coinType
-			const px = tokenPriceMap.get(ct) ?? 0
+			const px = tokenPriceMap.get(ct)
+			if (px == null || !Number.isFinite(px) || px <= 0) return null
 			return (amount / 10 ** dec) * px
 		}
 
-		const totalUsdValue = calculateUsdValue(Number(coinA), 'tokenX') + calculateUsdValue(Number(coinB), 'tokenY')
+		const usdX = calculateUsdValue(Number(coinA), 'tokenX')
+		const usdY = calculateUsdValue(Number(coinB), 'tokenY')
+		const totalUsdValue =
+			usdX == null || usdY == null ? Number.NaN : usdX + usdY
 
 		const rewardsData = rewardEntryForPosition(
 			positionRewardsInfo as Record<
@@ -398,10 +431,13 @@ export async function momentumUserRowsFromOwnedRpc(
 			objectId,
 		)
 
-		const feeUsdValue = rewardsData
-			? calculateUsdValue(rewardsData.feeCollected.amountX, 'tokenX') +
-				calculateUsdValue(rewardsData.feeCollected.amountY, 'tokenY')
+		const feeXUsd = rewardsData
+			? calculateUsdValue(rewardsData.feeCollected.amountX, 'tokenX')
 			: 0
+		const feeYUsd = rewardsData
+			? calculateUsdValue(rewardsData.feeCollected.amountY, 'tokenY')
+			: 0
+		const feeUsdValue = (feeXUsd ?? 0) + (feeYUsd ?? 0)
 
 		let rewardsUsdValue = 0
 		if (rewardsData?.rewards?.length) {
@@ -422,9 +458,23 @@ export async function momentumUserRowsFromOwnedRpc(
 					}
 				})
 				const dec = token?.decimals ?? 0
-				rewardsUsdValue += (reward.amount / 10 ** dec) * (tokenPriceMap.get(token?.coinType ?? coinType) ?? 0)
+				const px = tokenPriceMap.get(token?.coinType ?? coinType)
+				if (px == null || !Number.isFinite(px) || px <= 0) continue
+				rewardsUsdValue += (reward.amount / 10 ** dec) * px
 			}
 		}
+
+		const curTick = (() => {
+			const raw = pool.currentTickIndex
+			const n = typeof raw === 'string' ? parseInt(raw, 10) : Number(raw)
+			return Number.isFinite(n) ? convertI32ToSigned(n >>> 0) : 0
+		})()
+		const inRange = curTick >= lowerTick && curTick < upperTick
+		const statusLabel = liquidity.isZero()
+			? 'Empty'
+			: inRange
+				? 'In Range'
+				: positionRangeStatusLabel(pool, lowerTickSqrtPrice, upperTickSqrtPrice)
 
 		out.push({
 			objectId,
@@ -433,11 +483,11 @@ export async function momentumUserRowsFromOwnedRpc(
 			lowerTick,
 			liquidity,
 			amount: totalUsdValue,
-			status: positionRangeStatusLabel(pool, lowerTickSqrtPrice, upperTickSqrtPrice),
+			status: statusLabel,
 			claimableRewards: rewardsUsdValue + feeUsdValue,
 			rewarders: rewardsData ? rewardsData.rewards : [],
-			feeAmountXUsd: rewardsData ? calculateUsdValue(rewardsData.feeCollected.amountX, 'tokenX') : 0,
-			feeAmountYUsd: rewardsData ? calculateUsdValue(rewardsData.feeCollected.amountY, 'tokenY') : 0,
+			feeAmountXUsd: feeXUsd ?? 0,
+			feeAmountYUsd: feeYUsd ?? 0,
 			feeAmountX: rewardsData ? rewardsData.feeCollected.amountX : 0,
 			feeAmountY: rewardsData ? rewardsData.feeCollected.amountY : 0,
 		})

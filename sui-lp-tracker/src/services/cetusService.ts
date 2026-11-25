@@ -656,13 +656,12 @@ export async function getCetusPositions(
 	const openedAt = Math.floor(Date.now() / 1000)
 	const out: OpenPosition[] = []
 
-	// 5b. Compensation-certificate NFTs (cannot Close) — omit from open list.
-	// Uses dashboard suiClient (gRPC); Cetus SDK JSON-RPC fails silently in browser.
+	// 5b. Compensation-certificate NFTs (cannot Close) — show as Empty/Certificate, never hide.
 	let closeLockedIds: Set<string>
 	try {
 		closeLockedIds = await closeLockedP
 		if (closeLockedIds.size > 0) {
-			console.info('[cetus] hiding compensation-certificate positions:', closeLockedIds.size)
+			console.info('[cetus] compensation-certificate positions:', closeLockedIds.size)
 		}
 	} catch (e) {
 		console.warn('[cetus] compensation-lock detect failed; Cert NFTs may still show', e)
@@ -706,12 +705,13 @@ export async function getCetusPositions(
 			}
 		}
 
-		// --- Spot prices ---
+		// --- Spot prices (unknown → NaN + partial, never fake $0 value) ---
 		const pxaF = spotPriceSafe(spotsMap.get(pos.coinTypeA)?.price)
 		const pxbF = spotPriceSafe(spotsMap.get(pos.coinTypeB)?.price)
-		const valueUsd = clampUsd(
-			(pxaF != null ? humA * pxaF : 0) + (pxbF != null ? humB * pxbF : 0),
-		)
+		const pricePartial = pxaF == null || pxbF == null
+		const valueUsd = pricePartial
+			? Number.NaN
+			: clampUsd(humA * pxaF + humB * pxbF)
 
 		// --- Fee rate & range status ---
 		const inRange = cetusTickInRange(pool.currentTick, pos.lowerTick, pos.upperTick)
@@ -719,12 +719,12 @@ export async function getCetusPositions(
 		const pair = `${symA}/${symB} · ${feeLabelPct}`
 
 		const lifecycleStatus = resolveLifecycleStatus(pos.liquidity)
-		// Compensation-certificate NFTs (abort 23): hide from open list entirely.
-		if (closeLockedIds.has(normId(pos.objectId))) continue
+		const isCert = closeLockedIds.has(normId(pos.objectId))
 		out.push({
 			id: pos.objectId,
 			protocol: 'cetus',
 			poolId: pos.poolId,
+			cetusCloseLocked: isCert || undefined,
 			pair,
 			tokenA: symA,
 			tokenB: symB,
@@ -744,8 +744,8 @@ export async function getCetusPositions(
 			status: inRange ? 'in_range' : 'out_of_range',
 			tokenAAmount: humA,
 			tokenBAmount: humB,
-			currentPriceA_USD: pxaF ?? 0,
-			currentPriceB_USD: pxbF ?? 0,
+			currentPriceA_USD: pxaF ?? Number.NaN,
+			currentPriceB_USD: pxbF ?? Number.NaN,
 			currentValueUSD: valueUsd,
 			depositedUSD: 0,
 			pnlUSD: 0,
@@ -761,6 +761,7 @@ export async function getCetusPositions(
 			vsHodlDeltaUSD: 0,
 			// Empty positions do not accrue range APR on zero principal.
 			aprEstimatePct: 0,
+			historyPartial: pricePartial,
 		})
 	}
 

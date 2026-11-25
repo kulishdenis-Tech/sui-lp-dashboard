@@ -43,6 +43,8 @@ import {
 import { isLpLazyClosedEnabled } from '@/services/lpFeatureFlags'
 import { getLendingPositions } from '@/services/lendingService'
 import { getNaviPositions, EMPTY_NAVI_SNAP } from '@/services/naviService'
+import { getSuilendPositions, EMPTY_SUILEND_SNAP } from '@/services/suilendService'
+import { getScallopPositions, EMPTY_SCALLOP_SNAP } from '@/services/scallopLendingService'
 import { getCurrentPositions, EMPTY_CURRENT_SNAP } from '@/services/currentService'
 import { getAftermathFarmsPositions } from '@/services/aftermathService'
 import { classifyAllBalances, sumVisibleWalletUSD } from '@/services/tokenClassifier'
@@ -116,6 +118,8 @@ interface AppState {
 	lendingSnapshot: LendingSnapshot | null
 	naviSnapshot: LendingSnapshot | null
 	currentSnapshot: LendingSnapshot | null
+	suilendSnapshot: LendingSnapshot | null
+	scallopSnapshot: LendingSnapshot | null
 	isLoadingLending: boolean
 	lendingError: string | null
 	/** Last successful lending settle for all protocols (ms). */
@@ -210,6 +214,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 	lendingSnapshot: null,
 	naviSnapshot: null,
 	currentSnapshot: null,
+	suilendSnapshot: null,
+	scallopSnapshot: null,
 	isLoadingLending: false,
 	lendingError: null,
 	lendingLastUpdated: null,
@@ -250,6 +256,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 			lendingSnapshot: null,
 			naviSnapshot: null,
 			currentSnapshot: null,
+			suilendSnapshot: null,
+			scallopSnapshot: null,
 			lendingLastUpdated: null,
 			netWorth: null,
 			positionsError: null,
@@ -290,6 +298,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 			lendingSnapshot: null,
 			naviSnapshot: null,
 			currentSnapshot: null,
+			suilendSnapshot: null,
+			scallopSnapshot: null,
 			lendingLastUpdated: null,
 			netWorth: null,
 			positionsError: null,
@@ -428,22 +438,22 @@ export const useAppStore = create<AppState>((set, get) => ({
 				const alphaLend = st.lendingSnapshot ?? EMPTY_LEND
 				const navi = st.naviSnapshot ?? EMPTY_NAVI_SNAP
 				const current = st.currentSnapshot ?? EMPTY_CURRENT_SNAP
+				const suilend = st.suilendSnapshot ?? EMPTY_SUILEND_SNAP
+				const scallop = st.scallopSnapshot ?? EMPTY_SCALLOP_SNAP
+				const books = [alphaLend, navi, current, suilend, scallop]
+				const hfs = books
+					.map((b) => b.healthFactor)
+					.filter((h): h is number => h != null && Number.isFinite(h))
 				const mergedLending: LendingSnapshot = {
 					...EMPTY_LEND,
-					totalSuppliedUSD:
-						alphaLend.totalSuppliedUSD + navi.totalSuppliedUSD + current.totalSuppliedUSD,
-					totalBorrowedUSD:
-						alphaLend.totalBorrowedUSD + navi.totalBorrowedUSD + current.totalBorrowedUSD,
-					netValueUSD: alphaLend.netValueUSD + navi.netValueUSD + current.netValueUSD,
-					supplies: [...alphaLend.supplies, ...navi.supplies, ...current.supplies],
-					borrows: [...alphaLend.borrows, ...navi.borrows, ...current.borrows],
-					healthFactor: null,
-					rewardsToClaim: [
-						...alphaLend.rewardsToClaim,
-						...navi.rewardsToClaim,
-						...current.rewardsToClaim,
-					],
-					protocol: 'AlphaLend+Navi+Current',
+					totalSuppliedUSD: books.reduce((s, b) => s + (b.totalSuppliedUSD || 0), 0),
+					totalBorrowedUSD: books.reduce((s, b) => s + (b.totalBorrowedUSD || 0), 0),
+					netValueUSD: books.reduce((s, b) => s + (b.netValueUSD || 0), 0),
+					supplies: books.flatMap((b) => b.supplies),
+					borrows: books.flatMap((b) => b.borrows),
+					healthFactor: hfs.length ? Math.min(...hfs) : null,
+					rewardsToClaim: books.flatMap((b) => b.rewardsToClaim),
+					protocol: 'AlphaLend+Navi+Current+Suilend+Scallop',
 				}
 				set({
 					netWorth: computeNetWorth(
@@ -615,12 +625,21 @@ export const useAppStore = create<AppState>((set, get) => ({
 					new Promise<void>((r) => setTimeout(r, 2500)),
 				]).then(fn)
 
-			// ── Lending (AlphaLend + Navi in parallel) ───────────────────────
+			// ── Lending (AlphaLend + Navi + Current + Suilend + Scallop) ─────
 			let lendingDone = false
 			let naviDone = false
 			let currentDone = false
+			let suilendDone = false
+			let scallopDone = false
 			const onLendingAllDone = () => {
-				if (lendingDone && naviDone && currentDone && !isStale()) {
+				if (
+					lendingDone &&
+					naviDone &&
+					currentDone &&
+					suilendDone &&
+					scallopDone &&
+					!isStale()
+				) {
 					set({ isLoadingLending: false, lendingLastUpdated: Date.now() })
 				}
 			}
@@ -683,6 +702,40 @@ export const useAppStore = create<AppState>((set, get) => ({
 					const keep =
 						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
 					set({ currentSnapshot: keep ? prev : EMPTY_CURRENT_SNAP })
+					onLendingAllDone()
+				}
+			})
+			void afterBalanceRpc(() => getSuilendPositions(address)).then((snap) => {
+				if (isStale()) return
+				suilendDone = true
+				set({ suilendSnapshot: snap })
+				recomputeNetWorth()
+				onLendingAllDone()
+			}).catch((e) => {
+				console.error('[Suilend] getSuilendPositions failed:', e)
+				if (!isStale()) {
+					suilendDone = true
+					const prev = get().suilendSnapshot
+					const keep =
+						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
+					set({ suilendSnapshot: keep ? prev : EMPTY_SUILEND_SNAP })
+					onLendingAllDone()
+				}
+			})
+			void afterBalanceRpc(() => getScallopPositions(address)).then((snap) => {
+				if (isStale()) return
+				scallopDone = true
+				set({ scallopSnapshot: snap })
+				recomputeNetWorth()
+				onLendingAllDone()
+			}).catch((e) => {
+				console.error('[Scallop] getScallopPositions failed:', e)
+				if (!isStale()) {
+					scallopDone = true
+					const prev = get().scallopSnapshot
+					const keep =
+						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
+					set({ scallopSnapshot: keep ? prev : EMPTY_SCALLOP_SNAP })
 					onLendingAllDone()
 				}
 			})

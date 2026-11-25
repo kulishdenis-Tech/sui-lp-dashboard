@@ -3,6 +3,8 @@ import { getWalletBalance } from '@/services/balanceService'
 import { getLendingPositions } from '@/services/lendingService'
 import { getNaviPositions, EMPTY_NAVI_SNAP } from '@/services/naviService'
 import { getCurrentPositions, EMPTY_CURRENT_SNAP } from '@/services/currentService'
+import { getSuilendPositions, EMPTY_SUILEND_SNAP } from '@/services/suilendService'
+import { getScallopPositions, EMPTY_SCALLOP_SNAP } from '@/services/scallopLendingService'
 import { classifyAllBalances, sumVisibleWalletUSD } from '@/services/tokenClassifier'
 import { liquidityUsdOrNull, positionValueUsdOrNull } from '@/utils/positionDerivedMetrics'
 import { isCurrentMultiplyVaultPosition, multiplyPortfolioContribution } from '@/utils/currentMultiplyVault'
@@ -28,7 +30,7 @@ const EMPTY_LEND: LendingSnapshot = {
 }
 
 export type LendingSourceStatus = {
-	id: 'alphalend' | 'navi' | 'current'
+	id: 'alphalend' | 'navi' | 'current' | 'suilend' | 'scallop'
 	ok: boolean
 	error?: string
 	/** Soft-empty / unavailable borrows — not treated as confirmed zero debt. */
@@ -131,6 +133,34 @@ async function loadPortfolioSnapshotDetailedOnce(
 		})
 	}
 
+	let suilend = EMPTY_SUILEND_SNAP
+	try {
+		suilend = await getSuilendPositions(walletAddr)
+		lendingSources.push({ id: 'suilend', ok: true, status: 'ok' })
+	} catch (e) {
+		logSnapErr('suilend', e)
+		lendingSources.push({
+			id: 'suilend',
+			ok: false,
+			error: e instanceof Error ? e.message : String(e),
+			status: 'unavailable',
+		})
+	}
+
+	let scallop = EMPTY_SCALLOP_SNAP
+	try {
+		scallop = await getScallopPositions(walletAddr)
+		lendingSources.push({ id: 'scallop', ok: true, status: 'ok' })
+	} catch (e) {
+		logSnapErr('scallop', e)
+		lendingSources.push({
+			id: 'scallop',
+			ok: false,
+			error: e instanceof Error ? e.message : String(e),
+			status: 'unavailable',
+		})
+	}
+
 	const lp = await loadAllPortfolioLpSources(walletAddr)
 
 	let walletVisibleUSD = 0
@@ -153,7 +183,11 @@ async function loadPortfolioSnapshotDetailedOnce(
 		positions: lp.positions,
 		lendingSources,
 		lendingNetUSD: finiteUsd(
-			finiteUsd(lend.netValueUSD) + finiteUsd(navi.netValueUSD) + finiteUsd(current.netValueUSD),
+			finiteUsd(lend.netValueUSD) +
+				finiteUsd(navi.netValueUSD) +
+				finiteUsd(current.netValueUSD) +
+				finiteUsd(suilend.netValueUSD) +
+				finiteUsd(scallop.netValueUSD),
 		),
 		current,
 	})

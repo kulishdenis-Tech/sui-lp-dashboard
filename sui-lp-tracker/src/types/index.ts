@@ -1,4 +1,11 @@
-export type LpProtocol = 'cetus' | 'momentum' | 'turbos' | 'flowx' | 'aftermath' | 'bluefin'
+export type LpProtocol =
+	| 'cetus'
+	| 'momentum'
+	| 'turbos'
+	| 'flowx'
+	| 'aftermath'
+	| 'bluefin'
+	| 'unsupported'
 
 export type { LpAction, LpActionTypeEnum, LpLifecycleDex, LpPositionLifecycle, LpTxRawRecord } from '@/types/lpLifecycle'
 export { LP_LIFECYCLE_PARSER_VERSION } from '@/types/lpLifecycle'
@@ -188,6 +195,24 @@ export interface OpenPosition {
 	aprEstimatePct: number
 	/** Сканування історії обірвано (ліміт сторінок / RPC). */
 	historyPartial?: boolean
+	/** Claimed trading fees from event history (USD). */
+	feesClaimedUSD?: number
+	/** Unclaimed trading fees at spot (USD). */
+	feesUnclaimedUSD?: number
+	/** Claimed farm/incentive rewards from history (USD). */
+	rewardsClaimedUSD?: number
+	/** Unclaimed farm rewards at spot (USD). */
+	rewardsUnclaimedUSD?: number
+	/** HODL(now) − deposit (price drift of the deposit basket). */
+	priceEffectUSD?: number
+	/** liquidity − HODL(now) without fees/rewards (IL proxy). */
+	ilUSD?: number
+	/** Realized PnL for closed / drained positions. */
+	realizedPnlUSD?: number
+	/** Fees collected in the last 24h from collect events (+ unclaimed delta when available). */
+	fees24hUSD?: number
+	/** Fees collected in the last 7d from collect events. */
+	fees7dUSD?: number
 	/** Bluefin: деталізація unclaimed (fee/reward) з on-chain + spot. */
 	bluefinUnclaimed?: BluefinUnclaimedSnapshot
 	/**

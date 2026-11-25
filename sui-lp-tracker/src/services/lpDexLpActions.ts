@@ -45,6 +45,30 @@ const MT_STRUCT_LP: Partial<Record<string, LpActionTypeEnum>> = {
 	CollectPoolRewardEvent: 'COLLECT_REWARD',
 }
 
+/** Cetus CLMM V1/V2 lifecycle event structs (indexer). */
+export const CETUS_STRUCT_LP: Partial<Record<string, LpActionTypeEnum>> = {
+	OpenPositionEvent: 'OPEN_POSITION',
+	ClosePositionEvent: 'CLOSE_POSITION',
+	AddLiquidityEvent: 'ADD_LIQUIDITY',
+	AddLiquidityV2Event: 'ADD_LIQUIDITY',
+	RemoveLiquidityEvent: 'REMOVE_LIQUIDITY',
+	RemoveLiquidityV2Event: 'REMOVE_LIQUIDITY',
+	CollectFeeEvent: 'COLLECT_FEES',
+	CollectRewardEvent: 'COLLECT_REWARD',
+	CollectRewardV2Event: 'COLLECT_REWARD',
+	HarvestEvent: 'COLLECT_REWARD',
+}
+
+/** Turbos CLMM lifecycle event structs (indexer). */
+export const TURBOS_STRUCT_LP: Partial<Record<string, LpActionTypeEnum>> = {
+	OpenPositionEvent: 'OPEN_POSITION',
+	ClosePositionEvent: 'CLOSE_POSITION',
+	IncreaseLiquidityEvent: 'ADD_LIQUIDITY',
+	DecreaseLiquidityEvent: 'REMOVE_LIQUIDITY',
+	CollectEvent: 'COLLECT_FEES',
+	CollectRewardEvent: 'COLLECT_REWARD',
+}
+
 function readSeq(e: BluefinWalletRawEvt['event']): string | undefined {
 	const seq = e.id?.eventSeq
 	return seq != null ? String(seq) : undefined

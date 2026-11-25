@@ -7,6 +7,8 @@ import {
 	saveLpCacheEntry,
 	type RawEventRow,
 } from '@/services/lpEventIdbCache'
+import { PROTOCOL_PACKAGES } from '@/utils/constants'
+import { querySenderAndMoveEventTypes } from '@/services/querySenderMoveEvents'
 
 // ---------------------------------------------------------------------------
 // Event type detection
@@ -456,6 +458,7 @@ function rowsToEventMap(rows: RawEventRow[]): Map<string, ChainEventLike[]> {
 function saveCetusSenderCache(
 	walletNorm: string,
 	evByPos: Map<string, ChainEventLike[]>,
+	historyPartial = false,
 ): void {
 	const rows = eventMapToRows(evByPos)
 	const lastEventTs = rows.length > 0 ? Math.max(...rows.map((r) => r.tsSec)) : 0
@@ -466,10 +469,24 @@ function saveCetusSenderCache(
 		rows,
 		lastEventTs,
 		seenPkgs: [],
-		historyPartial: false,
+		historyPartial,
 		fullScanDoneAt: Date.now(),
 	})
 }
+
+/** Cetus CLMM LP event Move types (original package id — type identity survives upgrades). */
+const CETUS_TYPED_EVENT_PATHS = [
+	'AddLiquidityEvent',
+	'RemoveLiquidityEvent',
+	'AddLiquidityV2Event',
+	'RemoveLiquidityV2Event',
+	'CollectFeeEvent',
+	'CollectRewardEvent',
+	'CollectRewardV2Event',
+	'HarvestEvent',
+	'ClosePositionEvent',
+	'OpenPositionEvent',
+].map((s) => `${PROTOCOL_PACKAGES.CETUS_CLMM}::pool::${s}`)
 
 /**
  * Scan ALL Cetus LP lifecycle events emitted by walletAddress.
@@ -527,7 +544,7 @@ async function _scanCetusWalletEventsInner(
 		cutoffTs = 0
 	}
 
-	// ── Scan chain (full cold-start or delta) ────────────────────────────
+	// ── Scan chain: typed Sender+MoveEventType first (per-protocol, archive GraphQL) ──
 	const newEvents: ChainEventLike[] = []
 	let cursor: { eventSeq: string; txDigest: string } | null | undefined
 	let hasMore = true
@@ -535,44 +552,67 @@ async function _scanCetusWalletEventsInner(
 	let pagesScanned = 0
 	/** Set to true if any page timed out — prevents saving empty results to IDB */
 	let senderScanTimedOut = false
+	let historyPartial = cached?.historyPartial === true
 
-	/** Per-page RPC timeout: if a single queryEvents page hangs past this, break out */
 	const PAGE_TIMEOUT_MS = 12_000
 
-	for (let page = 0; page < scanPages && hasMore && !reachedCutoff; page++) {
-		try {
-			const r = await Promise.race([
-				suiClient.queryEvents({
-					query: { Sender: walletAddress },
-					cursor: cursor ?? undefined,
-					limit: EVENTS_PER_PAGE,
-					order: 'descending',
-				}),
-				new Promise<never>((_, rej) =>
-					setTimeout(() => rej(new Error('queryEvents-page-timeout')), PAGE_TIMEOUT_MS),
-				),
-			])
-			pagesScanned++
-			for (const ev of r.data) {
-				if (!isCetusLpEventType(ev.type)) continue
-				const tsSec = ev.timestampMs != null ? parseInt(String(ev.timestampMs), 10) / 1000 : 0
-				if (cached && tsSec < cutoffTs) {
-					reachedCutoff = true
-					break
-				}
-				newEvents.push(ev as unknown as ChainEventLike)
-			}
-			hasMore = r.hasNextPage
-			cursor = r.nextCursor ?? null
-		} catch (e) {
-			// Timeout or RPC error — stop scanning and use what we have
-			if (String((e as Error)?.message).includes('timeout')) senderScanTimedOut = true
-			break
+	try {
+		const typed = await querySenderAndMoveEventTypes(walletAddress, CETUS_TYPED_EVENT_PATHS, {
+			maxPagesPerType: cached ? MAX_CETUS_DELTA_PAGES : Math.min(MAX_EVENT_PAGES, 40),
+			pageSize: EVENTS_PER_PAGE,
+			stopBeforeTsSec: cached ? cutoffTs : undefined,
+		})
+		if (typed.partial) historyPartial = true
+		for (const ev of typed.events) {
+			if (!isCetusLpEventType(ev.type)) continue
+			newEvents.push(ev)
 		}
+		pagesScanned = CETUS_TYPED_EVENT_PATHS.length
+		console.log(
+			`[cetus-scan] typed SenderAndMoveEventType: ${newEvents.length} Cetus LP events (partial=${typed.partial}, warm=${cached != null})`,
+		)
+	} catch (e) {
+		console.warn('[cetus-scan] typed scan failed — falling back to Sender-only', e)
 	}
 
-	 
-	console.log(`[cetus-scan] Sender scan: ${pagesScanned} pages, ${newEvents.length} Cetus LP events found (warm=${cached != null})`)
+	// Fallback: wallet-wide Sender scan when typed path returned nothing on cold start.
+	if (newEvents.length === 0 && !cached) {
+		for (let page = 0; page < scanPages && hasMore && !reachedCutoff; page++) {
+			try {
+				const r = await Promise.race([
+					suiClient.queryEvents({
+						query: { Sender: walletAddress },
+						cursor: cursor ?? undefined,
+						limit: EVENTS_PER_PAGE,
+						order: 'descending',
+					}),
+					new Promise<never>((_, rej) =>
+						setTimeout(() => rej(new Error('queryEvents-page-timeout')), PAGE_TIMEOUT_MS),
+					),
+				])
+				pagesScanned++
+				for (const ev of r.data) {
+					if (!isCetusLpEventType(ev.type)) continue
+					const tsSec = ev.timestampMs != null ? parseInt(String(ev.timestampMs), 10) / 1000 : 0
+					if (cached && tsSec < cutoffTs) {
+						reachedCutoff = true
+						break
+					}
+					newEvents.push(ev as unknown as ChainEventLike)
+				}
+				hasMore = r.hasNextPage
+				cursor = r.nextCursor ?? null
+				if (page === scanPages - 1 && hasMore) historyPartial = true
+			} catch (e) {
+				if (String((e as Error)?.message).includes('timeout')) senderScanTimedOut = true
+				historyPartial = true
+				break
+			}
+		}
+		console.log(
+			`[cetus-scan] Sender fallback: ${pagesScanned} pages, ${newEvents.length} Cetus LP events`,
+		)
+	}
 
 	// Nothing new on warm start — return cached map as-is (no IDB write needed)
 	if (newEvents.length === 0 && cached) {
@@ -645,7 +685,7 @@ async function _scanCetusWalletEventsInner(
 	// Skip save if the scan timed out — preserves IDB state for next load
 	// so we don't permanently cache an empty result and waste 12s on every reload.
 	if (!senderScanTimedOut) {
-		saveCetusSenderCache(walletNorm, baseEvByPos)
+		saveCetusSenderCache(walletNorm, baseEvByPos, historyPartial)
 	}
 
 	return baseEvByPos
