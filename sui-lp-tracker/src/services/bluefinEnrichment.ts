@@ -166,6 +166,8 @@ export async function enrichBluefinOpenPositionWithEvents(
 				lifetimeEarningsUSD: Number.NaN,
 				vsHodlDeltaUSD: Number.NaN,
 				aprEstimatePct: Number.NaN,
+				fees24hUSD: Number.NaN,
+				fees7dUSD: Number.NaN,
 			},
 			events: [],
 			historyPartial: partial,
@@ -185,6 +187,10 @@ export async function enrichBluefinOpenPositionWithEvents(
 	const daysOpen =
 		minTs > 0 && horizonSec >= minTs ? Math.max(0, (horizonSec - minTs) / 86400) : 0
 	const quoteMemo = options?.quoteMemo ?? new Map<string, HistoricalUsdQuote>()
+	let fees24hUSD = 0
+	let fees7dUSD = 0
+	const sec24h = nowSec - 86_400
+	const sec7d = nowSec - 7 * 86_400
 
 	async function quoteAt(symbol: string, coinType: string, ts: number): Promise<HistoricalUsdQuote> {
 		const k = quoteKey(coinType, ts)
@@ -366,6 +372,10 @@ export async function enrichBluefinOpenPositionWithEvents(
 					? (pickRowSource(qA, usdA, qB, usdB) ?? e.priceSource ?? null)
 					: (e.priceSource ?? (pre.hadAny ? 'cache' : null))
 			sumClaimedFeeUsd += tUsd
+			if (tUsd > 0 && t >= sec7d) {
+				fees7dUSD += tUsd
+				if (t >= sec24h) fees24hUSD += tUsd
+			}
 		} else if (e.type === 'collect_reward') {
 			const r = e.rewardAmount
 			const rt = e.rewardToken?.trim() ?? ''
@@ -631,6 +641,8 @@ export async function enrichBluefinOpenPositionWithEvents(
 			feesUnclaimedUSD: uFeeE,
 			rewardsUnclaimedUSD: uRewE,
 			feesClaimedUSD: sumClaimedFeeUsd,
+			fees24hUSD,
+			fees7dUSD,
 			rewardsClaimedUSD: sumClaimedRewardUsd,
 			priceEffectUSD: Number.isFinite(hodlUsd) && Number.isFinite(depOut) ? hodlUsd - depOut : Number.NaN,
 			ilUSD:
@@ -740,22 +752,28 @@ export async function enrichAllBluefinOpenPositions(
 	})
 
 	if (needTxScan.length > 0) {
-		const tx = await scanLpWalletPositionHistory(
-			wallet,
-			needTxScan.map((p) => ({
-				id: p.id,
-				tokenADecimals: p.tokenADecimals,
-				tokenBDecimals: p.tokenBDecimals,
-				protocol: p.protocol,
-			})),
-		)
-		if (tx.historyPartial) {
+		try {
+			const tx = await scanLpWalletPositionHistory(
+				wallet,
+				needTxScan.map((p) => ({
+					id: p.id,
+					tokenADecimals: p.tokenADecimals,
+					tokenBDecimals: p.tokenBDecimals,
+					protocol: p.protocol,
+				})),
+			)
+			if (tx.historyPartial) {
+				if (needTxScan.some((p) => p.protocol === 'bluefin')) bfScanPartial = true
+				if (needTxScan.some((p) => p.protocol === 'momentum')) mmtScanPartial = true
+			}
+			for (const [k, evs] of tx.eventsByPositionId) {
+				const existing = eventsByPositionId.get(k) ?? []
+				eventsByPositionId.set(k, mergePositionEvents(evs, existing))
+			}
+		} catch (e) {
+			console.warn('[enrichBfMmt] scanLpWalletPositionHistory failed — marking partial', e)
 			if (needTxScan.some((p) => p.protocol === 'bluefin')) bfScanPartial = true
 			if (needTxScan.some((p) => p.protocol === 'momentum')) mmtScanPartial = true
-		}
-		for (const [k, evs] of tx.eventsByPositionId) {
-			const existing = eventsByPositionId.get(k) ?? []
-			eventsByPositionId.set(k, mergePositionEvents(evs, existing))
 		}
 	}
 
@@ -1212,8 +1230,11 @@ export async function enrichAllBluefinClosedPositions(
 								synth.tokenADecimals,
 								synth.tokenBDecimals,
 							)
-							if (targeted.length > 0) {
-								mergedEvents = mergePositionEvents(targeted, mergedEvents)
+							if (targeted.events.length > 0) {
+								mergedEvents = mergePositionEvents(targeted.events, mergedEvents)
+							}
+							if (targeted.partial) {
+								/* leave partialHistory set below */
 							}
 						} catch {
 							/* non-fatal — keep existing merged events */

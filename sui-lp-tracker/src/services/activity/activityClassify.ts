@@ -28,8 +28,6 @@ import {
 export const CURRENT_PROTOCOL_PACKAGE =
 	'0xfe1d8929d13b00aaecd7642dec1c6d41cab82882a1b139efa46bf61dfd6380bf'
 
-const CETUS_CLMM_V2 = '0xdb5cd62a06c79695bfc9982eb08534706d3752fe123b48e0144f480209b3117f'
-
 function addr(id: string | null | undefined): string | null {
 	if (!id) return null
 	try {
@@ -55,7 +53,14 @@ function packageSet(ids: string[]): Set<string> {
 	return out
 }
 
-const LP_PKGS = packageSet([...Object.values(PROTOCOL_PACKAGES), CETUS_CLMM_V2])
+const CETUS_PKGS = [
+	PROTOCOL_PACKAGES.CETUS_CLMM,
+	PROTOCOL_PACKAGES.CETUS_CLMM_V2,
+	PROTOCOL_PACKAGES.CETUS_CLMM_REWARD_V2,
+	PROTOCOL_PACKAGES.CETUS_DLMM,
+	PROTOCOL_PACKAGES.CETUS_DLMM_PUBLISHED_AT,
+]
+const LP_PKGS = packageSet([...Object.values(PROTOCOL_PACKAGES)])
 const HAEDAL_VAULT = packageSet([HAEDAL_VAULTS_V2_PACKAGE, HAEDAL_VAULTS_V2_PUBLISHED_AT])
 const HAEDAL_LENDING = packageSet([HAEDAL_LENDING_VAULT_PACKAGE])
 const HAEDAL_INCENTIVE = packageSet([VAULT_LP_INCENTIVE_PACKAGE])
@@ -69,7 +74,7 @@ function remember(ids: string[], name: string) {
 		if (n) PROTOCOL_BY_PKG[n] = name
 	}
 }
-remember([...Object.values(PROTOCOL_PACKAGES), CETUS_CLMM_V2], 'Cetus')
+remember(CETUS_PKGS, 'Cetus')
 remember([PROTOCOL_PACKAGES.MOMENTUM_CLMM, PROTOCOL_PACKAGES.MOMENTUM_PUBLISHED_AT], 'Momentum')
 remember([PROTOCOL_PACKAGES.BLUEFIN_CLMM, PROTOCOL_PACKAGES.BLUEFIN_SPOT], 'Bluefin')
 remember([PROTOCOL_PACKAGES.TURBOS, PROTOCOL_PACKAGES.TURBOS_PUBLISHED_AT], 'Turbos')

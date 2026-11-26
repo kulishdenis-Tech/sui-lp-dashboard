@@ -54,6 +54,8 @@ export type PortfolioSnapshot = {
 	incomplete?: boolean
 	/** Per-source load status from portfolioLpSources registry. */
 	lpSources?: Array<{ id: string; ok: boolean; error?: string; count: number }>
+	/** Optional Sui checkpoint at observation (when known). */
+	checkpoint?: number | string | null
 }
 
 let _dbPromise: Promise<IDBDatabase> | null = null

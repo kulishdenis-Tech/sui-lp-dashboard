@@ -1581,6 +1581,16 @@ var init_constants = __esm({
     GECKO_NETWORK = "sui-network";
     PROTOCOL_PACKAGES = {
       CETUS_CLMM: "0x1eabed72c53feb3805120a081dc15963c204dc8d091542592abaf7a35689b2fb",
+      /**
+       * Cetus CLMM upgrade package that introduced Add/RemoveLiquidityV2Event + OpenPositionEvent.
+       * Event type identity uses the package where the struct was first published — not CETUS_CLMM.
+       */
+      CETUS_CLMM_V2: "0xdb5cd62a06c79695bfc9982eb08534706d3752fe123b48e0144f480209b3117f",
+      /**
+       * Cetus CLMM package that published CollectRewardV2Event
+       * (`…::pool::CollectRewardV2Event`).
+       */
+      CETUS_CLMM_REWARD_V2: "0xdc67d6de3f00051c505da10d8f6fbab3b3ec21ec65f0dc22a2f36c13fc102110",
       /** Cetus DLMM `dlmm_pool.package_id` from `@cetusprotocol/dlmm-sdk` 1.3.3 `dlmmMainnet`. */
       CETUS_DLMM: "0x5664f9d3fd82c84023870cfbda8ea84e14c8dd56ce557ad2116e0668581a682b",
       /** Cetus DLMM `dlmm_pool.published_at` (upgrade pointer). */
@@ -4428,7 +4438,8 @@ async function getNaviPositions(walletAddress, options) {
     const priceUSD = n(pool.oracle?.price);
     liquidationValue += supplyHuman * priceUSD * lt;
   }
-  const healthFactor = totalBorrowedUSD > 0 ? liquidationValue / totalBorrowedUSD : null;
+  const meaningfulBorrow = totalBorrowedUSD >= 1;
+  const healthFactor = meaningfulBorrow && liquidationValue > 0 ? liquidationValue / totalBorrowedUSD : null;
   for (const b of borrows) {
     b.healthFactor = healthFactor ?? 0;
     b.liquidationThreshold = liquidationValue;
@@ -6465,13 +6476,14 @@ var EMPTY_CURRENT_SNAP = {
 };
 
 // src/services/suilendService.ts
-init_suiClient();
+init_createGrpcClient();
 init_resolveSpots();
 import {
   SuilendClient,
   LENDING_MARKET_ID,
   LENDING_MARKET_TYPE,
-  getCTokenMarketValue
+  initializeSuilend,
+  initializeObligations
 } from "@suilend/sdk";
 import { normalizeSuiAddress as normalizeSuiAddress2 } from "@mysten/sui/utils";
 var EMPTY_SUILEND_SNAP = {
@@ -6484,20 +6496,28 @@ var EMPTY_SUILEND_SNAP = {
   rewardsToClaim: [],
   protocol: "Suilend"
 };
-function toNum(v) {
+function bnToNum(v) {
   if (v == null) return 0;
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
-  const s = typeof v === "string" ? v : v.toString();
-  const n2 = Number(s);
+  const n2 = Number(typeof v === "string" ? v : v.toString());
   return Number.isFinite(n2) ? n2 : 0;
 }
 function coinSym(ct) {
   return ct.split("::").pop() ?? "?";
 }
+function errorSnap(reason) {
+  return {
+    ...EMPTY_SUILEND_SNAP,
+    incomplete: true,
+    error: reason,
+    metricsLive: false
+  };
+}
 var _client2 = null;
 async function getClient2() {
   if (_client2) return _client2;
-  _client2 = await SuilendClient.initialize(LENDING_MARKET_ID, LENDING_MARKET_TYPE, suiClient);
+  const grpc = getDashboardGrpcClient();
+  _client2 = await SuilendClient.initialize(LENDING_MARKET_ID, LENDING_MARKET_TYPE, grpc);
   return _client2;
 }
 async function getSuilendPositions(walletAddress) {
@@ -6507,44 +6527,54 @@ async function getSuilendPositions(walletAddress) {
   } catch {
     owner = walletAddress.trim();
   }
-  let caps;
+  const grpc = getDashboardGrpcClient();
+  let client;
   try {
-    caps = await SuilendClient.getObligationOwnerCaps(owner, [LENDING_MARKET_TYPE], suiClient);
+    client = await getClient2();
   } catch (e) {
-    console.warn("[suilend] getObligationOwnerCaps failed", e);
-    return EMPTY_SUILEND_SNAP;
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[suilend] initialize failed", e);
+    return errorSnap(`initialize: ${msg}`);
   }
-  if (!caps?.length) return EMPTY_SUILEND_SNAP;
-  const client = await getClient2();
-  const market = client.lendingMarket;
-  const reserves = Array.isArray(market?.reserves) ? market.reserves : [];
-  const reserveByCoin = /* @__PURE__ */ new Map();
-  for (const r of reserves) {
-    const row = r;
-    if (typeof row.coinType === "string" && row.coinType) {
-      reserveByCoin.set(row.coinType.toLowerCase(), row);
-    }
+  let obligations;
+  try {
+    const init = await initializeSuilend(grpc, client);
+    const owned = await initializeObligations(
+      grpc,
+      client,
+      init.refreshedRawReserves,
+      init.reserveMap,
+      owner
+    );
+    obligations = owned.obligations;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[suilend] initializeSuilend/obligations failed", e);
+    return errorSnap(`obligations: ${msg}`);
   }
-  const spotTypes = [...reserveByCoin.keys()];
+  if (!obligations?.length) return EMPTY_SUILEND_SNAP;
+  const spotTypes = [
+    ...new Set(
+      obligations.flatMap((o) => [
+        ...o.deposits.map((d) => d.coinType),
+        ...o.borrows.map((b) => b.coinType)
+      ])
+    )
+  ];
   let spots = /* @__PURE__ */ new Map();
   if (spotTypes.length) {
     try {
-      spots = await resolveSpots(
-        [...new Set([...reserveByCoin.values()].map((r) => r.coinType))],
-        (ct) => coinSym(ct)
-      );
+      spots = await resolveSpots(spotTypes, (ct) => coinSym(ct));
     } catch {
     }
   }
-  const priceOf = (ct) => {
+  const priceOf = (ct, reservePrice) => {
     const hit = spots.get(ct)?.price;
     if (hit != null && hit > 0) return hit;
     for (const [k, v] of spots) {
       if (k.toLowerCase() === ct.toLowerCase() && v.price > 0) return v.price;
     }
-    const r = reserveByCoin.get(ct.toLowerCase());
-    const px = toNum(r?.price);
-    return px > 0 ? px : Number.NaN;
+    return reservePrice > 0 ? reservePrice : Number.NaN;
   };
   const supplies = [];
   const borrows = [];
@@ -6552,49 +6582,17 @@ async function getSuilendPositions(walletAddress) {
   let totalBorrowedUSD = 0;
   let liquidationUSD = 0;
   const obligationHfs = [];
-  for (const cap of caps) {
-    const oblId = String(cap.obligationId ?? "");
-    if (!oblId) continue;
-    let obligation;
-    try {
-      obligation = await SuilendClient.getObligation(oblId, [LENDING_MARKET_TYPE], suiClient);
-    } catch (e) {
-      console.warn("[suilend] getObligation failed", oblId.slice(0, 12), e);
-      continue;
-    }
+  for (const obl of obligations) {
+    const oblId = String(obl.id ?? "");
     let oblBorrow = 0;
     let oblLiq = 0;
-    const deposits = obligation.deposits ?? [];
-    for (const d of deposits) {
-      const dep = d;
-      const coinType = typeof dep.coinType === "string" ? dep.coinType : "";
-      if (!coinType) continue;
-      const reserve = reserveByCoin.get(coinType.toLowerCase());
-      const ctoken = toNum(dep.depositedCtokenAmount);
-      let amount = 0;
-      try {
-        if (reserve && typeof getCTokenMarketValue === "function") {
-          const mv = getCTokenMarketValue(reserve, ctoken);
-          amount = toNum(mv);
-        }
-      } catch {
-      }
-      const decimals = reserve?.mintDecimals ?? 9;
-      if (!(amount > 0)) {
-        const avail = toNum(reserve?.availableAmount);
-        const borrowed = toNum(reserve?.borrowedAmount);
-        const supply = toNum(reserve?.ctokenSupply);
-        const underlying = supply > 0 ? ctoken * (avail + borrowed) / supply : ctoken;
-        amount = underlying / 10 ** decimals;
-      } else if (amount > 1e6) {
-        amount = amount / 10 ** decimals;
-      }
-      const px = priceOf(coinType);
-      let valueUSD = Number.isFinite(px) ? amount * px : Number.NaN;
-      if (!Number.isFinite(valueUSD) && amount > 0 && amount < 1e9) {
-        valueUSD = Number.NaN;
-      }
-      const closeLtvRaw = reserve?.config?.closeLtvPct ?? 0;
+    for (const dep of obl.deposits) {
+      const coinType = dep.coinType;
+      const amount = bnToNum(dep.depositedAmount);
+      const reservePx = bnToNum(dep.reserve?.price);
+      const px = priceOf(coinType, reservePx);
+      const valueUSD = Number.isFinite(px) ? amount * px : bnToNum(dep.depositedAmountUsd);
+      const closeLtvRaw = dep.reserve?.config?.closeLtvPct ?? 0;
       const closeLtv = closeLtvRaw > 1 ? closeLtvRaw / 100 : closeLtvRaw;
       const ltFactor = normalizeLiquidationThresholdFactor(closeLtv);
       if (Number.isFinite(valueUSD)) {
@@ -6606,7 +6604,7 @@ async function getSuilendPositions(walletAddress) {
       }
       supplies.push({
         id: `suilend-supply-${oblId.slice(2, 10)}-${coinSym(coinType)}`,
-        asset: reserve?.symbol ?? coinSym(coinType),
+        asset: dep.reserve?.symbol ?? coinSym(coinType),
         coinType,
         sCoinType: "",
         suppliedAmount: amount,
@@ -6623,19 +6621,13 @@ async function getSuilendPositions(walletAddress) {
         iconUrl: null
       });
     }
-    const borrowRows = obligation.borrows ?? [];
-    for (const b of borrowRows) {
-      const bor = b;
-      const coinType = typeof bor.coinType === "string" ? bor.coinType : "";
-      if (!coinType) continue;
-      const reserve = reserveByCoin.get(coinType.toLowerCase());
-      let borrowed = toNum(bor.borrowedAmount);
-      if (borrowed > 1e12) borrowed = borrowed / 1e18;
-      const decimals = reserve?.mintDecimals ?? 9;
-      if (borrowed > 1e6) borrowed = borrowed / 10 ** decimals;
+    for (const bor of obl.borrows) {
+      const coinType = bor.coinType;
+      const borrowed = bnToNum(bor.borrowedAmount);
       if (!(borrowed > 0)) continue;
-      const px = priceOf(coinType);
-      const debtUSD = Number.isFinite(px) ? borrowed * px : Number.NaN;
+      const reservePx = bnToNum(bor.reserve?.price);
+      const px = priceOf(coinType, reservePx);
+      const debtUSD = Number.isFinite(px) ? borrowed * px : bnToNum(bor.borrowedAmountUsd);
       if (Number.isFinite(debtUSD)) {
         oblBorrow += debtUSD;
         totalBorrowedUSD += debtUSD;
@@ -6643,7 +6635,7 @@ async function getSuilendPositions(walletAddress) {
       borrows.push({
         id: `suilend-borrow-${oblId.slice(2, 10)}-${coinSym(coinType)}`,
         obligationId: oblId,
-        asset: reserve?.symbol ?? coinSym(coinType),
+        asset: bor.reserve?.symbol ?? coinSym(coinType),
         coinType,
         borrowedAmount: borrowed,
         currentDebt: borrowed,
@@ -6686,7 +6678,8 @@ async function getSuilendPositions(walletAddress) {
     netValueUSD: totalSuppliedUSD - totalBorrowedUSD,
     healthFactor,
     rewardsToClaim: [],
-    protocol: "Suilend"
+    protocol: "Suilend",
+    metricsLive: true
   };
 }
 
@@ -7596,27 +7589,20 @@ async function getTurbosPositions(walletAddress, options) {
       currentPriceA_USD: dPxA,
       currentPriceB_USD: dPxB,
       currentValueUSD: valueUsd,
-      depositedUSD: 0,
-      // set by enrichment
-      pnlUSD: 0,
-      // set by enrichment
-      pnlPct: 0,
-      // set by enrichment
+      // NaN until enrichment finishes — never surface silent deposit/PnL = 0
+      depositedUSD: Number.NaN,
+      pnlUSD: Number.NaN,
+      pnlPct: Number.NaN,
       unclaimedFeeA: dFeeA,
       unclaimedFeeB: dFeeB,
       unclaimedFeeUSD: feeUsd,
       unclaimedRewardUSD: unclRewardUsd,
       openedAt: 0,
-      // set by enrichment
       daysOpen: 0,
-      // set by enrichment
-      lifetimeEarningsUSD: 0,
-      // set by enrichment
-      vsHodlDeltaUSD: 0,
-      // set by enrichment
+      lifetimeEarningsUSD: Number.NaN,
+      vsHodlDeltaUSD: Number.NaN,
       aprEstimatePct: 0,
-      // set by enrichment
-      historyPartial: pricePartial
+      historyPartial: true
     });
   }
   out.sort((a, b) => {
@@ -7628,9 +7614,11 @@ async function getTurbosPositions(walletAddress, options) {
 }
 
 // src/services/scallopLendingService.ts
+init_constants();
 import { normalizeSuiAddress as normalizeSuiAddress4 } from "@mysten/sui/utils";
 var SCALLOP_PROTOCOL_PKG = "0xefe8b36d5b2e43728cc323298626b83177803521d195cfb11e15b910e892fddf";
 var SCALLOP_OBLIGATION_KEY = `${SCALLOP_PROTOCOL_PKG}::obligation::ObligationKey`;
+var SCALLOP_MARKET_OBJECT_ID = PROTOCOL_PACKAGES.SCALLOP_MARKET;
 var DEFAULT_LT = 0.8;
 var EMPTY_SCALLOP_SNAP = {
   supplies: [],
@@ -7658,10 +7646,24 @@ function unwrap(val) {
 }
 function tableId(wrapper) {
   const f = unwrap(wrapper);
-  if (!f) return null;
-  const idW = f.id;
-  const id = idW?.id ?? f.id;
-  return typeof id === "string" && id.startsWith("0x") ? id : null;
+  if (!f || f.table == null) return null;
+  const inner = unwrap(f.table);
+  if (!inner) {
+    if (typeof f.table === "string" && f.table.startsWith("0x")) return f.table;
+    return null;
+  }
+  const idNode = inner.id;
+  if (typeof idNode === "string" && idNode.startsWith("0x")) return idNode;
+  if (idNode && typeof idNode === "object") {
+    const nested = unwrap(idNode);
+    const id = nested?.id ?? idNode.id;
+    if (typeof id === "string" && id.startsWith("0x")) return id;
+    if (id && typeof id === "object" && typeof id.id === "string") {
+      const deep = id.id;
+      if (deep.startsWith("0x")) return deep;
+    }
+  }
+  return null;
 }
 function readU64(v) {
   if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -7672,11 +7674,17 @@ async function readWitTableEntries(parentId) {
   const out = [];
   let cursor;
   for (let page = 0; page < 20; page++) {
-    const res = await suiClient.getDynamicFields({
-      parentId,
-      cursor: cursor ?? void 0,
-      limit: 50
-    });
+    let res;
+    try {
+      res = await suiClient.getDynamicFields({
+        parentId,
+        cursor: cursor ?? void 0,
+        limit: 50
+      });
+    } catch (e) {
+      console.warn("[scallop] getDynamicFields failed", parentId.slice(0, 12), e);
+      break;
+    }
     const ids = res.data.map((d) => d.objectId).filter(Boolean);
     if (ids.length) {
       const objs = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), ids);
@@ -7687,11 +7695,48 @@ async function readWitTableEntries(parentId) {
         const coinType = extractTypeName(name) ?? (typeof name === "string" ? name : null) ?? extractTypeName(f.value?.name);
         const value = unwrap(f.value) ?? f;
         const amount = readU64(value.amount) || readU64(value.value) || readU64(value.debt) || readU64(value.borrow_amount);
-        if (coinType && amount > 0) out.push({ coinType, amountRaw: amount });
+        const borrowIndex = readU64(value.borrow_index) || readU64(value.borrowIndex) || null;
+        if (coinType && amount > 0) {
+          out.push({
+            coinType,
+            amountRaw: amount,
+            borrowIndex: borrowIndex && borrowIndex > 0 ? borrowIndex : null
+          });
+        }
       }
     }
     if (!res.hasNextPage || !res.nextCursor) break;
     cursor = res.nextCursor;
+  }
+  return out;
+}
+async function loadMarketBorrowIndexes() {
+  const out = /* @__PURE__ */ new Map();
+  try {
+    const objs = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), [
+      SCALLOP_MARKET_OBJECT_ID
+    ]);
+    const f = contentFields(objs[0]);
+    if (!f) return out;
+    const dynamicsTable = tableId(f.borrow_dynamics);
+    if (!dynamicsTable) return out;
+    const entries = await readWitTableEntries(dynamicsTable);
+    const res = await suiClient.getDynamicFields({ parentId: dynamicsTable, limit: 50 });
+    const ids = res.data.map((d) => d.objectId).filter(Boolean);
+    if (!ids.length) return out;
+    const dynObjs = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), ids);
+    for (const obj of dynObjs) {
+      const cf = contentFields(obj);
+      if (!cf) continue;
+      const name = cf.name;
+      const coinType = extractTypeName(name) ?? (typeof name === "string" ? name : null) ?? extractTypeName(cf.value?.name);
+      const value = unwrap(cf.value) ?? cf;
+      const idx = readU64(value.borrow_index) || readU64(value.borrowIndex);
+      if (coinType && idx > 0) out.set(coinType.toLowerCase(), idx);
+    }
+    void entries;
+  } catch (e) {
+    console.warn("[scallop] loadMarketBorrowIndexes failed", e);
   }
   return out;
 }
@@ -7712,10 +7757,22 @@ async function getScallopPositions(walletAddress) {
   } catch {
     owner = walletAddress.trim();
   }
-  const keys = await listOwnedMoveObjects(asRpcObjectClient(suiClient), {
-    owner,
-    filter: { StructType: SCALLOP_OBLIGATION_KEY }
-  });
+  let keys;
+  try {
+    keys = await listOwnedMoveObjects(asRpcObjectClient(suiClient), {
+      owner,
+      filter: { StructType: SCALLOP_OBLIGATION_KEY }
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[scallop] listOwnedMoveObjects failed", e);
+    return {
+      ...EMPTY_SCALLOP_SNAP,
+      incomplete: true,
+      error: `owned: ${msg}`,
+      metricsLive: false
+    };
+  }
   if (!keys.length) return EMPTY_SCALLOP_SNAP;
   const obligationIds = [];
   for (const k of keys) {
@@ -7730,14 +7787,23 @@ async function getScallopPositions(walletAddress) {
       }
     }
   }
-  if (!obligationIds.length) return EMPTY_SCALLOP_SNAP;
+  if (!obligationIds.length) {
+    return {
+      ...EMPTY_SCALLOP_SNAP,
+      incomplete: true,
+      error: "obligation keys unreadable",
+      metricsLive: false
+    };
+  }
   const oblObjs = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), obligationIds);
+  const marketBorrowIndex = await loadMarketBorrowIndexes();
   const supplies = [];
   const borrows = [];
   let totalSuppliedUSD = 0;
   let totalBorrowedUSD = 0;
   const obligationHfs = [];
   const allCoinTypes = /* @__PURE__ */ new Set();
+  let tablesUnreadable = false;
   const pending = [];
   for (let i = 0; i < oblObjs.length; i++) {
     const f = contentFields(oblObjs[i]);
@@ -7745,6 +7811,7 @@ async function getScallopPositions(walletAddress) {
     const oblId = obligationIds[i];
     const colTable = tableId(f.collaterals);
     const debtTable = tableId(f.debts);
+    if (!colTable && !debtTable) tablesUnreadable = true;
     const collaterals = colTable ? await readWitTableEntries(colTable) : [];
     const debts = debtTable ? await readWitTableEntries(debtTable) : [];
     for (const c of collaterals) allCoinTypes.add(c.coinType);
@@ -7752,7 +7819,12 @@ async function getScallopPositions(walletAddress) {
     pending.push({ oblId, collaterals, debts });
   }
   if (!pending.some((p) => p.collaterals.length || p.debts.length)) {
-    return { ...EMPTY_SCALLOP_SNAP };
+    return {
+      ...EMPTY_SCALLOP_SNAP,
+      incomplete: true,
+      error: tablesUnreadable ? "wit_table.id missing (wrapper id used?)" : "tables empty / unreadable",
+      metricsLive: false
+    };
   }
   const meta = /* @__PURE__ */ new Map();
   await Promise.all(
@@ -7817,7 +7889,15 @@ async function getScallopPositions(walletAddress) {
     }
     for (const d of p.debts) {
       const m = meta.get(d.coinType) ?? { symbol: "?", decimals: 9 };
-      const amount = d.amountRaw / 10 ** m.decimals;
+      const marketIdx = marketBorrowIndex.get(d.coinType.toLowerCase()) ?? [...marketBorrowIndex.entries()].find(
+        ([k]) => k.endsWith(d.coinType.split("::").slice(-2).join("::").toLowerCase())
+      )?.[1];
+      const debtIdx = d.borrowIndex;
+      let amountRaw = d.amountRaw;
+      if (marketIdx && debtIdx && debtIdx > 0) {
+        amountRaw = d.amountRaw * marketIdx / debtIdx;
+      }
+      const amount = amountRaw / 10 ** m.decimals;
       const price = px(d.coinType);
       const debtUSD = Number.isFinite(price) ? amount * price : Number.NaN;
       if (Number.isFinite(debtUSD)) {
@@ -10776,9 +10856,9 @@ async function getCetusPositions(walletAddress, options) {
       currentPriceA_USD: pxaF ?? Number.NaN,
       currentPriceB_USD: pxbF ?? Number.NaN,
       currentValueUSD: valueUsd,
-      depositedUSD: 0,
-      pnlUSD: 0,
-      pnlPct: 0,
+      depositedUSD: Number.NaN,
+      pnlUSD: Number.NaN,
+      pnlPct: Number.NaN,
       // Fees + rewards populated by step 7 (devInspect) below
       unclaimedFeeA: 0,
       unclaimedFeeB: 0,
@@ -10786,11 +10866,10 @@ async function getCetusPositions(walletAddress, options) {
       unclaimedRewardUSD: 0,
       openedAt,
       daysOpen: 0,
-      lifetimeEarningsUSD: 0,
-      vsHodlDeltaUSD: 0,
-      // Empty positions do not accrue range APR on zero principal.
+      lifetimeEarningsUSD: Number.NaN,
+      vsHodlDeltaUSD: Number.NaN,
       aprEstimatePct: 0,
-      historyPartial: pricePartial
+      historyPartial: true
     });
   }
   const useLocal = isLocalUnclaimedEnabled();
@@ -14183,7 +14262,17 @@ var STRUCT_FILTERS = [
   "CetusVaultVester",
   "LBPosition",
   "PyPosition",
-  "MarketPosition"
+  "MarketPosition",
+  "Farm",
+  "StakeReceipt",
+  "Receipt",
+  "TradeCap",
+  "SupplierCap",
+  "SpoolAccount",
+  "Spool",
+  "StakingPosition",
+  "VaultShare",
+  "PositionNFT"
 ];
 function stubRow(id, typeLabel) {
   return {
@@ -14202,9 +14291,10 @@ function stubRow(id, typeLabel) {
     tickUpper: 0,
     currentTick: 0,
     currentSqrtPrice: "0",
-    liquidity: "0",
+    // Non-zero sentinel so isEmptyLpPosition does not hide the stub
+    liquidity: "1",
     lifecycleStatus: "unknown",
-    status: "out_of_range",
+    status: "in_range",
     tokenAAmount: 0,
     tokenBAmount: 0,
     currentPriceA_USD: Number.NaN,
@@ -14240,7 +14330,8 @@ async function getUnsupportedLpStubs(walletAddress) {
   const out = [];
   const seen = /* @__PURE__ */ new Set();
   let cursor;
-  for (let page = 0; page < 8; page++) {
+  let incomplete = false;
+  for (let page = 0; page < 40; page++) {
     try {
       const res = await suiClient.getOwnedObjects({
         owner,
@@ -14259,12 +14350,13 @@ async function getUnsupportedLpStubs(walletAddress) {
       }
       if (!res.hasNextPage || !res.nextCursor) break;
       cursor = res.nextCursor;
+      if (page === 39) incomplete = true;
     } catch {
+      incomplete = true;
       break;
     }
   }
-  void listOwnedMoveObjects;
-  void asRpcObjectClient;
+  void incomplete;
   return out;
 }
 
@@ -14429,27 +14521,45 @@ async function loadPortfolioSnapshotDetailedOnce(rawAddress) {
   let suilend = EMPTY_SUILEND_SNAP;
   try {
     suilend = await getSuilendPositions(walletAddr);
-    lendingSources.push({ id: "suilend", ok: true, status: "ok" });
+    if (suilend.incomplete || suilend.error) {
+      lendingSources.push({
+        id: "suilend",
+        ok: false,
+        error: suilend.error ?? "incomplete",
+        status: "error"
+      });
+    } else {
+      lendingSources.push({ id: "suilend", ok: true, status: "ok" });
+    }
   } catch (e) {
     logSnapErr("suilend", e);
     lendingSources.push({
       id: "suilend",
       ok: false,
       error: e instanceof Error ? e.message : String(e),
-      status: "unavailable"
+      status: "error"
     });
   }
   let scallop = EMPTY_SCALLOP_SNAP;
   try {
     scallop = await getScallopPositions(walletAddr);
-    lendingSources.push({ id: "scallop", ok: true, status: "ok" });
+    if (scallop.incomplete || scallop.error) {
+      lendingSources.push({
+        id: "scallop",
+        ok: false,
+        error: scallop.error ?? "incomplete",
+        status: "error"
+      });
+    } else {
+      lendingSources.push({ id: "scallop", ok: true, status: "ok" });
+    }
   } catch (e) {
     logSnapErr("scallop", e);
     lendingSources.push({
       id: "scallop",
       ok: false,
       error: e instanceof Error ? e.message : String(e),
-      status: "unavailable"
+      status: "error"
     });
   }
   const lp = await loadAllPortfolioLpSources(walletAddr);
@@ -14520,7 +14630,8 @@ function assemblePortfolioSnapshot(input) {
     walletUSD,
     totalUSD,
     incomplete,
-    lpSources
+    lpSources,
+    observedAtMs: Date.now()
   };
   return {
     snapshot,

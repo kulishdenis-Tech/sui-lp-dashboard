@@ -37,7 +37,8 @@ export const turbosAdapter: DexAdapter = {
 		try {
 			// positionId here is the NFT ID; positionObjectId not available via generic interface
 			// Newer Turbos events (MintEvent, BurnEvent, CollectEventV2) use owner=nftId so they'll be found
-			return await scanTurbosPositionEvents(wallet, positionId, '', tokenADecimals, tokenBDecimals)
+			const scan = await scanTurbosPositionEvents(wallet, positionId, '', tokenADecimals, tokenBDecimals)
+			return scan.events
 		} catch {
 			return []
 		}

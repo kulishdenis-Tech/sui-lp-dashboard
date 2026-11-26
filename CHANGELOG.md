@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.5.1
+
+- Review TZ v2 (фаза 2): Cetus V2 packages (`0xdb5cd62a…`, `0xdc67d6de…`) + `OpenPositionEvent` + per-type Sender fallback.
+- Suilend: gRPC client + `initializeObligations` / parse (не silent EMPTY); Scallop: `fields.table.id` + borrow_index.
+- BF/MMT історія через GraphQL `SenderAndMoveEventType`; try/catch → `historyPartial` / NaN (без тихих deposit=0).
+- Turbos: NaN до enrichment; closed з Burn/Close events; Momentum cold scan GraphQL-first.
+- Unsupported inventory stubs розширено; `fees24hUSD`/`fees7dUSD`; Navi dust HF; source `error` + incomplete.
+- Harness `regression_fixture_v2.json` + §8 інваріанти в `review:fixture`.
+
 ## 2.5.0
 
 - Review TZ 25.11.2026: Turbos TypeName (string/gRPC) + pool generic fallback; Momentum tick `bits` + CLMM `[lower,upper)`; GraphQL `SenderAndMoveEventType` per-protocol history; Partial/null замість фейкового `$0`.

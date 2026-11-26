@@ -747,9 +747,9 @@ export async function getCetusPositions(
 			currentPriceA_USD: pxaF ?? Number.NaN,
 			currentPriceB_USD: pxbF ?? Number.NaN,
 			currentValueUSD: valueUsd,
-			depositedUSD: 0,
-			pnlUSD: 0,
-			pnlPct: 0,
+			depositedUSD: Number.NaN,
+			pnlUSD: Number.NaN,
+			pnlPct: Number.NaN,
 			// Fees + rewards populated by step 7 (devInspect) below
 			unclaimedFeeA: 0,
 			unclaimedFeeB: 0,
@@ -757,11 +757,10 @@ export async function getCetusPositions(
 			unclaimedRewardUSD: 0,
 			openedAt,
 			daysOpen: 0,
-			lifetimeEarningsUSD: 0,
-			vsHodlDeltaUSD: 0,
-			// Empty positions do not accrue range APR on zero principal.
+			lifetimeEarningsUSD: Number.NaN,
+			vsHodlDeltaUSD: Number.NaN,
 			aprEstimatePct: 0,
-			historyPartial: pricePartial,
+			historyPartial: true,
 		})
 	}
 

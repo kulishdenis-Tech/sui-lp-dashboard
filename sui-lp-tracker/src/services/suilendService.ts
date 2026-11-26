@@ -2,14 +2,17 @@
  * Suilend lending adapter (read-only).
  *
  * Official docs: https://docs.suilend.fi/ecosystem/suilend-sdk-guide/
- * Uses `@suilend/sdk` SuilendClient.getObligationOwnerCaps / getObligation + market reserves
- * for cToken→underlying and LTV. Prices via resolveSpots with on-chain reserve fallback.
+ * SDK `@suilend/sdk` expects a gRPC client (`listOwnedObjects` / BCS content),
+ * not the dashboard JSON-RPC compat proxy — see initialize + getObligationOwnerCaps.
+ * Valuation: `initializeSuilend` + `initializeObligations` / `parseObligation`
+ * (cToken exchange rate × spot; borrow × cumulativeBorrowRate index).
  */
 import {
 	SuilendClient,
 	LENDING_MARKET_ID,
 	LENDING_MARKET_TYPE,
-	getCTokenMarketValue,
+	initializeSuilend,
+	initializeObligations,
 } from '@suilend/sdk'
 import type {
 	BorrowPosition,
@@ -18,7 +21,7 @@ import type {
 	LendingSnapshot,
 	SupplyPosition,
 } from '@/types'
-import { suiClient } from '@/services/suiClient'
+import { getDashboardGrpcClient } from '@/services/suiData/createGrpcClient'
 import { resolveSpots } from '@/services/spotPrice/resolveSpots'
 import { enrichSupplyLiquidationPrices, normalizeLiquidationThresholdFactor } from '@/utils/supplyLiquidationPrice'
 import { normalizeSuiAddress } from '@mysten/sui/utils'
@@ -34,13 +37,10 @@ export const EMPTY_SUILEND_SNAP: LendingSnapshot = {
 	protocol: 'Suilend',
 }
 
-type DecLike = { toString(): string } | number | string | null | undefined
-
-function toNum(v: DecLike): number {
+function bnToNum(v: { toString(): string } | number | string | null | undefined): number {
 	if (v == null) return 0
 	if (typeof v === 'number') return Number.isFinite(v) ? v : 0
-	const s = typeof v === 'string' ? v : v.toString()
-	const n = Number(s)
+	const n = Number(typeof v === 'string' ? v : v.toString())
 	return Number.isFinite(n) ? n : 0
 }
 
@@ -48,11 +48,21 @@ function coinSym(ct: string): string {
 	return ct.split('::').pop() ?? '?'
 }
 
+function errorSnap(reason: string): LendingSnapshot {
+	return {
+		...EMPTY_SUILEND_SNAP,
+		incomplete: true,
+		error: reason,
+		metricsLive: false,
+	}
+}
+
 let _client: SuilendClient | null = null
 
 async function getClient(): Promise<SuilendClient> {
 	if (_client) return _client
-	_client = await SuilendClient.initialize(LENDING_MARKET_ID, LENDING_MARKET_TYPE, suiClient as never)
+	const grpc = getDashboardGrpcClient()
+	_client = await SuilendClient.initialize(LENDING_MARKET_ID, LENDING_MARKET_TYPE, grpc)
 	return _client
 }
 
@@ -64,60 +74,59 @@ export async function getSuilendPositions(walletAddress: string): Promise<Lendin
 		owner = walletAddress.trim()
 	}
 
-	let caps: Awaited<ReturnType<typeof SuilendClient.getObligationOwnerCaps>>
+	const grpc = getDashboardGrpcClient()
+	let client: SuilendClient
 	try {
-		caps = await SuilendClient.getObligationOwnerCaps(owner, [LENDING_MARKET_TYPE], suiClient as never)
+		client = await getClient()
 	} catch (e) {
-		console.warn('[suilend] getObligationOwnerCaps failed', e)
-		return EMPTY_SUILEND_SNAP
-	}
-	if (!caps?.length) return EMPTY_SUILEND_SNAP
-
-	const client = await getClient()
-	const market = (client as unknown as { lendingMarket?: { reserves?: unknown[] } }).lendingMarket
-	const reserves = Array.isArray(market?.reserves) ? market!.reserves! : []
-
-	type ReserveRow = {
-		coinType: string
-		mintDecimals?: number
-		config?: { closeLtvPct?: number; openLtvPct?: number }
-		price?: DecLike
-		availableAmount?: DecLike
-		ctokenSupply?: DecLike
-		borrowedAmount?: DecLike
-		symbol?: string
+		const msg = e instanceof Error ? e.message : String(e)
+		console.warn('[suilend] initialize failed', e)
+		return errorSnap(`initialize: ${msg}`)
 	}
 
-	const reserveByCoin = new Map<string, ReserveRow>()
-	for (const r of reserves) {
-		const row = r as ReserveRow
-		if (typeof row.coinType === 'string' && row.coinType) {
-			reserveByCoin.set(row.coinType.toLowerCase(), row)
-		}
+	let obligations: Awaited<ReturnType<typeof initializeObligations>>['obligations']
+	try {
+		const init = await initializeSuilend(grpc, client)
+		const owned = await initializeObligations(
+			grpc,
+			client,
+			init.refreshedRawReserves,
+			init.reserveMap,
+			owner,
+		)
+		obligations = owned.obligations
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e)
+		console.warn('[suilend] initializeSuilend/obligations failed', e)
+		return errorSnap(`obligations: ${msg}`)
 	}
 
-	const spotTypes = [...reserveByCoin.keys()]
+	if (!obligations?.length) return EMPTY_SUILEND_SNAP
+
+	const spotTypes = [
+		...new Set(
+			obligations.flatMap((o) => [
+				...o.deposits.map((d) => d.coinType),
+				...o.borrows.map((b) => b.coinType),
+			]),
+		),
+	]
 	let spots = new Map<string, { price: number }>()
 	if (spotTypes.length) {
 		try {
-			spots = (await resolveSpots(
-				[...new Set([...reserveByCoin.values()].map((r) => r.coinType))],
-				(ct) => coinSym(ct),
-			)) as Map<string, { price: number }>
+			spots = (await resolveSpots(spotTypes, (ct) => coinSym(ct))) as Map<string, { price: number }>
 		} catch {
-			/* on-chain prices */
+			/* reserve.on-chain price fallback */
 		}
 	}
 
-	const priceOf = (ct: string): number => {
+	const priceOf = (ct: string, reservePrice: number): number => {
 		const hit = spots.get(ct)?.price
 		if (hit != null && hit > 0) return hit
 		for (const [k, v] of spots) {
 			if (k.toLowerCase() === ct.toLowerCase() && v.price > 0) return v.price
 		}
-		const r = reserveByCoin.get(ct.toLowerCase())
-		const px = toNum(r?.price)
-		return px > 0 ? px : Number.NaN
+		return reservePrice > 0 ? reservePrice : Number.NaN
 	}
 
 	const supplies: SupplyPosition[] = []
@@ -127,63 +136,20 @@ export async function getSuilendPositions(walletAddress: string): Promise<Lendin
 	let liquidationUSD = 0
 	const obligationHfs: number[] = []
 
-	for (const cap of caps) {
-		const oblId = String(cap.obligationId ?? '')
-		if (!oblId) continue
-		let obligation: Awaited<ReturnType<typeof SuilendClient.getObligation>>
-		try {
-			obligation = await SuilendClient.getObligation(oblId, [LENDING_MARKET_TYPE], suiClient as never)
-		} catch (e) {
-			console.warn('[suilend] getObligation failed', oblId.slice(0, 12), e)
-			continue
-		}
-
+	for (const obl of obligations) {
+		const oblId = String(obl.id ?? '')
 		let oblBorrow = 0
 		let oblLiq = 0
 
-		const deposits = (obligation as { deposits?: unknown[] }).deposits ?? []
-		for (const d of deposits) {
-			const dep = d as {
-				coinType?: string
-				depositedCtokenAmount?: DecLike
-				reserveArrayIndex?: DecLike
-			}
-			const coinType = typeof dep.coinType === 'string' ? dep.coinType : ''
-			if (!coinType) continue
-			const reserve = reserveByCoin.get(coinType.toLowerCase())
-			const ctoken = toNum(dep.depositedCtokenAmount)
-			let amount = 0
-			try {
-				if (reserve && typeof getCTokenMarketValue === 'function') {
-					const mv = getCTokenMarketValue(reserve as never, ctoken as never)
-					amount = toNum(mv)
-					// getCTokenMarketValue may return USD — if so, treat carefully
-				}
-			} catch {
-				/* fall through */
-			}
-			const decimals = reserve?.mintDecimals ?? 9
-			if (!(amount > 0)) {
-				// ctoken ≈ underlying when exchange ~1; better: available+borrowed / supply
-				const avail = toNum(reserve?.availableAmount)
-				const borrowed = toNum(reserve?.borrowedAmount)
-				const supply = toNum(reserve?.ctokenSupply)
-				const underlying =
-					supply > 0 ? (ctoken * (avail + borrowed)) / supply : ctoken
-				amount = underlying / 10 ** decimals
-			} else if (amount > 1e6) {
-				// likely raw mist mistakenly treated as human
-				amount = amount / 10 ** decimals
-			}
-
-			const px = priceOf(coinType)
-			let valueUSD = Number.isFinite(px) ? amount * px : Number.NaN
-			// If getCTokenMarketValue already returned USD-ish small number matching price*amount
-			if (!Number.isFinite(valueUSD) && amount > 0 && amount < 1e9) {
-				valueUSD = Number.NaN
-			}
-
-			const closeLtvRaw = reserve?.config?.closeLtvPct ?? 0
+		for (const dep of obl.deposits) {
+			const coinType = dep.coinType
+			const amount = bnToNum(dep.depositedAmount)
+			const reservePx = bnToNum(dep.reserve?.price)
+			const px = priceOf(coinType, reservePx)
+			const valueUSD = Number.isFinite(px)
+				? amount * px
+				: bnToNum(dep.depositedAmountUsd)
+			const closeLtvRaw = dep.reserve?.config?.closeLtvPct ?? 0
 			const closeLtv = closeLtvRaw > 1 ? closeLtvRaw / 100 : closeLtvRaw
 			const ltFactor = normalizeLiquidationThresholdFactor(closeLtv)
 
@@ -197,7 +163,7 @@ export async function getSuilendPositions(walletAddress: string): Promise<Lendin
 
 			supplies.push({
 				id: `suilend-supply-${oblId.slice(2, 10)}-${coinSym(coinType)}`,
-				asset: reserve?.symbol ?? coinSym(coinType),
+				asset: dep.reserve?.symbol ?? coinSym(coinType),
 				coinType,
 				sCoinType: '',
 				suppliedAmount: amount,
@@ -215,23 +181,13 @@ export async function getSuilendPositions(walletAddress: string): Promise<Lendin
 			})
 		}
 
-		const borrowRows = (obligation as { borrows?: unknown[] }).borrows ?? []
-		for (const b of borrowRows) {
-			const bor = b as {
-				coinType?: string
-				borrowedAmount?: DecLike
-			}
-			const coinType = typeof bor.coinType === 'string' ? bor.coinType : ''
-			if (!coinType) continue
-			const reserve = reserveByCoin.get(coinType.toLowerCase())
-			let borrowed = toNum(bor.borrowedAmount)
-			// Decimal may be 1e18-scaled
-			if (borrowed > 1e12) borrowed = borrowed / 1e18
-			const decimals = reserve?.mintDecimals ?? 9
-			if (borrowed > 1e6) borrowed = borrowed / 10 ** decimals
+		for (const bor of obl.borrows) {
+			const coinType = bor.coinType
+			const borrowed = bnToNum(bor.borrowedAmount)
 			if (!(borrowed > 0)) continue
-			const px = priceOf(coinType)
-			const debtUSD = Number.isFinite(px) ? borrowed * px : Number.NaN
+			const reservePx = bnToNum(bor.reserve?.price)
+			const px = priceOf(coinType, reservePx)
+			const debtUSD = Number.isFinite(px) ? borrowed * px : bnToNum(bor.borrowedAmountUsd)
 			if (Number.isFinite(debtUSD)) {
 				oblBorrow += debtUSD
 				totalBorrowedUSD += debtUSD
@@ -239,7 +195,7 @@ export async function getSuilendPositions(walletAddress: string): Promise<Lendin
 			borrows.push({
 				id: `suilend-borrow-${oblId.slice(2, 10)}-${coinSym(coinType)}`,
 				obligationId: oblId,
-				asset: reserve?.symbol ?? coinSym(coinType),
+				asset: bor.reserve?.symbol ?? coinSym(coinType),
 				coinType,
 				borrowedAmount: borrowed,
 				currentDebt: borrowed,
@@ -293,5 +249,6 @@ export async function getSuilendPositions(walletAddress: string): Promise<Lendin
 		healthFactor,
 		rewardsToClaim: [],
 		protocol: 'Suilend',
+		metricsLive: true,
 	}
 }
