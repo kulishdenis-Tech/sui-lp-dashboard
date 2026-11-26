@@ -18,6 +18,10 @@ import {
 	computeMaxTs,
 } from '@/services/lpEventIdbCache'
 import { querySenderAndMoveEventTypes } from '@/services/querySenderMoveEvents'
+import {
+	ensureWalletSenderEventPages,
+	invalidateWalletSenderEventsCache,
+} from '@/services/walletSenderEventsCache'
 // lpFeatureFlags: getBluefinPositionClosedAssistPages / shouldLpAscendingBackfill removed — scan redesigned to event-based approach
 
 /**
@@ -356,17 +360,15 @@ async function mergeBluefinSenderQueryEvents(
 		dedupe.set(pid, new Set(rows.map(walletEvtDedupeKey)))
 	}
 
-	let eventsCursor: { txDigest: string; eventSeq: string } | null | undefined
 	let addedCount = 0
+	const { pages, exhausted } = await ensureWalletSenderEventPages(
+		owner,
+		maxPages,
+		BF_EVENTS_PAGE_SIZE,
+	)
 
-	for (let page = 0; page < maxPages; page++) {
-		const r = await suiClient.queryEvents({
-			query: { Sender: owner },
-			order: 'descending',
-			limit: BF_EVENTS_PAGE_SIZE,
-			cursor: eventsCursor ?? null,
-		})
-
+	for (let page = 0; page < Math.min(maxPages, pages.length); page++) {
+		const r = pages[page]!
 		let reachedCutoff = false
 		for (const chainEv of r.data) {
 			const typeStr = chainEv.type
@@ -426,11 +428,8 @@ async function mergeBluefinSenderQueryEvents(
 		}
 
 		if (reachedCutoff || !r.hasNextPage) break
-		const next = r.nextCursor ?? null
-		if (next == null) break
-		eventsCursor = next
 		if (page + 1 >= maxPages) {
-			if (!isDelta) onPartial(true)
+			if (!isDelta && (r.hasNextPage || !exhausted)) onPartial(true)
 			break
 		}
 	}
@@ -566,21 +565,19 @@ async function mergeMomentumSenderEvents(
 		dedupe.set(pid, new Set(rows.map(walletEvtDedupeKey)))
 	}
 
-	let eventsCursor: { txDigest: string; eventSeq: string } | null | undefined
 	let addedCount = 0
+	const { pages } = await ensureWalletSenderEventPages(owner, maxPages, BF_EVENTS_PAGE_SIZE)
 
-	for (let page = 0; page < maxPages; page++) {
-		const r = await suiClient.queryEvents({
-			query: { Sender: owner },
-			order: 'descending',
-			limit: BF_EVENTS_PAGE_SIZE,
-			cursor: eventsCursor ?? null,
-		})
+	for (let page = 0; page < Math.min(maxPages, pages.length); page++) {
+		const r = pages[page]!
 		let reachedCutoff = false
 		for (const chainEv of r.data) {
 			const rawMs = chainEv.timestampMs != null ? Number(chainEv.timestampMs) : NaN
 			const tsSec = Number.isFinite(rawMs) ? Math.floor(rawMs / 1000) : 0
-			if (isDelta && tsSec < cutoffTs) { reachedCutoff = true; break }
+			if (isDelta && tsSec < cutoffTs) {
+				reachedCutoff = true
+				break
+			}
 
 			const typeStr = chainEv.type
 			if (!isMomentumLpLifecycleMoveEventType(typeStr)) continue
@@ -606,7 +603,10 @@ async function mergeMomentumSenderEvents(
 			}
 			const dk = walletEvtDedupeKey(row)
 			let s = dedupe.get(posNorm)
-			if (!s) { s = new Set<string>(); dedupe.set(posNorm, s) }
+			if (!s) {
+				s = new Set<string>()
+				dedupe.set(posNorm, s)
+			}
 			if (s.has(dk)) continue
 			s.add(dk)
 			const arr = rawByPositionId.get(posNorm) ?? []
@@ -615,9 +615,6 @@ async function mergeMomentumSenderEvents(
 			addedCount++
 		}
 		if (reachedCutoff || !r.hasNextPage) break
-		const next = r.nextCursor ?? null
-		if (next == null) break
-		eventsCursor = next
 	}
 	return addedCount
 }
@@ -1534,5 +1531,10 @@ export function invalidateBluefinMomentumScanCache(walletAddress: string): void 
 				cache.delete(key)
 			}
 		}
+	}
+	try {
+		invalidateWalletSenderEventsCache(normalizeSuiAddress(walletAddress.trim()))
+	} catch {
+		invalidateWalletSenderEventsCache(walletAddress.trim())
 	}
 }

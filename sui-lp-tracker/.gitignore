@@ -37,6 +37,10 @@ src/arbitrage/discovery/discoveredPools.cache.json
 # Local runtime data (activity export, research logs, parity dumps, …)
 data/
 
+# Live fixture checkpoint cache + last dump
+harness/.cache/
+harness/last-live-results.json
+
 # Temp files
 *.tmp
 .cutover-head.txt

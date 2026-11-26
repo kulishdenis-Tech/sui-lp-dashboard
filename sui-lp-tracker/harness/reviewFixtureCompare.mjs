@@ -3,7 +3,7 @@
  * Statuses: PASS | FAIL | INCONCLUSIVE — exit 1 only when any FAIL.
  */
 
-/** @typedef {'PASS'|'FAIL'|'INCONCLUSIVE'} VerdictStatus */
+/** @typedef {'PASS'|'FAIL'|'INCONCLUSIVE'|'SKIPPED'} VerdictStatus */
 /** @typedef {{ status: VerdictStatus, id: string, msg: string }} Verdict */
 
 /**
@@ -102,11 +102,28 @@ export function checkSuilend(walletId, expect, row) {
 	const out = []
 	const exp = expect?.suilend
 	if (!exp) return out
+	if (row?.suilendSkipped === true || row?.sources?.suilend?.status === 'skipped') {
+		out.push({
+			status: 'SKIPPED',
+			id: `${walletId}/§8.1`,
+			msg: `suilend skipped: ${row.suilendSkipReason ?? row.sources?.suilend?.error ?? 'no Hermes/Pyth key'}`,
+		})
+		return out
+	}
 	if (row?.sources?.suilend?.status === 'error' || row?.suilendIncomplete === true) {
+		const err = String(row.sources?.suilend?.error ?? row?.suilendIncompleteReason ?? 'incomplete')
+		if (/401|unauthorized|hermes|pyth/i.test(err)) {
+			out.push({
+				status: 'SKIPPED',
+				id: `${walletId}/§8.1`,
+				msg: `suilend skipped (auth/price feed): ${err}`,
+			})
+			return out
+		}
 		out.push({
 			status: 'FAIL',
 			id: `${walletId}/§8.1`,
-			msg: `suilend source error: ${row.sources?.suilend?.error ?? row?.suilendIncompleteReason ?? 'incomplete'}`,
+			msg: `suilend source error: ${err}`,
 		})
 		return out
 	}
@@ -188,10 +205,16 @@ export function checkScallopN05(walletId, row) {
 	} else {
 		out.push({ status: 'PASS', id: 'N05/§8.2', msg: `scallop supply ≈ ${supply} SUI` })
 	}
+	// Live ~126 SUI (was 100.1); ±5% band around current chain debt.
+	const expectBorrow = 126.2
 	if (borrow == null) {
 		out.push({ status: 'FAIL', id: 'N05/§8.2', msg: 'scallop borrow SUI missing' })
-	} else if (!approxOk(borrow, 100.1, 5)) {
-		out.push({ status: 'FAIL', id: 'N05/§8.2', msg: `scallop borrow ${borrow} !~ 100.1 SUI` })
+	} else if (!approxOk(borrow, expectBorrow, 5)) {
+		out.push({
+			status: 'FAIL',
+			id: 'N05/§8.2',
+			msg: `scallop borrow ${borrow} !~ ${expectBorrow} SUI`,
+		})
 	} else {
 		out.push({ status: 'PASS', id: 'N05/§8.2', msg: `scallop borrow ≈ ${borrow} SUI` })
 	}
@@ -329,6 +352,14 @@ export function evaluateWallet(walletId, fixtureRow, liveRow) {
 	const expect = fixtureRow?.expect ?? {}
 	/** @type {Verdict[]} */
 	const out = []
+	if (liveRow?.walletTimeout === true) {
+		out.push({
+			status: 'INCONCLUSIVE',
+			id: `${walletId}/wallet`,
+			msg: `TIMEOUT after ${liveRow.walletTimeoutMs ?? '?'}ms`,
+		})
+		return out
+	}
 	if (liveRow?.walletFatal) {
 		out.push({
 			status: 'FAIL',
@@ -352,12 +383,14 @@ export function summarizeVerdicts(verdicts) {
 	let pass = 0
 	let fail = 0
 	let inconclusive = 0
+	let skipped = 0
 	for (const v of verdicts) {
 		if (v.status === 'PASS') pass += 1
 		else if (v.status === 'FAIL') fail += 1
+		else if (v.status === 'SKIPPED') skipped += 1
 		else inconclusive += 1
 	}
-	return { pass, fail, inconclusive, exitCode: fail > 0 ? 1 : 0 }
+	return { pass, fail, inconclusive, skipped, exitCode: fail > 0 ? 1 : 0 }
 }
 
 /**

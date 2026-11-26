@@ -1,7 +1,7 @@
 {
   "name": "sui-lp-tracker",
   "private": true,
-  "version": "2.5.3",
+  "version": "2.5.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -23,7 +23,9 @@
     "probe:rpc": "node scripts/probe-sui-rpc-nodes.mjs",
     "spike:grpc-graphql": "node scripts/spike-sui-grpc-graphql.mjs",
     "review:fixture": "node harness/review-fixture.mjs",
-    "review:fixture:live": "vite-node --mode production harness/review-fixture-live.ts"
+    "review:fixture:live": "vite-node --mode production harness/review-fixture-live.ts -- --quick",
+    "review:fixture:live:full": "vite-node --mode production harness/review-fixture-live.ts -- --full",
+    "review:fixture:live:smoke": "vite-node --mode production harness/review-fixture-live.ts -- --quick --wallets W06,N05"
   },
   "dependencies": {
     "@alphafi/alphalend-sdk": "^4.1.0",
