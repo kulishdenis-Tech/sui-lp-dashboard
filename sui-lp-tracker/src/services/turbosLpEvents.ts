@@ -57,20 +57,18 @@ const TURBOS_STRUCT_TO_EVTYPE: Record<string, EventType | null> = {
 	BurnPositionEvent: null,
 }
 
-/** Collect* live under identity + published_at; *Nft under position_manager on published_at. */
+/**
+ * Typed paths where parsedJson references the NFT (Collect* owner / *NftEvent nft_address).
+ * MintEvent/BurnEvent use owner=wallet — those come from GraphQL affectedObject instead.
+ */
 function buildTurbosTypedEventPaths(): string[] {
 	const pkgs = [PROTOCOL_PACKAGES.TURBOS, PROTOCOL_PACKAGES.TURBOS_PUBLISHED_AT]
 	const poolStructs = [
-		'MintEvent',
-		'BurnEvent',
 		'CollectEvent',
 		'CollectFeeEvent',
 		'CollectRewardEvent',
 		'CollectEventV2',
 		'CollectRewardEventV2',
-		'AddLiquidityEvent',
-		'RemoveLiquidityEvent',
-		'DecreaseLiquidityEvent',
 	] as const
 	const nftStructs = ['MintNftEvent', 'BurnNftEvent', 'BurnPositionEvent', 'ClosePositionEvent'] as const
 	const paths: string[] = []
@@ -187,7 +185,38 @@ function readNftRef(pj: Parsed): string | null {
 const TURBOS_DELTA_OVERLAP_SEC = 3 * 3600
 const MAX_AFFECTED_TX_PAGES = 40
 
+/** Wallet-wide typed GraphQL result — shared across all Turbos positions in one load. */
+const _walletTypedCache = new Map<
+	string,
+	Promise<{ events: Awaited<ReturnType<typeof querySenderAndMoveEventTypes>>['events']; partial: boolean }>
+>()
+
 export type TurbosScanResult = { events: PositionEvent[]; partial: boolean }
+
+function loadTurbosWalletTyped(
+	walletNorm: string,
+	sinceTs: number,
+): Promise<{ events: Awaited<ReturnType<typeof querySenderAndMoveEventTypes>>['events']; partial: boolean }> {
+	const key = `${walletNorm}|${sinceTs > 0 ? 'delta' : 'full'}`
+	let p = _walletTypedCache.get(key)
+	if (!p) {
+		p = (async () => {
+			const typed = await querySenderAndMoveEventTypes(walletNorm, TURBOS_TYPED_PATHS, {
+				maxPagesPerType: sinceTs > 0 ? 8 : 40,
+				pageSize: 50,
+				stopBeforeTsSec: sinceTs > 0 ? sinceTs - TURBOS_DELTA_OVERLAP_SEC : undefined,
+				typeConcurrency: 3,
+			})
+			return { events: typed.events, partial: typed.partial }
+		})().catch((e) => {
+			_walletTypedCache.delete(key)
+			throw e
+		})
+		_walletTypedCache.set(key, p)
+		setTimeout(() => _walletTypedCache.delete(key), 5 * 60 * 1000)
+	}
+	return p
+}
 
 function parseTurbosEvent(
 	ev: {
@@ -450,19 +479,13 @@ export async function scanTurbosPositionEvents(
 	}
 
 	const deltaSince = sinceTs != null && sinceTs > 0 ? sinceTs : 0
-	const stopBefore = deltaSince > 0 ? deltaSince - TURBOS_DELTA_OVERLAP_SEC : undefined
 
 	let partial = false
 	const out: PositionEvent[] = []
 	const seen = new Set<string>()
 
 	try {
-		const typed = await querySenderAndMoveEventTypes(walletNorm, TURBOS_TYPED_PATHS, {
-			maxPagesPerType: deltaSince > 0 ? 8 : 40,
-			pageSize: 50,
-			stopBeforeTsSec: stopBefore,
-			typeConcurrency: 3,
-		})
+		const typed = await loadTurbosWalletTyped(walletNorm, deltaSince)
 		if (typed.partial) partial = true
 		for (const ev of typed.events) {
 			const pe = parseTurbosEvent(
@@ -521,6 +544,14 @@ export async function scanTurbosPositionEvents(
 	return { events: out, partial }
 }
 
-export function invalidateTurbosEventCache(_wallet: string): void {
-	// No persistent cache for Turbos events in this version
+export function invalidateTurbosEventCache(wallet: string): void {
+	let norm = wallet
+	try {
+		norm = normalizeSuiAddress(wallet)
+	} catch {
+		/* keep */
+	}
+	for (const k of [..._walletTypedCache.keys()]) {
+		if (k.startsWith(norm)) _walletTypedCache.delete(k)
+	}
 }
