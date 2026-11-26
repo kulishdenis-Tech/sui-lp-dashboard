@@ -103,10 +103,29 @@ export function LpPage() {
 
 	const vaults = useMemo(() => open.filter((p) => isCetusVaultPosition(p)), [open])
 	const aftermath = useMemo(() => open.filter((p) => p.protocol === 'aftermath'), [open])
-	const clmm = useMemo(
-		() => open.filter((p) => p.protocol !== 'aftermath' && !isCetusVaultPosition(p)),
+	const inventory = useMemo(
+		() =>
+			open.filter(
+				(p) =>
+					p.protocol === 'unsupported' ||
+					p.protocol === 'staking' ||
+					p.status === 'unsupported',
+			),
 		[open],
 	)
+	const clmm = useMemo(
+		() =>
+			open.filter(
+				(p) =>
+					p.protocol !== 'aftermath' &&
+					!isCetusVaultPosition(p) &&
+					p.protocol !== 'unsupported' &&
+					p.protocol !== 'staking' &&
+					p.status !== 'unsupported',
+			),
+		[open],
+	)
+	const lpInventoryIncomplete = useAppStore((s) => s.lpInventoryIncomplete)
 	const protocols = useMemo(() => {
 		const set = new Set<string>()
 		for (const p of open) set.add(p.protocol)
@@ -135,6 +154,19 @@ export function LpPage() {
 		return b === 'in' || b === 'near'
 	}).length
 
+	const unsupportedGroups = useMemo(() => {
+		const m = new Map<string, number>()
+		for (const p of inventory.filter((x) => x.protocol === 'unsupported')) {
+			const label = p.unsupportedType ?? 'Unknown'
+			m.set(label, (m.get(label) ?? 0) + 1)
+		}
+		return [...m.entries()].map(([typeLabel, count]) => ({ typeLabel, count }))
+	}, [inventory])
+	const stakingRows = useMemo(
+		() => inventory.filter((p) => p.protocol === 'staking'),
+		[inventory],
+	)
+
 	if (isLoading && open.length === 0) {
 		return (
 			<div className="flex justify-center py-16">
@@ -146,6 +178,11 @@ export function LpPage() {
 	return (
 		<main className="space-y-3 px-4 pb-6 pt-4">
 			{error ? <p className="text-sm text-red-400">{error}</p> : null}
+			{lpInventoryIncomplete ? (
+				<p className="text-sm text-amber-300/90" role="status">
+					scan incomplete
+				</p>
+			) : null}
 
 			<div className="grid grid-cols-3 gap-2">
 				{[
@@ -238,6 +275,24 @@ export function LpPage() {
 							) : null}
 						</div>
 					)}
+					{filter === 'all' && unsupportedGroups.length > 0 ? (
+						<div className={`${card} space-y-1 px-3 py-2 text-sm text-slate-300`}>
+							{unsupportedGroups.map((g) => (
+								<p key={g.typeLabel}>
+									Unsupported ({g.typeLabel}, {g.count})
+								</p>
+							))}
+						</div>
+					) : null}
+					{filter === 'all' && stakingRows.length > 0 ? (
+						<div className={`${card} space-y-1 px-3 py-2 text-sm text-slate-300`}>
+							<p className="text-xs uppercase tracking-wider text-slate-500">Staking</p>
+							{stakingRows.map((p) => (
+								<p key={p.id}>{p.pair}</p>
+							))}
+							<p className="text-xs text-slate-500">Not included in Net Worth.</p>
+						</div>
+					) : null}
 					{aftermath.length > 0 && (filter === 'all' || filter === 'aftermath') ? (
 						<div className={`${card} divide-y divide-slate-800/70 overflow-hidden`}>
 							{aftermath.map((p) => (

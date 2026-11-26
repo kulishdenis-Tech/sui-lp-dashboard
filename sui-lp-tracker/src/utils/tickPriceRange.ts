@@ -31,7 +31,7 @@ export function clmmRangeFromOpenPosition(p: {
 	tokenB: string
 	tokenADecimals: number
 	tokenBDecimals: number
-	status: 'in_range' | 'out_of_range'
+	status: 'in_range' | 'out_of_range' | 'unsupported'
 	protocol?: string
 	/** Stored ticks are negated; the band is still the raw Cetus interval. */
 	cetusSwapped?: boolean
@@ -106,7 +106,7 @@ function positionInRange(p: {
 	tickLower: number
 	tickUpper: number
 	currentTick: number
-	status: 'in_range' | 'out_of_range'
+	status: 'in_range' | 'out_of_range' | 'unsupported'
 	protocol?: string
 	cetusSwapped?: boolean
 	priceRangeOverride?: { min: number; max: number; current: number }

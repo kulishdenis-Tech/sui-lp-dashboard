@@ -134,6 +134,8 @@ export function countLpFilters(positions: readonly OpenPosition[]): LpFilterCoun
 	const counts: LpFilterCounts = { all: 0, in: 0, near: 0, above: 0, below: 0, empty: 0, unknown: 0 }
 	for (const p of positions) {
 		if (isCetusVaultPosition(p) || isCurrentMultiplyVaultPosition(p)) continue
+		// Inventory stubs are not CLMM ranges — exclude from In / Near / OOR / Empty.
+		if (p.protocol === 'unsupported' || p.protocol === 'staking' || p.status === 'unsupported') continue
 		const band = classifyLpBand(p)
 		if (band === 'empty') {
 			counts.empty += 1
@@ -156,6 +158,9 @@ export function countLpFilters(positions: readonly OpenPosition[]): LpFilterCoun
 export function classifyLpBand(p: OpenPosition): CascadeBand {
 	// Vaults / Current Multiply are not CLMM ranges — exclude from In Range / Empty / OOR.
 	if (isCetusVaultPosition(p) || isCurrentMultiplyVaultPosition(p)) return 'unknown'
+	if (p.protocol === 'unsupported' || p.protocol === 'staking' || p.status === 'unsupported') {
+		return 'unknown'
+	}
 	if (isEmptyLpPosition(p)) return 'empty'
 	const edge = classifyPositionRangeEdge(p)
 	if (edge.kind === 'near_edge') return 'near'
@@ -466,6 +471,8 @@ export function computeProtocolAllocation(
 	>()
 	for (const p of positions) {
 		if (isEmptyLpPosition(p)) continue
+		// Unsupported / staking inventory is not part of LP value allocation.
+		if (p.protocol === 'unsupported' || p.protocol === 'staking' || p.status === 'unsupported') continue
 		const key = p.protocol || 'unknown'
 		const cur = map.get(key) ?? {
 			usd: 0,
@@ -566,6 +573,7 @@ export function computeLpRangeCounts(positions: OpenPosition[]): LpRangeCounts {
 	for (const p of positions) {
 		// UI classifies vaults under Vaults tab — do not fold them into CLMM range KPIs.
 		if (isCetusVaultPosition(p) || isCurrentMultiplyVaultPosition(p)) continue
+		if (p.protocol === 'unsupported' || p.protocol === 'staking' || p.status === 'unsupported') continue
 		const band = classifyLpBand(p)
 		if (band === 'empty') {
 			empty += 1
@@ -627,6 +635,9 @@ export type NearEdgeResult =
  */
 export function classifyPositionRangeEdge(p: OpenPosition): NearEdgeResult {
 	if (isCetusVaultPosition(p) || isCurrentMultiplyVaultPosition(p)) return { kind: 'unknown' }
+	if (p.protocol === 'unsupported' || p.protocol === 'staking' || p.status === 'unsupported') {
+		return { kind: 'unknown' }
+	}
 	if (isEmptyLpPosition(p)) return { kind: 'empty' }
 	const range = clmmRangeFromOpenPosition(p)
 	if (!range) return { kind: 'unknown' }

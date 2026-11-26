@@ -47,6 +47,7 @@ import { getSuilendPositions, EMPTY_SUILEND_SNAP } from '@/services/suilendServi
 import { getScallopPositions, EMPTY_SCALLOP_SNAP } from '@/services/scallopLendingService'
 import { getCurrentPositions, EMPTY_CURRENT_SNAP } from '@/services/currentService'
 import { getAftermathFarmsPositions } from '@/services/aftermathService'
+import { scanUnsupportedInventory } from '@/services/unsupportedLpService'
 import { classifyAllBalances, sumVisibleWalletUSD } from '@/services/tokenClassifier'
 import { TURBOS_ENRICH_CONCURRENCY } from '@/utils/constants'
 import { mapPool } from '@/utils/concurrency'
@@ -126,6 +127,9 @@ interface AppState {
 	lendingLastUpdated: number | null
 	positionEvents: Record<string, PositionEvent[]>
 	loadingEvents: Record<string, boolean>
+	/** Unsupported inventory owned-scan truncated / failed → UI «scan incomplete». */
+	lpInventoryIncomplete: boolean
+	lpInventoryIncompleteReason: string | null
 	activeTab: AppTab
 	protocolFilter: string
 	netWorth: NetWorthSnapshot | null
@@ -221,6 +225,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 	lendingLastUpdated: null,
 	positionEvents: {},
 	loadingEvents: {},
+	lpInventoryIncomplete: false,
+	lpInventoryIncompleteReason: null,
 	activeTab: 'balance',
 	protocolFilter: 'all',
 	netWorth: null,
@@ -265,6 +271,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 			lendingError: null,
 			positionEvents: {},
 			loadingEvents: {},
+			lpInventoryIncomplete: false,
+			lpInventoryIncompleteReason: null,
 			isRefreshing: false,
 		})
 		queueMicrotask(() => {
@@ -307,6 +315,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 			lendingError: null,
 			positionEvents: {},
 			loadingEvents: {},
+			lpInventoryIncomplete: false,
+			lpInventoryIncompleteReason: null,
 			manualViewAddress: s.manualViewAddress,
 			isRefreshing: false,
 		}))
@@ -466,8 +476,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 			}
 
 			// ── Protocol loading counter ──────────────────────────────────────
-			// isLoadingPositions stays true until all 5 protocols have settled.
-			let pendingProtocols = 5
+			// isLoadingPositions stays true until all protocol families have settled
+			// (momentum, bluefin, cetus(+vaults), turbos, aftermath, unsupported/staking).
+			let pendingProtocols = 6
 
 			const onProtocolDone = () => {
 				pendingProtocols--
@@ -1037,6 +1048,33 @@ export const useAppStore = create<AppState>((set, get) => ({
 				onProtocolDone()
 			}).catch((e) => {
 				if (!isStale()) set((st) => ({ positionsError: appendErr(st.positionsError, toMsg(e)) }))
+				onProtocolDone()
+			})
+
+			// ── Unsupported / staking inventory ───────────────────────────────
+			void afterBalanceRpc(() => scanUnsupportedInventory(address)).then((scan) => {
+				if (isStale()) return
+				set((st) => ({
+					openPositions: [
+						...st.openPositions.filter(
+							(p) => p.protocol !== 'unsupported' && p.protocol !== 'staking',
+						),
+						...scan.positions,
+						...scan.staking,
+					],
+					lpInventoryIncomplete: scan.incomplete,
+					lpInventoryIncompleteReason: scan.reason ?? null,
+				}))
+				recomputeNetWorth()
+				onProtocolDone()
+			}).catch((e) => {
+				if (!isStale()) {
+					set({
+						lpInventoryIncomplete: true,
+						lpInventoryIncompleteReason: toMsg(e),
+						positionsError: appendErr(get().positionsError, toMsg(e)),
+					})
+				}
 				onProtocolDone()
 			})
 

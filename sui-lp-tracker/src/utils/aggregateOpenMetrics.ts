@@ -4,6 +4,7 @@
  */
 import type { OpenPosition } from '@/types'
 import { isEmptyLpPosition } from '@/utils/lpLifecycle'
+import { isNonClmmInventoryPosition } from '@/utils/unsupportedLp'
 import {
 	isLpPositionHistoryEnriched,
 	lpProtocolUsesOnChainHistory,
@@ -94,10 +95,11 @@ export function aggregateOpenMetrics(
 	let sumEarn = 0
 	let earnKnown = 0
 
-	const activeCount = positions.filter((p) => !isEmptyLpPosition(p)).length
-	const emptyCount = positions.length - activeCount
+	const metricPositions = positions.filter((p) => !isNonClmmInventoryPosition(p))
+	const activeCount = metricPositions.filter((p) => !isEmptyLpPosition(p)).length
+	const emptyCount = metricPositions.length - activeCount
 
-	for (const p of positions) {
+	for (const p of metricPositions) {
 		// Claimable fees stay on an empty NFT. The row shows them, so the total does too.
 		unclaimedCov.eligible += 1
 		const unclaimed = unclaimedIncomeUsdOrNull(p)
@@ -174,7 +176,7 @@ export function aggregateOpenMetrics(
 	}
 
 	return {
-		count: positions.length,
+		count: metricPositions.length,
 		activeCount,
 		emptyCount,
 		totalValueUsd: valueKnown > 0 ? totalValue : null,
