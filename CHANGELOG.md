@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.5
+
+- Suilend без Hermes: `tolerateMissingPriceFeeds` + on-chain `reserve.price`; оцінка DefiLlama current → spots; ключ з того ж `.env`, що `serve-prod` якщо є.
+- Live fixture: Suilend більше не SKIPPED (помилка → FAIL); smoke `--quick` гаманці `N10,N05` (§8.1 ≈ $0.97M/$0.82M і $55.1k/$23.8k).
+
 ## 2.5.4
 
 - `review:fixture:live` швидкість: `--quick` (default PR) / `--full` / `--wallets`; 4–6 паралельних лейнів; timeout → INCONCLUSIVE; прогрес/ETA + JSON-дамп після кожного гаманця; disk-кеш за checkpoint.

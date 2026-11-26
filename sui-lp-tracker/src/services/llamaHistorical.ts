@@ -36,3 +36,41 @@ export async function getLlamaHistoricalQuote(coinType: string, timestampSec: nu
 		}
 	})
 }
+
+/**
+ * Current USD via DefiLlama (keyless) — Hermes/Pyth fallback for Suilend valuation.
+ * @see https://defillama.com/docs/api — GET /prices/current/{coins}
+ */
+export async function getLlamaCurrentPrices(
+	coinTypes: readonly string[],
+): Promise<Map<string, number>> {
+	const out = new Map<string, number>()
+	const unique = [...new Set(coinTypes.map((c) => c.trim()).filter(Boolean))]
+	if (!unique.length) return out
+	const CHUNK = 40
+	for (let i = 0; i < unique.length; i += CHUNK) {
+		const chunk = unique.slice(i, i + CHUNK)
+		const keys = chunk.map((ct) => `sui:${ct}`)
+		const path = `https://coins.llama.fi/prices/current/${keys.map(encodeURIComponent).join(',')}`
+		await limiter(async () => {
+			const ac = new AbortController()
+			const t = setTimeout(() => ac.abort(), LLAMA_TIMEOUT_MS)
+			try {
+				const r = await fetch(extFetchUrl(path), { signal: ac.signal })
+				if (!r.ok) return
+				const j = (await r.json()) as { coins?: Record<string, { price?: number }> }
+				for (let k = 0; k < chunk.length; k++) {
+					const ct = chunk[k]!
+					const key = keys[k]!
+					const px = j.coins?.[key]?.price
+					if (typeof px === 'number' && Number.isFinite(px) && px > 0) out.set(ct, px)
+				}
+			} catch {
+				/* leave gaps — caller falls back to reserve.price */
+			} finally {
+				clearTimeout(t)
+			}
+		})
+	}
+	return out
+}

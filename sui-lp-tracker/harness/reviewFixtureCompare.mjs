@@ -102,28 +102,21 @@ export function checkSuilend(walletId, expect, row) {
 	const out = []
 	const exp = expect?.suilend
 	if (!exp) return out
-	if (row?.suilendSkipped === true || row?.sources?.suilend?.status === 'skipped') {
-		out.push({
-			status: 'SKIPPED',
-			id: `${walletId}/§8.1`,
-			msg: `suilend skipped: ${row.suilendSkipReason ?? row.sources?.suilend?.error ?? 'no Hermes/Pyth key'}`,
-		})
-		return out
-	}
+	// Hermes optional in suilendService (DefiLlama / reserve.price). Real errors → FAIL.
 	if (row?.sources?.suilend?.status === 'error' || row?.suilendIncomplete === true) {
 		const err = String(row.sources?.suilend?.error ?? row?.suilendIncompleteReason ?? 'incomplete')
-		if (/401|unauthorized|hermes|pyth/i.test(err)) {
-			out.push({
-				status: 'SKIPPED',
-				id: `${walletId}/§8.1`,
-				msg: `suilend skipped (auth/price feed): ${err}`,
-			})
-			return out
-		}
 		out.push({
 			status: 'FAIL',
 			id: `${walletId}/§8.1`,
 			msg: `suilend source error: ${err}`,
+		})
+		return out
+	}
+	if (row?.suilendSkipped === true || row?.sources?.suilend?.status === 'skipped') {
+		out.push({
+			status: 'FAIL',
+			id: `${walletId}/§8.1`,
+			msg: `suilend must not SKIPPED — ${row.suilendSkipReason ?? row.sources?.suilend?.error ?? 'skipped'}`,
 		})
 		return out
 	}

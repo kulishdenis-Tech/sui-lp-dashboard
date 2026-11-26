@@ -1,17 +1,22 @@
 /**
- * Suilend lending adapter (read-only).
+ * Suilend lending adapter (read-only) — **all** lending markets (MAIN, Ember, Bitwise, …).
  *
  * Official docs: https://docs.suilend.fi/ecosystem/suilend-sdk-guide/
- * SDK `@suilend/sdk` expects a gRPC client (`listOwnedObjects` / BCS content),
- * not the dashboard JSON-RPC compat proxy — see initialize + getObligationOwnerCaps.
- * Valuation: `initializeSuilend` + `initializeObligations` / `parseObligation`
- * (cToken exchange rate × spot; borrow × cumulativeBorrowRate index).
+ * Market list types verified via GraphQL `object.asMoveObject.contents.type`
+ * (LendingMarket&lt;phantom&gt; → phantom type arg for `SuilendClient.initialize`).
+ *
+ * Prices: Hermes when `PYTH_HERMES_ACCESS_TOKEN` / `HERMES_ACCESS_TOKEN` is set
+ * (same .env as serve-prod). Without a key, SDK keeps on-chain `reserve.price`
+ * (`tolerateMissingPriceFeeds` + partial feed source) and valuation prefers
+ * DefiLlama current → resolveSpots → reserve.price.
+ * @see https://www.npmjs.com/package/@suilend/sdk — Pyth / PriceFeedSource
+ * @see https://defillama.com/docs/api — GET /prices/current/{coins}
  */
 import {
 	SuilendClient,
 	LENDING_MARKET_ID,
 	LENDING_MARKET_TYPE,
-	initializeSuilend,
+	initializeSuilendAll,
 	initializeObligations,
 } from '@suilend/sdk'
 import type {
@@ -23,6 +28,7 @@ import type {
 } from '@/types'
 import { getDashboardGrpcClient } from '@/services/suiData/createGrpcClient'
 import { resolveSpots } from '@/services/spotPrice/resolveSpots'
+import { getLlamaCurrentPrices } from '@/services/llamaHistorical'
 import { enrichSupplyLiquidationPrices, normalizeLiquidationThresholdFactor } from '@/utils/supplyLiquidationPrice'
 import { normalizeSuiAddress } from '@mysten/sui/utils'
 
@@ -36,6 +42,35 @@ export const EMPTY_SUILEND_SNAP: LendingSnapshot = {
 	rewardsToClaim: [] as LendingRewardToClaim[],
 	protocol: 'Suilend',
 }
+
+/** Phantom type args for each Suilend lending market (not the LendingMarket&lt;…&gt; wrapper). */
+const SUILEND_MARKETS: ReadonlyArray<{ id: string; type: string }> = [
+	{ id: LENDING_MARKET_ID, type: LENDING_MARKET_TYPE },
+	{
+		id: '0x74d92cb095b618f344486f77bcce87fbffc0fe0b46584bb1828bb291a222dda8',
+		type: '0x423f05ea163ae1bc5c03d75ef70d3e5d887455084118e46c4f76878530a03619::ember_market::EMBER_MARKET',
+	},
+	{
+		id: '0x2d7a85c0ad7c4d3c9c89a3785e32aa8d83ef3034148f49ce2d7c441bbba227be',
+		type: '0x699a706a737d36c4b52b8cbd8c4e6b16bdda9f7031c53720cb605c48e9ce1dcb::bitwise::BITWISE',
+	},
+	{
+		id: '0x8a8d8e138a28de1c637d0b0955e621b017da7010de388db5a18493eca99c5e82',
+		type: '0xd382f7d6e7596585b3063d5f4607de30a7a81adeb521d6b862b4c57defca746e::Matrixdock_gold::MATRIXDOCK_GOLD',
+	},
+	{
+		id: '0xd12df5fede59f1ac5e1f8413bc86bd6bc77fff2001366878df58ef6a26d58c67',
+		type: '0x7f3d30c31420e0c083a38b9c6f52e97e899f41bb31fa465a57044d29ea3f56e1::bucket_market::BUCKET_MARKET',
+	},
+	{
+		id: '0x0d3a7f758d19d11e8526f66cca43403a99da16862c570c43efe0f8c4a500f7f2',
+		type: '0x3628b6ea618a6cca71793bab63e88ea69e10d3a99b5c7b3df88ba01f165015d4::elixir::ELIXIR',
+	},
+	{
+		id: '0x13ec4438ef30dce971edde6e542b82c17a87fc2afeeee4be383b49f66d97a73b',
+		type: '0xc23f390508c4638809df6277cbc075e8016c260f04faa0fbb88d92a2d86a1de8::securitize::SECURITIZE',
+	},
+]
 
 function bnToNum(v: { toString(): string } | number | string | null | undefined): number {
 	if (v == null) return 0
@@ -57,13 +92,29 @@ function errorSnap(reason: string): LendingSnapshot {
 	}
 }
 
-let _client: SuilendClient | null = null
+function hermesAccessToken(): string | undefined {
+	const t =
+		process.env.PYTH_HERMES_ACCESS_TOKEN?.trim() ||
+		process.env.HERMES_ACCESS_TOKEN?.trim() ||
+		process.env.PYTH_API_KEY?.trim()
+	return t || undefined
+}
 
-async function getClient(): Promise<SuilendClient> {
-	if (_client) return _client
+/** When Hermes is unauthenticated — keep on-chain reserve.price via tolerateMissingPriceFeeds. */
+function onChainReservePriceFeedSource() {
+	return {
+		getLatestPriceFeeds: async () => [],
+		getLatestPriceFeedsPartial: async (ids: string[]) => ({ feeds: [] as never[], missing: [...ids] }),
+	}
+}
+
+let _clients: SuilendClient[] | null = null
+
+async function getClients(): Promise<SuilendClient[]> {
+	if (_clients) return _clients
 	const grpc = getDashboardGrpcClient()
-	_client = await SuilendClient.initialize(LENDING_MARKET_ID, LENDING_MARKET_TYPE, grpc)
-	return _client
+	_clients = await SuilendClient.initializeAll([...SUILEND_MARKETS], grpc)
+	return _clients
 }
 
 export async function getSuilendPositions(walletAddress: string): Promise<LendingSnapshot> {
@@ -75,33 +126,65 @@ export async function getSuilendPositions(walletAddress: string): Promise<Lendin
 	}
 
 	const grpc = getDashboardGrpcClient()
-	let client: SuilendClient
+	let clients: SuilendClient[]
 	try {
-		client = await getClient()
+		clients = await getClients()
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e)
-		console.warn('[suilend] initialize failed', e)
+		console.warn('[suilend] initializeAll failed', e)
 		return errorSnap(`initialize: ${msg}`)
 	}
 
-	let obligations: Awaited<ReturnType<typeof initializeObligations>>['obligations']
+	const token = hermesAccessToken()
+	const initOpts = token
+		? { pythConnectionConfig: { accessToken: token } }
+		: {
+				pythConnection: onChainReservePriceFeedSource(),
+				tolerateMissingPriceFeeds: true as const,
+			}
+
+	type Obl = Awaited<ReturnType<typeof initializeObligations>>['obligations'][number]
+	const obligations: Obl[] = []
+	const marketErrors: string[] = []
+
 	try {
-		const init = await initializeSuilend(grpc, client)
-		const owned = await initializeObligations(
+		const inits = await initializeSuilendAll(
 			grpc,
-			client,
-			init.refreshedRawReserves,
-			init.reserveMap,
-			owner,
+			clients.map((suilendClient) => ({ suilendClient })),
+			undefined,
+			initOpts,
 		)
-		obligations = owned.obligations
+		const settled = await Promise.allSettled(
+			clients.map((client, i) =>
+				initializeObligations(
+					grpc,
+					client,
+					inits[i]!.refreshedRawReserves,
+					inits[i]!.reserveMap,
+					owner,
+				),
+			),
+		)
+		for (let i = 0; i < settled.length; i++) {
+			const s = settled[i]!
+			if (s.status === 'fulfilled') {
+				obligations.push(...(s.value.obligations ?? []))
+			} else {
+				const msg = s.reason instanceof Error ? s.reason.message : String(s.reason)
+				marketErrors.push(`${SUILEND_MARKETS[i]?.id.slice(0, 10)}…: ${msg}`)
+				console.warn('[suilend] initializeObligations market failed', SUILEND_MARKETS[i]?.id, s.reason)
+			}
+		}
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e)
-		console.warn('[suilend] initializeSuilend/obligations failed', e)
+		console.warn('[suilend] initializeSuilendAll failed', e)
 		return errorSnap(`obligations: ${msg}`)
 	}
 
-	if (!obligations?.length) return EMPTY_SUILEND_SNAP
+	if (!obligations.length) {
+		if (marketErrors.length) return errorSnap(`obligations: ${marketErrors.join('; ')}`)
+		return EMPTY_SUILEND_SNAP
+	}
 
 	const spotTypes = [
 		...new Set(
@@ -116,16 +199,39 @@ export async function getSuilendPositions(walletAddress: string): Promise<Lendin
 		try {
 			spots = (await resolveSpots(spotTypes, (ct) => coinSym(ct))) as Map<string, { price: number }>
 		} catch {
-			/* reserve.on-chain price fallback */
+			/* DefiLlama / reserve.price */
 		}
 	}
 
-	const priceOf = (ct: string, reservePrice: number): number => {
+	let llama = new Map<string, number>()
+	try {
+		llama = await getLlamaCurrentPrices(spotTypes)
+	} catch {
+		/* reserve.price */
+	}
+
+	const preferLlama = !token
+	const fromSpots = (ct: string): number | null => {
 		const hit = spots.get(ct)?.price
 		if (hit != null && hit > 0) return hit
 		for (const [k, v] of spots) {
 			if (k.toLowerCase() === ct.toLowerCase() && v.price > 0) return v.price
 		}
+		return null
+	}
+	const fromLlama = (ct: string): number | null => {
+		const ll = llama.get(ct)
+		if (ll != null && ll > 0) return ll
+		for (const [k, v] of llama) {
+			if (k.toLowerCase() === ct.toLowerCase() && v > 0) return v
+		}
+		return null
+	}
+	const priceOf = (ct: string, reservePrice: number): number => {
+		const primary = preferLlama ? fromLlama(ct) : fromSpots(ct)
+		if (primary != null) return primary
+		const secondary = preferLlama ? fromSpots(ct) : fromLlama(ct)
+		if (secondary != null) return secondary
 		return reservePrice > 0 ? reservePrice : Number.NaN
 	}
 
@@ -250,5 +356,8 @@ export async function getSuilendPositions(walletAddress: string): Promise<Lendin
 		rewardsToClaim: [],
 		protocol: 'Suilend',
 		metricsLive: true,
+		...(marketErrors.length
+			? { incomplete: true, error: `partial markets: ${marketErrors.join('; ')}` }
+			: {}),
 	}
 }
