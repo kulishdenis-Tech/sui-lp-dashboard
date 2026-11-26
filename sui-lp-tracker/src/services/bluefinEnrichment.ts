@@ -624,6 +624,21 @@ export async function enrichBluefinOpenPositionWithEvents(
 	/** All-in APR лише як «ставка здобутку»; негатив (збиток) через PnL/ROI — показуємо 0. */
 	aprOut = Number.isFinite(aprOut) ? Math.max(0, aprOut) : Number.NaN
 
+	const hasCollectFee = sorted.some((e) => e.type === 'collect_fee')
+	// Unclaimed delta proxy: when the position opened inside the window, all current
+	// unclaimed fees accrued in-window (no prior unclaimed snapshot available).
+	if (Number.isFinite(uFeeE) && uFeeE > 0 && minTs > 0) {
+		if (minTs >= sec7d) fees7dUSD += uFeeE
+		if (minTs >= sec24h) fees24hUSD += uFeeE
+	}
+	// History not readable → NaN + partial (never invent $0 fees).
+	let fees24Out = fees24hUSD
+	let fees7Out = fees7dUSD
+	if (forcePartial && !hasCollectFee) {
+		fees24Out = Number.NaN
+		fees7Out = Number.NaN
+	}
+
 	return {
 		events: updatedEvents,
 		historyPartial: forcePartial,
@@ -641,8 +656,8 @@ export async function enrichBluefinOpenPositionWithEvents(
 			feesUnclaimedUSD: uFeeE,
 			rewardsUnclaimedUSD: uRewE,
 			feesClaimedUSD: sumClaimedFeeUsd,
-			fees24hUSD,
-			fees7dUSD,
+			fees24hUSD: fees24Out,
+			fees7dUSD: fees7Out,
 			rewardsClaimedUSD: sumClaimedRewardUsd,
 			priceEffectUSD: Number.isFinite(hodlUsd) && Number.isFinite(depOut) ? hodlUsd - depOut : Number.NaN,
 			ilUSD:

@@ -229,7 +229,7 @@ export function assemblePortfolioSnapshot(input: {
 		error: l.error,
 		count: l.ok ? l.positions.length : 0,
 	}))
-	const lpIncomplete = input.lpLoads.some((l) => !l.ok)
+	const lpIncomplete = input.lpLoads.some((l) => !l.ok || l.incomplete === true)
 	const lendingIncomplete = input.lendingSources.some((s) => s.status !== 'ok' || !s.ok)
 	const incomplete = lpIncomplete || lendingIncomplete || !input.balanceOk || !input.classifyOk
 
@@ -237,6 +237,7 @@ export function assemblePortfolioSnapshot(input: {
 	let lpUSD = 0
 	let aftermathUSD = 0
 	for (const p of input.positions) {
+		if (p.protocol === 'unsupported' || p.protocol === 'staking' || p.status === 'unsupported') continue
 		const val = isCurrentMultiplyVaultPosition(p)
 			? multiplyPortfolioContribution(p).usd
 			: (positionValueUsdOrNull(p) ?? liquidityUsdOrNull(p))

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.5.2
+
+- Unsupported inventory: `incomplete` + reason → snapshot/UI «scan incomplete»; stubs `status=unsupported` (не In/Near/OOR); UI `Unsupported (тип, N)` + окремий Staking (не Net Worth).
+- Класифікатор `package::module::Struct` (TZ типи + StakedSui/StakedWal).
+- `fees24hUSD`/`fees7dUSD` для Cetus/Turbos/DLMM (collect + unclaimed proxy); без історії → NaN + Partial.
+- DLMM: NaN deposit/PnL + `historyPartial` до enrichment (Add/Remove через існуючий Cetus scan).
+- Harness `review:fixture:live` (CI лишає offline `review:fixture`).
+
 ## 2.5.1
 
 - Review TZ v2 (фаза 2): Cetus V2 packages (`0xdb5cd62a…`, `0xdc67d6de…`) + `OpenPositionEvent` + per-type Sender fallback.

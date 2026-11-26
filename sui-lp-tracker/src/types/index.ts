@@ -6,6 +6,8 @@ export type LpProtocol =
 	| 'aftermath'
 	| 'bluefin'
 	| 'unsupported'
+	/** Native / LST staking inventory (StakedSui, StakedWal, …) — not Net Worth. */
+	| 'staking'
 
 export type { LpAction, LpActionTypeEnum, LpLifecycleDex, LpPositionLifecycle, LpTxRawRecord } from '@/types/lpLifecycle'
 export { LP_LIFECYCLE_PARSER_VERSION } from '@/types/lpLifecycle'
@@ -150,7 +152,11 @@ export interface OpenPosition {
 	 * (post-hack compensation certificate). Close/burn is permanently disabled on-chain.
 	 */
 	cetusCloseLocked?: boolean
-	status: 'in_range' | 'out_of_range'
+	/**
+	 * CLMM range, or `unsupported` for inventory stubs (never In/Near/OOR).
+	 * Staking inventory also uses `unsupported` here (protocol === 'staking').
+	 */
+	status: 'in_range' | 'out_of_range' | 'unsupported'
 	tokenAAmount: number
 	tokenBAmount: number
 	currentPriceA_USD: number
@@ -195,6 +201,8 @@ export interface OpenPosition {
 	aprEstimatePct: number
 	/** Сканування історії обірвано (ліміт сторінок / RPC). */
 	historyPartial?: boolean
+	/** Unsupported / staking stub classifier label (e.g. `StakedSui`, `TradeCap`). */
+	unsupportedType?: string
 	/** Claimed trading fees from event history (USD). */
 	feesClaimedUSD?: number
 	/** Unclaimed trading fees at spot (USD). */

@@ -3,6 +3,7 @@ import { positionValueUsdOrNull, liquidityUsdOrNull } from '@/utils/positionDeri
 import { finiteUsd } from '@/utils/finiteUsd'
 import { splitVerifiedUnverifiedUsd } from '@/utils/advisorStalePolicy'
 import { isEmptyLpPosition } from '@/utils/lpLifecycle'
+import { isNonClmmInventoryPosition } from '@/utils/unsupportedLp'
 
 export type NetWorthLendingSegment = {
 	usd: number
@@ -31,7 +32,7 @@ export function computeNetWorth(
 	let hasUnknownPosition = false
 	const openLpUSD = finiteUsd(
 		openPositions.reduce((s, p) => {
-			if (isEmptyLpPosition(p)) return s
+			if (isEmptyLpPosition(p) || isNonClmmInventoryPosition(p)) return s
 			const value = positionValueUsdOrNull(p)
 			const liquidity = liquidityUsdOrNull(p)
 			if (value != null) return s + value
@@ -51,7 +52,7 @@ export function computeNetWorth(
 	const nowMs = Date.now()
 	const lpSplit = splitVerifiedUnverifiedUsd(
 		openPositions
-			.filter((p) => !isEmptyLpPosition(p))
+			.filter((p) => !isEmptyLpPosition(p) && !isNonClmmInventoryPosition(p))
 			.map((p) => {
 			const value = positionValueUsdOrNull(p)
 			const liquidity = liquidityUsdOrNull(p)

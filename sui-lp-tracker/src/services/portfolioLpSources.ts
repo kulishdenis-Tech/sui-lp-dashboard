@@ -13,7 +13,7 @@ import { getHaedalLendingVaultPositions } from '@/services/haedalLendingVaultsSe
 import { getCurrentMultiplyVaultPositions } from '@/services/currentMultiplyVaultsService'
 import { getTurbosPositions } from '@/services/turbosService'
 import { getAftermathFarmsPositions } from '@/services/aftermathService'
-import { getUnsupportedLpStubs } from '@/services/unsupportedLpService'
+import { scanUnsupportedInventory } from '@/services/unsupportedLpService'
 import { mapPool } from '@/utils/concurrency'
 
 function readEnv(name: string): string | undefined {
@@ -68,6 +68,9 @@ export type PortfolioLpSourceLoad = {
 	ok: boolean
 	error?: string
 	positions: OpenPosition[]
+	/** Source finished but inventory/history is partial (e.g. owned-page cap). */
+	incomplete?: boolean
+	reason?: string
 }
 
 export type SnapshotLpLoadOpts = {
@@ -76,7 +79,7 @@ export type SnapshotLpLoadOpts = {
 
 type Loader = (wallet: string, opts?: SnapshotLpLoadOpts) => Promise<OpenPosition[]>
 
-const LOADERS: Record<PortfolioLpSourceId, Loader> = {
+const LOADERS: Record<Exclude<PortfolioLpSourceId, 'unsupported'>, Loader> = {
 	momentum: (w) => getMomentumPositions(w),
 	bluefin: (w, o) => getBluefinSpotPositions(w, { forceRefreshPrices: o?.forceRefreshPrices }),
 	'cetus-clmm': (w, o) => getCetusPositions(w, { forceRefreshPrices: o?.forceRefreshPrices }),
@@ -89,7 +92,6 @@ const LOADERS: Record<PortfolioLpSourceId, Loader> = {
 		getCurrentMultiplyVaultPositions(w, { forceRefreshPrices: o?.forceRefreshPrices }),
 	turbos: (w) => getTurbosPositions(w),
 	aftermath: (w) => getAftermathFarmsPositions(w),
-	unsupported: (w) => getUnsupportedLpStubs(w),
 }
 
 export function portfolioLpSourceIds(): readonly PortfolioLpSourceId[] {
@@ -112,11 +114,21 @@ export async function loadPortfolioLpSource(
 ): Promise<PortfolioLpSourceLoad> {
 	const t0 = Date.now()
 	try {
+		if (id === 'unsupported') {
+			const scan = await scanUnsupportedInventory(wallet)
+			return {
+				id,
+				ok: true,
+				positions: [...scan.positions, ...scan.staking],
+				incomplete: scan.incomplete,
+				reason: scan.reason,
+			}
+		}
 		const positions = await LOADERS[id](wallet, opts)
 		return { id, ok: true, positions }
 	} catch (e) {
 		const error = e instanceof Error ? e.message : String(e)
-		return { id, ok: false, error, positions: [] }
+		return { id, ok: false, error, positions: [], incomplete: true, reason: error }
 	} finally {
 		if (timingEnabled()) console.log(`[lp-source] ${id}: ${Date.now() - t0}ms`)
 	}
@@ -154,7 +166,7 @@ export async function loadAllPortfolioLpSources(
 		error: l.error,
 		count: l.ok ? l.positions.length : 0,
 	}))
-	let incomplete = loads.some((l) => !l.ok)
+	let incomplete = loads.some((l) => !l.ok || l.incomplete === true)
 	const positions = loads.filter((l) => l.ok).flatMap((l) => l.positions)
 	// Sanity (P1-8): liq>0 but value 0/NaN with known prices → incomplete/partial
 	for (const p of positions) {

@@ -15,6 +15,7 @@ import { CurrentMultiplySummaryStrip } from '@/components/positions/CurrentMulti
 import { SkeletonCard } from '@/components/ui/SkeletonCard'
 import { Spinner } from '@/components/ui/Spinner'
 import { isCetusVaultPosition } from '@/utils/cetusVault'
+import { isNonClmmInventoryPosition } from '@/utils/unsupportedLp'
 import { useClosedPositionsLoader, useLpLiveEnrichment } from '@/components/positions/useLpModuleData'
 
 type LpView = 'open' | 'closed' | 'vaults'
@@ -23,6 +24,8 @@ export function LpModule() {
 	const { open, closed, isLoading, isRefreshing, isLoadingClosed, error } = usePositions()
 	const { address } = useWalletAuth()
 	const filter = useAppStore((s) => s.protocolFilter)
+	const lpInventoryIncomplete = useAppStore((s) => s.lpInventoryIncomplete)
+	const lpInventoryIncompleteReason = useAppStore((s) => s.lpInventoryIncompleteReason)
 	const location = useLocation()
 	const [view, setView] = useState<LpView>(
 		(location.state as { lpView?: LpView } | null)?.lpView ?? 'open',
@@ -44,8 +47,30 @@ export function LpModule() {
 		() => open.filter((p) => isCetusVaultPosition(p)),
 		[open],
 	)
+	const inventoryOpen = useMemo(
+		() => open.filter((p) => isNonClmmInventoryPosition(p)),
+		[open],
+	)
+	const unsupportedGroups = useMemo(() => {
+		const m = new Map<string, number>()
+		for (const p of inventoryOpen.filter((x) => x.protocol === 'unsupported')) {
+			const label = p.unsupportedType ?? 'Unknown'
+			m.set(label, (m.get(label) ?? 0) + 1)
+		}
+		return [...m.entries()].map(([typeLabel, count]) => ({ typeLabel, count }))
+	}, [inventoryOpen])
+	const stakingOpen = useMemo(
+		() => inventoryOpen.filter((p) => p.protocol === 'staking'),
+		[inventoryOpen],
+	)
 	const clmmOpen = useMemo(
-		() => open.filter((p) => p.protocol !== 'aftermath' && !isCetusVaultPosition(p)),
+		() =>
+			open.filter(
+				(p) =>
+					p.protocol !== 'aftermath' &&
+					!isCetusVaultPosition(p) &&
+					!isNonClmmInventoryPosition(p),
+			),
 		[open],
 	)
 
@@ -99,6 +124,15 @@ export function LpModule() {
 		<section className={`min-w-0${isRefreshing ? ' opacity-90 transition-opacity' : ''}`}>
 			<ProtocolFilter />
 			{error ? <p className="text-sm text-red-400">{error}</p> : null}
+			{lpInventoryIncomplete ? (
+				<p
+					className="mb-2 text-sm text-amber-300/90"
+					title={lpInventoryIncompleteReason ?? undefined}
+					role="status"
+				>
+					scan incomplete
+				</p>
+			) : null}
 
 			<div className="mb-4 flex flex-wrap gap-2">
 				<button
@@ -182,6 +216,35 @@ export function LpModule() {
 						<AftermathFarmsSection positions={aftermathVisible} />
 					) : filter === 'aftermath' ? (
 						<p className="text-slate-500">No Aftermath Farm positions.</p>
+					) : null}
+
+					{filter === 'all' && unsupportedGroups.length > 0 ? (
+						<div className="mt-6">
+							<h2 className="mb-2 text-sm font-medium uppercase tracking-wider text-slate-500">
+								Unsupported
+							</h2>
+							<ul className="space-y-1 text-sm text-slate-300">
+								{unsupportedGroups.map((g) => (
+									<li key={g.typeLabel}>
+										Unsupported ({g.typeLabel}, {g.count})
+									</li>
+								))}
+							</ul>
+						</div>
+					) : null}
+
+					{filter === 'all' && stakingOpen.length > 0 ? (
+						<div className="mt-6">
+							<h2 className="mb-2 text-sm font-medium uppercase tracking-wider text-slate-500">
+								Staking
+							</h2>
+							<ul className="space-y-1 text-sm text-slate-300">
+								{stakingOpen.map((p) => (
+									<li key={p.id}>{p.pair}</li>
+								))}
+							</ul>
+							<p className="mt-1 text-xs text-slate-500">Not included in Net Worth.</p>
+						</div>
 					) : null}
 				</>
 			) : (
