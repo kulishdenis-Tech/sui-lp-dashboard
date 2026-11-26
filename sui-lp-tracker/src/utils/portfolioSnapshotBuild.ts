@@ -3,6 +3,7 @@
  * Unknown ≠ zero: missing/failed sources mark `incomplete` instead of inventing $0.
  * Totals align with `computeNetWorth` / SummaryCards (wallet + LP incl. Aftermath + net lending).
  */
+import { isNonClmmInventoryPosition } from '@/utils/unsupportedLp'
 import type { PortfolioSnapshot } from '@/services/portfolioSnapshotIdb'
 import { currentHourBucket, makeSnapshotId } from '@/services/portfolioSnapshotIdb'
 import { liquidityUsdOrNull, positionValueUsdOrNull } from '@/utils/positionDerivedMetrics'
@@ -106,6 +107,7 @@ export function livePortfolioParts(state: LivePortfolioStoreSlice): LivePortfoli
 	let aftermathKnown = 0
 	let lpMissing = false
 	for (const p of state.openPositions) {
+		if (isNonClmmInventoryPosition(p)) continue
 		if (isCurrentMultiplyVaultPosition(p)) {
 			const part = multiplyPortfolioContribution(p)
 			if (part.partial) lpMissing = true

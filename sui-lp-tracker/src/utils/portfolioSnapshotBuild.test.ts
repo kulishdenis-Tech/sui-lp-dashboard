@@ -51,6 +51,18 @@ function snap(partial: Partial<PortfolioSnapshot> & Pick<PortfolioSnapshot, 'id'
 }
 
 describe('livePortfolioParts / build', () => {
+	it('unsupported / staking inventory stubs do not mark LP as missing', () => {
+		const stub = {
+			id: '0x1',
+			protocol: 'unsupported',
+			status: 'unsupported',
+			liquidity: '0',
+		} as unknown as LivePortfolioStoreSlice['openPositions'][number]
+		const parts = livePortfolioParts(baseState({ openPositions: [stub] }))
+		expect(parts!.lpStatus).toBe('ok')
+		expect(parts!.incomplete).toBe(false)
+	})
+
 	it('missing lending is not coerced to a valid zero total without incomplete', () => {
 		const parts = livePortfolioParts(
 			baseState({
