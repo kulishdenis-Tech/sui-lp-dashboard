@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
 	checkClosedAtLeast,
+	checkSuilend,
 	evaluateWallet,
 	summarizeVerdicts,
 } from './reviewFixtureCompare.mjs'
@@ -63,23 +64,21 @@ describe('reviewFixtureCompare §8.3 closedAtLeast', () => {
 })
 
 describe('reviewFixtureCompare §8.1 suilend', () => {
-	it('SKIPPED on Hermes/Pyth 401 (not FAIL)', async () => {
-		const { checkSuilend } = await import('./reviewFixtureCompare.mjs')
+	it('FAIL on Hermes/Pyth 401 (service must fall back — not SKIPPED)', () => {
 		const verdicts = checkSuilend(
 			'N05',
 			{ suilend: { supply_usd: 1, borrow_usd: 0 } },
 			{
-				sources: { suilend: { status: 'partial', error: 'obligations: HTTP error! status: 401' } },
+				sources: { suilend: { status: 'error', error: 'obligations: HTTP error! status: 401' } },
 				suilendIncomplete: true,
 				suilendIncompleteReason: 'obligations: HTTP error! status: 401',
 			},
 		)
-		expect(verdicts[0]!.status).toBe('SKIPPED')
-		expect(verdicts[0]!.msg).toMatch(/401|skipped/i)
+		expect(verdicts[0]!.status).toBe('FAIL')
+		expect(verdicts[0]!.msg).toMatch(/401|source error/i)
 	})
 
-	it('SKIPPED when suilendSkipped flag set (no key)', async () => {
-		const { checkSuilend } = await import('./reviewFixtureCompare.mjs')
+	it('FAIL when suilendSkipped flag set (must not skip)', () => {
 		const verdicts = checkSuilend(
 			'N01',
 			{ suilend: { supply_usd: 1, borrow_usd: 0 } },
@@ -89,7 +88,31 @@ describe('reviewFixtureCompare §8.1 suilend', () => {
 				sources: { suilend: { status: 'skipped' } },
 			},
 		)
-		expect(verdicts[0]!.status).toBe('SKIPPED')
+		expect(verdicts[0]!.status).toBe('FAIL')
+		expect(verdicts[0]!.msg).toMatch(/must not SKIPPED/i)
+	})
+
+	it('PASS N10 / N05 expect ±5%', () => {
+		const n10 = checkSuilend(
+			'N10',
+			{ suilend: { supply_usd: 966281.25, borrow_usd: 816843.76 } },
+			{
+				sources: { suilend: { status: 'ok' } },
+				suilendSuppliedUsd: 970_000,
+				suilendBorrowedUsd: 820_000,
+			},
+		)
+		expect(n10.every((v) => v.status === 'PASS')).toBe(true)
+		const n05 = checkSuilend(
+			'N05',
+			{ suilend: { supply_usd: 55142.17, borrow_usd: 23799.92 } },
+			{
+				sources: { suilend: { status: 'ok' } },
+				suilendSuppliedUsd: 55_100,
+				suilendBorrowedUsd: 23_800,
+			},
+		)
+		expect(n05.every((v) => v.status === 'PASS')).toBe(true)
 	})
 })
 

@@ -20,6 +20,7 @@ import {
 	checkSourceStatus,
 } from './reviewFixtureCompare.mjs'
 import { hydrateViteServerEnv, hasPythHermesAccessToken } from '../vite-server-env'
+// hasPythHermesAccessToken: log-only; Suilend runs without Hermes via DefiLlama/reserve.price
 import { getDashboardGrpcClient } from '@/services/suiData/createGrpcClient'
 import {
 	MYSTEN_PUBLIC_GRAPHQL_URL,
@@ -425,19 +426,8 @@ async function loadWallet(
 		return { ...cached, fromCache: true, stageMs: { ...(cached.stageMs ?? {}), cacheHit: 0 } }
 	}
 
-	// ── Suilend ────────────────────────────────────────────────────────────
+	// ── Suilend (Hermes optional — service falls back to DefiLlama / reserve.price) ─
 	await timed(stages, 'suilend', async () => {
-		if (!hasPythHermesAccessToken()) {
-			row.suilendSkipped = true
-			row.suilendSkipReason = 'no PYTH_HERMES_ACCESS_TOKEN / HERMES_ACCESS_TOKEN in .env (same as serve-prod)'
-			row.sources.suilend = {
-				status: 'skipped',
-				error: row.suilendSkipReason,
-				host: grpcHost,
-				method: 'getSuilendPositions',
-			}
-			return
-		}
 		const r = await settleSource(
 			row.sources,
 			'suilend',
@@ -450,28 +440,22 @@ async function loadWallet(
 			const s = r.value
 			if (s.incomplete || s.error) {
 				const err = s.error ?? 'incomplete'
-				if (/401|unauthorized|hermes|pyth/i.test(err)) {
-					row.suilendSkipped = true
-					row.suilendSkipReason = err
-					row.sources.suilend = { status: 'skipped', error: err, host: grpcHost, method: 'getSuilendPositions' }
-				} else {
-					row.suilendIncomplete = true
-					row.suilendIncompleteReason = err
-					row.sources.suilend = { status: 'partial', error: err, host: grpcHost, method: 'getSuilendPositions' }
-					row.incomplete = true
+				row.suilendIncomplete = true
+				row.suilendIncompleteReason = err
+				row.sources.suilend = {
+					status: 'error',
+					error: err,
+					host: grpcHost,
+					method: 'getSuilendPositions',
 				}
+				row.incomplete = true
+				row.harness_step_error = true
 			}
 			row.suilendSuppliedUsd = s.totalSuppliedUSD
 			row.suilendBorrowedUsd = s.totalBorrowedUSD
 		} else {
-			if (/401|unauthorized|hermes|pyth/i.test(r.error)) {
-				row.suilendSkipped = true
-				row.suilendSkipReason = r.error
-				row.sources.suilend = { status: 'skipped', error: r.error, host: grpcHost, method: 'getSuilendPositions' }
-			} else {
-				row.incomplete = true
-				row.harness_step_error = true
-			}
+			row.incomplete = true
+			row.harness_step_error = true
 		}
 	})
 
