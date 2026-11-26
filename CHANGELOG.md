@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.5.3
+
+- `review:fixture:live` викликає реальні сервіси дашборда (gRPC + GraphQL через vite-node), не fixture-anchor.
+- §8: PASS/FAIL/INCONCLUSIVE; truncated closed → INCONCLUSIVE (без pad до min); exit 1 лише на FAIL.
+- Unit-тест harness: регресія `W06 closed 74→0` → FAIL.
+
 ## 2.5.2
 
 - Unsupported inventory: `incomplete` + reason → snapshot/UI «scan incomplete»; stubs `status=unsupported` (не In/Near/OOR); UI `Unsupported (тип, N)` + окремий Staking (не Net Worth).

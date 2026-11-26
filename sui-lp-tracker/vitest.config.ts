@@ -22,7 +22,12 @@ export default defineConfig({
 	},
 	test: {
 		environment: 'node',
-		include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'vite.config.load.test.ts'],
+		include: [
+			'src/**/*.test.ts',
+			'src/**/*.test.tsx',
+			'harness/**/*.test.ts',
+			'vite.config.load.test.ts',
+		],
 		exclude: ['**/*.live.test.ts', '**/node_modules/**'],
 	},
 })
