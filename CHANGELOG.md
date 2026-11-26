@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.7
+
+- LP: «Show/Hide empty» moved to the tab row (next to Positions / Vaults / Closed); duplicated «Open positions (N)» heading removed; Positions tab count follows the toggle.
+- LP: «Unsupported» list renamed «Not tracked yet» with plain-language hints per object (leverage market cap, farm stake receipt, AlphaLend position cap, vault receipt); desktop and mobile.
+
 ## 2.5.6
 
 - Overview: unsupported/staking inventory stubs no longer appear as `—/—` UNKNOWN rows and no longer trigger «Some data is unavailable» (they had no value → LP marked missing). A one-line note links to the LP tab.

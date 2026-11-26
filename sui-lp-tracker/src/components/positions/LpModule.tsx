@@ -15,7 +15,7 @@ import { CurrentMultiplySummaryStrip } from '@/components/positions/CurrentMulti
 import { SkeletonCard } from '@/components/ui/SkeletonCard'
 import { Spinner } from '@/components/ui/Spinner'
 import { isCetusVaultPosition } from '@/utils/cetusVault'
-import { isNonClmmInventoryPosition } from '@/utils/unsupportedLp'
+import { describeUnsupportedType, isNonClmmInventoryPosition } from '@/utils/unsupportedLp'
 import { isEmptyLpPosition } from '@/utils/lpLifecycle'
 import { formatUSD } from '@/utils/formatting'
 import { useClosedPositionsLoader, useLpLiveEnrichment } from '@/components/positions/useLpModuleData'
@@ -126,11 +126,11 @@ export function LpModule() {
 	)
 
 	const positionsTabCount = useMemo(() => {
-		const clmmFiltered = clmmOpen.filter((p) => filter === 'all' || p.protocol === filter)
+		const clmmFiltered = clmmShown.filter((p) => filter === 'all' || p.protocol === filter)
 		const af =
 			filter === 'all' || filter === 'aftermath' ? aftermathOpen.length : 0
 		return clmmFiltered.length + af
-	}, [clmmOpen, aftermathOpen, filter])
+	}, [clmmShown, aftermathOpen, filter])
 
 	const closedFilteredCount = useMemo(
 		() =>
@@ -146,7 +146,7 @@ export function LpModule() {
 		return ''
 	}, [closed.length, compensationClosed.length, closedFilteredCount])
 
-	const clmmFiltered = clmmOpen.filter((p) => filter === 'all' || p.protocol === filter)
+	const clmmFiltered = clmmShown.filter((p) => filter === 'all' || p.protocol === filter)
 	const showClmmSection = filter !== 'aftermath'
 	const showSkeleton = isLoading && open.length === 0 && closed.length === 0 && !isLoadingClosed
 
@@ -172,7 +172,7 @@ export function LpModule() {
 				</p>
 			) : null}
 
-			<div className="mb-4 flex flex-wrap gap-2">
+			<div className="mb-4 flex flex-wrap items-center gap-2">
 				<button
 					type="button"
 					onClick={() => setView('open')}
@@ -206,6 +206,16 @@ export function LpModule() {
 				>
 					Closed{closedTabLabel !== '' ? ` (${closedTabLabel})` : ''}
 				</button>
+				{view === 'open' && showClmmSection && emptyCount > 0 ? (
+					<button
+						type="button"
+						onClick={toggleHideEmpty}
+						aria-pressed={hideEmpty}
+						className="ml-auto rounded-full border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:border-slate-500"
+					>
+						{hideEmpty ? `Show empty (${emptyCount})` : `Hide empty (${emptyCount})`}
+					</button>
+				) : null}
 			</div>
 
 			{view === 'vaults' ? (
@@ -231,20 +241,6 @@ export function LpModule() {
 				<>
 					{showClmmSection ? (
 						<>
-							<h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-slate-500">
-								Open positions
-								{clmmFiltered.length > 0 ? ` (${clmmFiltered.length})` : ''}
-								{emptyCount > 0 ? (
-									<button
-										type="button"
-										onClick={toggleHideEmpty}
-										aria-pressed={hideEmpty}
-										className="ml-3 rounded-full border border-slate-700 px-2.5 py-0.5 text-[11px] normal-case tracking-normal text-slate-300 hover:border-slate-500"
-									>
-										{hideEmpty ? `Show empty (${emptyCount})` : `Hide empty (${emptyCount})`}
-									</button>
-								) : null}
-							</h2>
 							{clmmFiltered.length === 0 ? (
 								<p className="text-slate-500">No open LP positions.</p>
 							) : (
@@ -269,12 +265,16 @@ export function LpModule() {
 					{filter === 'all' && unsupportedGroups.length > 0 ? (
 						<div className="mt-6">
 							<h2 className="mb-2 text-sm font-medium uppercase tracking-wider text-slate-500">
-								Unsupported
+								Not tracked yet
 							</h2>
+							<p className="mb-2 text-xs text-slate-500">
+								Objects in this wallet that are not priced or included in totals.
+							</p>
 							<ul className="space-y-1 text-sm text-slate-300">
 								{unsupportedGroups.map((g) => (
 									<li key={g.typeLabel}>
-										Unsupported ({g.typeLabel}, {g.count})
+										{g.count}× {g.typeLabel}
+										<span className="text-slate-500"> — {describeUnsupportedType(g.typeLabel)}</span>
 									</li>
 								))}
 							</ul>
