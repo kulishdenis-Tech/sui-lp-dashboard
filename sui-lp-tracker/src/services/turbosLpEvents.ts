@@ -183,6 +183,8 @@ const MAX_TX_PAGES = 50   // 50 × 50 = 2500 transactions scanned
  */
 const TURBOS_DELTA_OVERLAP_SEC = 3 * 3600
 
+export type TurbosScanResult = { events: PositionEvent[]; partial: boolean }
+
 export async function scanTurbosPositionEvents(
 	walletAddress: string,
 	nftId: string,
@@ -190,7 +192,7 @@ export async function scanTurbosPositionEvents(
 	tokenADecimals: number,
 	tokenBDecimals: number,
 	sinceTs?: number,
-): Promise<PositionEvent[]> {
+): Promise<TurbosScanResult> {
 	let walletNorm: string
 	let nftNorm: string
 	let posNorm: string
@@ -203,6 +205,7 @@ export async function scanTurbosPositionEvents(
 	let page = 0
 	let foundOpeningEvent = false
 	let stopForDelta = false
+	let partial = false
 	const deltaSince = sinceTs != null && sinceTs > 0 ? sinceTs : 0
 
 	do {
@@ -214,7 +217,10 @@ export async function scanTurbosPositionEvents(
 			cursor,
 			order: 'descending',
 		}).catch(() => null)
-		if (!res) break
+		if (!res) {
+			partial = true
+			break
+		}
 
 		for (const tx of res.data) {
 			const ts = tx.timestampMs ? Math.floor(Number(tx.timestampMs) / 1000) : 0
@@ -377,8 +383,11 @@ export async function scanTurbosPositionEvents(
 
 	} while (cursor && page < MAX_TX_PAGES)
 
+	if (page >= MAX_TX_PAGES && !foundOpeningEvent) partial = true
+	if (!foundOpeningEvent && out.length === 0) partial = true
+
 	out.sort((a, b) => a.timestamp - b.timestamp)
-	return out
+	return { events: out, partial }
 }
 
 // ---------------------------------------------------------------------------

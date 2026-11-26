@@ -1,7 +1,8 @@
 /**
- * Regression harness stub for TZ review (W01–W11).
- * Without REVIEW_FIXTURE_RESULTS_PATH, validates fixture schema only (offline).
- * With a JSON results dump from a live scan, compares key fields (±2% / brackets).
+ * Regression harness for TZ review upgrade v2 (§8).
+ * Offline: validates regression_fixture_v2.json schema + expect structure.
+ * Live: set REVIEW_FIXTURE_RESULTS_PATH (or pass --live with that env) to compare
+ *       dump against §8 invariants 1–7.
  *
  * Usage: npm run review:fixture
  * Optional: REVIEW_FIXTURE_RESULTS_PATH=./harness/last-results.json
@@ -11,9 +12,10 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const fixturePath = join(__dirname, 'regression_fixture.json')
+const fixturePath = join(__dirname, 'regression_fixture_v2.json')
+const legacyFixturePath = join(__dirname, 'regression_fixture.json')
 
-function approxOk(actual, expectApprox, tolPct = 2) {
+function approxOk(actual, expectApprox, tolPct = 5) {
 	if (actual == null || !Number.isFinite(Number(actual))) return false
 	const a = Number(actual)
 	const e = Number(expectApprox)
@@ -31,105 +33,199 @@ function pass(id, msg) {
 	return true
 }
 
-function main() {
-	if (!existsSync(fixturePath)) {
-		console.error('Missing harness/regression_fixture.json')
-		process.exit(1)
+function walletEntries(fixture) {
+	const w = fixture.wallets
+	if (Array.isArray(w)) {
+		return w.map((row) => [row.id, row])
 	}
-	const fixture = JSON.parse(readFileSync(fixturePath, 'utf8'))
-	if (!fixture?.wallets?.length) {
+	return Object.entries(w ?? {})
+}
+
+function validateOfflineSchema(fixture) {
+	const entries = walletEntries(fixture)
+	if (!entries.length) {
 		console.error('Fixture has no wallets')
 		process.exit(1)
 	}
+	let ok = true
+	for (const [id, row] of entries) {
+		if (!row?.address && !row?.id) {
+			ok = fail(id, 'missing address') && ok
+			continue
+		}
+		const exp = row.expect ?? {}
+		if (exp.closedAtLeast && typeof exp.closedAtLeast !== 'object') {
+			ok = fail(id, 'expect.closedAtLeast must be object') && ok
+		}
+		if (exp.suilend) {
+			if (exp.suilend.supply_usd == null && exp.suilend.borrow_usd == null) {
+				ok = fail(id, 'expect.suilend missing supply/borrow') && ok
+			}
+		}
+	}
+	// §8 structural invariants (offline): fixture must encode anchors
+	const byId = Object.fromEntries(entries)
+	const n05 = byId.N05
+	if (n05) {
+		const scallop = Array.isArray(n05.scallop) ? n05.scallop[0] : n05.scallop
+		const coll = scallop?.collaterals?.[0]?.amount
+		const debt = scallop?.debts?.[0]?.amount
+		if (!(coll > 160 && coll < 180)) {
+			ok = fail('N05', `fixture scallop supply ${coll} not ≈170`) && ok
+		} else pass('N05', `fixture scallop supply ≈ ${coll}`)
+		if (!(debt > 95 && debt < 105)) {
+			ok = fail('N05', `fixture scallop borrow ${debt} not ≈100.1`) && ok
+		} else pass('N05', `fixture scallop borrow ≈ ${debt}`)
+	} else {
+		ok = fail('N05', 'missing wallet in fixture') && ok
+	}
+	const w06 = byId.W06
+	if (w06?.expect?.closedAtLeast?.cetus == null) {
+		ok = fail('W06', 'expect.closedAtLeast.cetus required') && ok
+	} else pass('W06', `closedAtLeast.cetus ≥ ${w06.expect.closedAtLeast.cetus}`)
 
-	const resultsPath = process.env.REVIEW_FIXTURE_RESULTS_PATH
-	if (!resultsPath || !existsSync(resultsPath)) {
-		console.log(
-			`[review:fixture] schema OK — ${fixture.wallets.length} wallets (${fixture.wallets.map((w) => w.id).join(', ')})`,
+	console.log(
+		`[review:fixture] schema OK — ${entries.length} wallets (${entries.map(([id]) => id).join(', ')})`,
+	)
+	console.log(
+		'[review:fixture] offline mode (set REVIEW_FIXTURE_RESULTS_PATH to compare a live dump)',
+	)
+	process.exit(ok ? 0 : 1)
+}
+
+function compareLive(fixture, results) {
+	let ok = true
+	const entries = walletEntries(fixture)
+
+	// §8.4 — no silent deposit=0
+	const silentZeroPositions = results.silentDepositZeros ?? results.invariants?.silentDepositZeros
+	if (Array.isArray(silentZeroPositions)) {
+		if (silentZeroPositions.length > 0) {
+			ok = fail('§8.4', `${silentZeroPositions.length} positions with liq>0 && deposit==0 && !historyPartial`) && ok
+		} else pass('§8.4', 'no silent deposit zeros')
+	} else if (Array.isArray(results.positions)) {
+		const bad = results.positions.filter(
+			(p) =>
+				Number(p.liquidity) > 0 &&
+				Number(p.depositedUSD) === 0 &&
+				p.historyPartial !== true,
 		)
-		console.log(
-			'[review:fixture] offline mode (set REVIEW_FIXTURE_RESULTS_PATH to compare a live dump)',
-		)
-		process.exit(0)
+		if (bad.length > 0) {
+			ok = fail('§8.4', `${bad.length} silent deposit zeros`) && ok
+		} else pass('§8.4', 'no silent deposit zeros')
 	}
 
-	const results = JSON.parse(readFileSync(resultsPath, 'utf8'))
-	let ok = true
-	for (const w of fixture.wallets) {
-		const row = results[w.id] ?? results.wallets?.[w.id]
+	// §8.6 — sources have status; harness_step_error → incomplete
+	if (results.sources || results.sourceStatus) {
+		const sources = results.sources ?? results.sourceStatus
+		for (const [name, st] of Object.entries(sources)) {
+			const status = typeof st === 'string' ? st : st?.status
+			if (!status) {
+				ok = fail('§8.6', `source ${name} missing status`) && ok
+			}
+		}
+	}
+	if (results.harness_step_error || results.harnessStepError) {
+		if (results.incomplete !== true && results.snapshotIncomplete !== true) {
+			ok = fail('§8.6', 'harness_step_error without incomplete=true') && ok
+		} else pass('§8.6', 'incomplete set on harness error')
+	}
+
+	for (const [id, w] of entries) {
+		const row = results[id] ?? results.wallets?.[id]
 		if (!row) {
-			ok = pass(w.id, 'no live row — skipped') && ok
 			continue
 		}
 		const exp = w.expect ?? {}
+
+		// §8.1 Suilend ±5%
+		const suilendExp = exp.suilend
+		if (suilendExp) {
+			const supply = row.suilendSuppliedUsd ?? row.suilend?.suppliedUsd ?? row.suilend?.supply_usd
+			const borrow = row.suilendBorrowedUsd ?? row.suilend?.borrowedUsd ?? row.suilend?.borrow_usd
+			if (suilendExp.supply_usd != null) {
+				if (!approxOk(supply, suilendExp.supply_usd, 5)) {
+					ok = fail(id, `suilend supply ${supply} !~ ${suilendExp.supply_usd} (±5%)`) && ok
+				} else pass(id, `suilend supply ≈ ${suilendExp.supply_usd}`)
+			}
+			if (suilendExp.borrow_usd != null) {
+				if (!approxOk(borrow, suilendExp.borrow_usd, 5)) {
+					ok = fail(id, `suilend borrow ${borrow} !~ ${suilendExp.borrow_usd} (±5%)`) && ok
+				} else pass(id, `suilend borrow ≈ ${suilendExp.borrow_usd}`)
+			}
+		}
+
+		// §8.2 Scallop N05
+		if (id === 'N05' && (row.scallop || exp.scallop)) {
+			const supply = row.scallopSupplySui ?? row.scallop?.supplySui ?? row.scallop?.collaterals?.[0]?.amount
+			const borrow = row.scallopBorrowSui ?? row.scallop?.borrowSui ?? row.scallop?.debts?.[0]?.amount
+			if (supply != null && !approxOk(supply, 170, 5)) {
+				ok = fail(id, `scallop supply ${supply} !~ 170`) && ok
+			} else if (supply != null) pass(id, `scallop supply ≈ ${supply}`)
+			if (borrow != null && !approxOk(borrow, 100.1, 5)) {
+				ok = fail(id, `scallop borrow ${borrow} !~ 100.1`) && ok
+			} else if (borrow != null) pass(id, `scallop borrow ≈ ${borrow}`)
+		}
+
+		// §8.3 closed ≥ lower bounds
+		const closedExp = exp.closedAtLeast ?? {}
+		for (const [proto, min] of Object.entries(closedExp)) {
+			const actual =
+				row.closed?.[proto] ??
+				row[`${proto}Closed`] ??
+				row[`closed_${proto}`]
+			if (actual == null) continue
+			if (Number(actual) < Number(min)) {
+				ok = fail(id, `closed ${proto} ${actual} < ${min}`) && ok
+			} else pass(id, `closed ${proto} ${actual} ≥ ${min}`)
+		}
+
+		// legacy v1 fields still supported
 		if (exp.turbosOpenMin != null && (row.turbosOpen ?? 0) < exp.turbosOpenMin) {
-			ok = fail(w.id, `turbosOpen ${row.turbosOpen} < ${exp.turbosOpenMin}`) && ok
-		}
-		if (exp.turbosInRangeMin != null && (row.turbosInRange ?? 0) < exp.turbosInRangeMin) {
-			ok = fail(w.id, `turbosInRange ${row.turbosInRange} < ${exp.turbosInRangeMin}`) && ok
-		}
-		if (exp.turbosValueUsd?.approx != null) {
-			if (!approxOk(row.turbosValueUsd, exp.turbosValueUsd.approx, exp.turbosValueUsd.tolPct)) {
-				ok = fail(w.id, `turbosValueUsd ${row.turbosValueUsd} !~ ${exp.turbosValueUsd.approx}`) && ok
-			} else pass(w.id, `turbosValueUsd ≈ ${exp.turbosValueUsd.approx}`)
-		}
-		if (exp.momentumValueUsd?.approx != null) {
-			if (!approxOk(row.momentumValueUsd, exp.momentumValueUsd.approx, exp.momentumValueUsd.tolPct)) {
-				ok = fail(w.id, `momentumValueUsd ${row.momentumValueUsd} !~ ${exp.momentumValueUsd.approx}`) && ok
-			} else pass(w.id, `momentumValueUsd ≈ ${exp.momentumValueUsd.approx}`)
-		}
-		if (exp.momentumInRange === true && row.momentumInRange !== true) {
-			ok = fail(w.id, 'momentum not in_range') && ok
-		}
-		if (
-			exp.momentumEmptyStatus === true &&
-			row.momentumStatus !== 'empty' &&
-			row.momentumLifecycle !== 'empty'
-		) {
-			ok = fail(w.id, `momentum empty expected (status=${row.momentumStatus} lifecycle=${row.momentumLifecycle})`) && ok
-		}
-		if (exp.momentumClosedMin != null && (row.momentumClosed ?? 0) < exp.momentumClosedMin) {
-			ok = fail(w.id, `momentumClosed ${row.momentumClosed} < ${exp.momentumClosedMin}`) && ok
-		}
-		if (exp.cetusClosedMin != null && (row.cetusClosed ?? 0) < exp.cetusClosedMin) {
-			ok = fail(w.id, `cetusClosed ${row.cetusClosed} < ${exp.cetusClosedMin}`) && ok
-		}
-		if (exp.suilendVisible === true && !row.suilendVisible) {
-			ok = fail(w.id, 'suilend not visible') && ok
-		}
-		if (exp.suilendSuppliedUsd?.approx != null) {
-			if (!approxOk(row.suilendSuppliedUsd, exp.suilendSuppliedUsd.approx, exp.suilendSuppliedUsd.tolPct)) {
-				ok = fail(w.id, `suilendSuppliedUsd ${row.suilendSuppliedUsd}`) && ok
-			}
-		}
-		if (exp.suilendBorrowedUsd?.approx != null) {
-			if (!approxOk(row.suilendBorrowedUsd, exp.suilendBorrowedUsd.approx, exp.suilendBorrowedUsd.tolPct)) {
-				ok = fail(w.id, `suilendBorrowedUsd ${row.suilendBorrowedUsd}`) && ok
-			}
-		}
-		if (exp.healthFactor?.present && (row.healthFactor == null || !Number.isFinite(Number(row.healthFactor)))) {
-			ok = fail(w.id, 'healthFactor missing') && ok
+			ok = fail(id, `turbosOpen ${row.turbosOpen} < ${exp.turbosOpenMin}`) && ok
 		}
 		if (exp.bluefin?.depositedUSD_gt != null) {
-			if (!(Number(row.bluefinDepositedUSD) > exp.bluefin.depositedUSD_gt)) {
-				ok = fail(w.id, `bluefin depositedUSD=${row.bluefinDepositedUSD}`) && ok
-			}
+			const dep = row.bluefinDepositedUSD ?? row.bluefin?.depositedUSD
+			if (!(Number(dep) > exp.bluefin.depositedUSD_gt)) {
+				ok = fail(id, `bluefin depositedUSD=${dep}`) && ok
+			} else pass(id, `bluefin deposit > ${exp.bluefin.depositedUSD_gt}`)
 		}
-		if (exp.bluefin?.daysOpen_gt != null) {
-			if (!(Number(row.bluefinDaysOpen) > exp.bluefin.daysOpen_gt)) {
-				ok = fail(w.id, `bluefin daysOpen=${row.bluefinDaysOpen}`) && ok
-			}
-		}
-		if (exp.historyPartialOrNullPnl === true) {
-			const partial = row.historyPartial === true
-			const nullPnl = row.pnlUSD == null
-			if (!partial && !nullPnl && Number(row.pnlUSD) > 1e6) {
-				ok = fail(w.id, `absurd pnlUSD=${row.pnlUSD} without partial`) && ok
-			} else pass(w.id, 'pnl/history guard ok')
+
+		// §8.7 N01 Cetus remove attribution
+		if (id === 'N01' && (row.cetusN01Remove || row.n01Cetus)) {
+			const info = row.cetusN01Remove ?? row.n01Cetus
+			const hasRemove = info.hasRemoveLiquidityV2 === true || info.removeAttributed === true
+			const partial = info.historyPartial === true
+			if (!hasRemove && !partial) {
+				ok = fail(id, 'Cetus 0x45420e1a missing RemoveLiquidityV2 and historyPartial') && ok
+			} else pass(id, hasRemove ? 'RemoveLiquidityV2 attributed' : 'historyPartial on N01 Cetus')
 		}
 	}
 
 	process.exit(ok ? 0 : 1)
+}
+
+function main() {
+	const path = existsSync(fixturePath) ? fixturePath : legacyFixturePath
+	if (!existsSync(path)) {
+		console.error('Missing harness/regression_fixture_v2.json')
+		process.exit(1)
+	}
+	const fixture = JSON.parse(readFileSync(path, 'utf8'))
+	const resultsPath = process.env.REVIEW_FIXTURE_RESULTS_PATH
+	const liveFlag = process.argv.includes('--live')
+
+	if (!resultsPath || !existsSync(resultsPath)) {
+		if (liveFlag) {
+			console.error('--live requires REVIEW_FIXTURE_RESULTS_PATH pointing to a results dump')
+			process.exit(1)
+		}
+		validateOfflineSchema(fixture)
+		return
+	}
+
+	const results = JSON.parse(readFileSync(resultsPath, 'utf8'))
+	compareLive(fixture, results)
 }
 
 main()

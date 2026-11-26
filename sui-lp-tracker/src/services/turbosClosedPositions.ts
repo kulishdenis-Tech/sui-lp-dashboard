@@ -1,11 +1,13 @@
 /**
  * Turbos Finance CLMM — closed positions.
  *
- * "Closed" = position NFT still in wallet but position liquidity === '0'.
- * (User drained liquidity but hasn't burned the NFT.)
+ * "Closed" =
+ *  - position NFT still in wallet but liquidity === '0', OR
+ *  - BurnEvent / ClosePositionEvent via GraphQL SenderAndMoveEventType (burned NFT).
  *
  * Flow:
  *  1. fetchTurbosClosedNfts → zero-liquidity NFTs
+ *  1b. GraphQL Burn/Close events → burned nft ids (not owned)
  *  2. multiGetObjects → pool metadata (coin types, fee rate)
  *  3. getCoinMetadata → decimals + symbols
  *  4. scanTurbosPositionEvents → on-chain event history
@@ -16,6 +18,9 @@ import type { ClosedPosition, PositionEvent } from '@/types'
 import { suiClient } from '@/services/suiClient'
 import { fetchTurbosClosedNfts, parsePoolObject } from '@/services/turbosService'
 import { scanTurbosPositionEvents } from '@/services/turbosLpEvents'
+import { querySenderAndMoveEventTypes } from '@/services/querySenderMoveEvents'
+import { PROTOCOL_PACKAGES } from '@/utils/constants'
+import { normalizeSuiAddress } from '@mysten/sui/utils'
 import { resolveSpots, type Row } from '@/services/spotPrice/resolveSpots'
 
 type CoinMeta = { symbol: string; decimals: number; iconUrl: string | null }
@@ -75,14 +80,73 @@ async function fetchCoinMetas(coinTypes: string[]): Promise<Map<string, CoinMeta
 	return mm
 }
 
+/** Discover burned Turbos NFT ids from Burn/Close Move events (GraphQL typed). */
+async function fetchTurbosBurnedNftSeeds(
+	walletAddress: string,
+): Promise<Array<{ nftId: string; poolId: string; positionId: string; coinTypeA: string | null; coinTypeB: string | null }>> {
+	const structs = ['BurnEvent', 'ClosePositionEvent', 'BurnNftEvent', 'BurnPositionEvent', 'RemoveLiquidityEvent']
+	const pkgs = [PROTOCOL_PACKAGES.TURBOS, PROTOCOL_PACKAGES.TURBOS_PUBLISHED_AT]
+	const paths = pkgs.flatMap((pkg) =>
+		structs.flatMap((s) => [`${pkg}::pool::${s}`, `${pkg}::position_manager::${s}`, `${pkg}::position::${s}`]),
+	)
+	const out: Array<{ nftId: string; poolId: string; positionId: string; coinTypeA: string | null; coinTypeB: string | null }> = []
+	const seen = new Set<string>()
+	try {
+		const typed = await querySenderAndMoveEventTypes(walletAddress, paths, {
+			maxPagesPerType: 20,
+			pageSize: 50,
+		})
+		for (const ev of typed.events) {
+			const pj = (ev.parsedJson ?? {}) as Record<string, unknown>
+			const owner =
+				typeof pj.owner === 'string'
+					? pj.owner
+					: typeof pj.nft_id === 'string'
+						? pj.nft_id
+						: typeof pj.position_nft === 'string'
+							? pj.position_nft
+							: null
+			if (!owner || !owner.startsWith('0x')) continue
+			let nftId: string
+			try {
+				nftId = normalizeSuiAddress(owner)
+			} catch {
+				continue
+			}
+			if (seen.has(nftId)) continue
+			seen.add(nftId)
+			const poolId = typeof pj.pool === 'string' ? pj.pool : ''
+			const positionId =
+				typeof pj.position === 'string' ? pj.position : nftId
+			out.push({
+				nftId,
+				poolId,
+				positionId,
+				coinTypeA: null,
+				coinTypeB: null,
+			})
+		}
+	} catch (e) {
+		console.warn('[turbos-closed] Burn event scan failed', e)
+	}
+	return out
+}
+
 export async function getTurbosClosedPositions(walletAddress: string): Promise<ClosedPosition[]> {
-	// 1. Zero-liquidity NFTs
-	let closedNfts: Awaited<ReturnType<typeof fetchTurbosClosedNfts>>
+	// 1. Zero-liquidity NFTs + burned seeds from events
+	let closedNfts: Awaited<ReturnType<typeof fetchTurbosClosedNfts>> = []
 	try {
 		closedNfts = await fetchTurbosClosedNfts(walletAddress)
 	} catch (e) {
 		console.warn('[turbos-closed] fetchTurbosClosedNfts failed', e)
-		return []
+	}
+	const burned = await fetchTurbosBurnedNftSeeds(walletAddress)
+	const ownedIds = new Set(closedNfts.map((n) => n.nftId))
+	for (const b of burned) {
+		if (!ownedIds.has(b.nftId)) {
+			closedNfts.push(b)
+			ownedIds.add(b.nftId)
+		}
 	}
 	if (closedNfts.length === 0) return []
 
@@ -135,15 +199,20 @@ export async function getTurbosClosedPositions(walletAddress: string): Promise<C
 			const metaB = getMeta(rawCtB)
 
 			let events: PositionEvent[] = []
+			let scanPartial: boolean
 			try {
-				events = await scanTurbosPositionEvents(
+				const scan = await scanTurbosPositionEvents(
 					walletAddress,
 					nft.nftId,
 					nft.positionId,
 					metaA.decimals,
 					metaB.decimals,
 				)
-			} catch { /* leave empty */ }
+				events = scan.events
+				scanPartial = scan.partial
+			} catch {
+				scanPartial = true
+			}
 
 			events.sort((a, b) => a.timestamp - b.timestamp)
 
@@ -222,7 +291,7 @@ export async function getTurbosClosedPositions(walletAddress: string): Promise<C
 				closedAt,
 				daysOpen,
 				events: dEvents,
-				partialHistory: events.length === 0,
+				partialHistory: scanPartial || events.length === 0,
 				poolId: nft.poolId,
 				tokenAAddress: dCtA,
 				tokenBAddress: dCtB,

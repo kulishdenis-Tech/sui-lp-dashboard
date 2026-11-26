@@ -2,6 +2,16 @@ export const GECKO_NETWORK = 'sui-network'
 
 export const PROTOCOL_PACKAGES = {
 	CETUS_CLMM: '0x1eabed72c53feb3805120a081dc15963c204dc8d091542592abaf7a35689b2fb',
+	/**
+	 * Cetus CLMM upgrade package that introduced Add/RemoveLiquidityV2Event + OpenPositionEvent.
+	 * Event type identity uses the package where the struct was first published — not CETUS_CLMM.
+	 */
+	CETUS_CLMM_V2: '0xdb5cd62a06c79695bfc9982eb08534706d3752fe123b48e0144f480209b3117f',
+	/**
+	 * Cetus CLMM package that published CollectRewardV2Event
+	 * (`…::pool::CollectRewardV2Event`).
+	 */
+	CETUS_CLMM_REWARD_V2: '0xdc67d6de3f00051c505da10d8f6fbab3b3ec21ec65f0dc22a2f36c13fc102110',
 	/** Cetus DLMM `dlmm_pool.package_id` from `@cetusprotocol/dlmm-sdk` 1.3.3 `dlmmMainnet`. */
 	CETUS_DLMM: '0x5664f9d3fd82c84023870cfbda8ea84e14c8dd56ce557ad2116e0668581a682b',
 	/** Cetus DLMM `dlmm_pool.published_at` (upgrade pointer). */

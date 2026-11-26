@@ -136,28 +136,46 @@ async function loadPortfolioSnapshotDetailedOnce(
 	let suilend = EMPTY_SUILEND_SNAP
 	try {
 		suilend = await getSuilendPositions(walletAddr)
-		lendingSources.push({ id: 'suilend', ok: true, status: 'ok' })
+		if (suilend.incomplete || suilend.error) {
+			lendingSources.push({
+				id: 'suilend',
+				ok: false,
+				error: suilend.error ?? 'incomplete',
+				status: 'error',
+			})
+		} else {
+			lendingSources.push({ id: 'suilend', ok: true, status: 'ok' })
+		}
 	} catch (e) {
 		logSnapErr('suilend', e)
 		lendingSources.push({
 			id: 'suilend',
 			ok: false,
 			error: e instanceof Error ? e.message : String(e),
-			status: 'unavailable',
+			status: 'error',
 		})
 	}
 
 	let scallop = EMPTY_SCALLOP_SNAP
 	try {
 		scallop = await getScallopPositions(walletAddr)
-		lendingSources.push({ id: 'scallop', ok: true, status: 'ok' })
+		if (scallop.incomplete || scallop.error) {
+			lendingSources.push({
+				id: 'scallop',
+				ok: false,
+				error: scallop.error ?? 'incomplete',
+				status: 'error',
+			})
+		} else {
+			lendingSources.push({ id: 'scallop', ok: true, status: 'ok' })
+		}
 	} catch (e) {
 		logSnapErr('scallop', e)
 		lendingSources.push({
 			id: 'scallop',
 			ok: false,
 			error: e instanceof Error ? e.message : String(e),
-			status: 'unavailable',
+			status: 'error',
 		})
 	}
 
@@ -254,6 +272,7 @@ export function assemblePortfolioSnapshot(input: {
 		totalUSD,
 		incomplete,
 		lpSources,
+		observedAtMs: Date.now(),
 	}
 
 	return {

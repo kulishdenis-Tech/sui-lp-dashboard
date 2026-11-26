@@ -1,6 +1,6 @@
 import type { EventType, PositionEvent } from '@/types'
 import { suiClient } from '@/services/suiClient'
-import { PROTOCOL_PACKAGES } from '@/utils/constants'
+import { MOMENTUM_PUBLISHED_AT, PROTOCOL_PACKAGES } from '@/utils/constants'
 import { normalizeSuiAddress, normalizeStructTag } from '@mysten/sui/utils'
 import Decimal from 'decimal.js'
 import {
@@ -17,6 +17,7 @@ import {
 	rowsToMap,
 	computeMaxTs,
 } from '@/services/lpEventIdbCache'
+import { querySenderAndMoveEventTypes } from '@/services/querySenderMoveEvents'
 // lpFeatureFlags: getBluefinPositionClosedAssistPages / shouldLpAscendingBackfill removed — scan redesigned to event-based approach
 
 /**
@@ -601,51 +602,96 @@ export async function scanMomentumWalletAllPositionEvents(walletAddress: string)
 	let historyPartial = idbEntry?.historyPartial ?? false
 
 	if (!idbEntry) {
-		// ── Cold start: full scan ───────────────────────────────────────────────
-		let cursor: string | null | undefined
-
-		// Phase 1: TX scan (40 pages ≈ 2000 TXs)
-		for (let page = 0; page < MAX_TX_PAGES; page++) {
-			const r = await suiClient.queryTransactionBlocks({
-				filter: { FromAddress: walletAddress },
-				options: { showEvents: true },
-				limit: TX_PAGE,
-				order: 'descending',
-				cursor: cursor ?? null,
+		// ── Cold start: GraphQL typed first (avoid gRPC TX pruning) ─────────────
+		try {
+			const typed = await querySenderAndMoveEventTypes(walletAddress, momentumTypedEventPaths(), {
+				maxPagesPerType: 40,
+				pageSize: 50,
 			})
-			for (const tx of r.data) {
-				const rawTs = tx.timestampMs
-				const tsSec = rawTs ? parseInt(String(rawTs), 10) / 1000 : 0
-				for (const ev of tx.events ?? []) {
-					const typeStr = ev.type
-					if (!isMomentumLpLifecycleMoveEventType(typeStr)) continue
-					const pjRaw = ev.parsedJson
-					if (!pjRaw || typeof pjRaw !== 'object') continue
-					const pj = pjRaw as Parsed
-					const sn = structNameFromType(typeStr)
-					if (!isMomentumLpLifecycleStruct(sn)) continue
-					const pid = readMomentumPositionId(pj)
-					if (!pid) continue
-					let posNorm: string
-					try {
-						posNorm = normalizeSuiAddress(pid)
-					} catch {
-						continue
-					}
-					const row: MomentumWalletRawEvt = { digest: tx.digest, tsSec, event: ev }
-					const arr = rawByPositionId.get(posNorm) ?? []
-					arr.push(row)
-					rawByPositionId.set(posNorm, arr)
+			if (typed.partial) historyPartial = true
+			for (const ev of typed.events) {
+				const typeStr = ev.type
+				if (!isMomentumLpLifecycleMoveEventType(typeStr)) continue
+				const pjRaw = ev.parsedJson
+				if (!pjRaw || typeof pjRaw !== 'object') continue
+				const pj = pjRaw as Parsed
+				const sn = structNameFromType(typeStr)
+				if (!isMomentumLpLifecycleStruct(sn)) continue
+				const pid = readMomentumPositionId(pj)
+				if (!pid) continue
+				let posNorm: string
+				try {
+					posNorm = normalizeSuiAddress(pid)
+				} catch {
+					continue
 				}
+				const rawMs = ev.timestampMs != null ? Number(ev.timestampMs) : NaN
+				const tsSec = Number.isFinite(rawMs) ? Math.floor(rawMs / 1000) : 0
+				const dig = ev.id?.txDigest ?? ''
+				const row: MomentumWalletRawEvt = { digest: dig, tsSec, event: ev as never }
+				const arr = rawByPositionId.get(posNorm) ?? []
+				arr.push(row)
+				rawByPositionId.set(posNorm, arr)
 			}
-			if (!r.hasNextPage) break
-			const next = r.nextCursor
-			if (next == null) break
-			cursor = next
-			if (page + 1 >= MAX_TX_PAGES) { historyPartial = true; break }
+		} catch (e) {
+			console.warn('[mmt-scan] GraphQL typed cold scan failed', e)
+			historyPartial = true
 		}
 
-		// Phase 2: Sender event scan — safety net for positions outside TX window
+		let cursor: string | null | undefined
+
+		// Phase 1b: TX scan only when GraphQL returned nothing
+		if (rawByPositionId.size === 0) {
+			try {
+				for (let page = 0; page < MAX_TX_PAGES; page++) {
+					const r = await suiClient.queryTransactionBlocks({
+						filter: { FromAddress: walletAddress },
+						options: { showEvents: true },
+						limit: TX_PAGE,
+						order: 'descending',
+						cursor: cursor ?? null,
+					})
+					for (const tx of r.data) {
+						const rawTs = tx.timestampMs
+						const tsSec = rawTs ? parseInt(String(rawTs), 10) / 1000 : 0
+						for (const ev of tx.events ?? []) {
+							const typeStr = ev.type
+							if (!isMomentumLpLifecycleMoveEventType(typeStr)) continue
+							const pjRaw = ev.parsedJson
+							if (!pjRaw || typeof pjRaw !== 'object') continue
+							const pj = pjRaw as Parsed
+							const sn = structNameFromType(typeStr)
+							if (!isMomentumLpLifecycleStruct(sn)) continue
+							const pid = readMomentumPositionId(pj)
+							if (!pid) continue
+							let posNorm: string
+							try {
+								posNorm = normalizeSuiAddress(pid)
+							} catch {
+								continue
+							}
+							const row: MomentumWalletRawEvt = { digest: tx.digest, tsSec, event: ev }
+							const arr = rawByPositionId.get(posNorm) ?? []
+							arr.push(row)
+							rawByPositionId.set(posNorm, arr)
+						}
+					}
+					if (!r.hasNextPage) break
+					const next = r.nextCursor
+					if (next == null) break
+					cursor = next
+					if (page + 1 >= MAX_TX_PAGES) {
+						historyPartial = true
+						break
+					}
+				}
+			} catch (e) {
+				console.warn('[mmt-scan] TX cold scan failed', e)
+				historyPartial = true
+			}
+		}
+
+		// Phase 2: Sender event scan — safety net for positions outside typed window
 		await mergeMomentumSenderEvents(walletAddress, rawByPositionId)
 
 		// Save to IDB
@@ -984,9 +1030,40 @@ function lpHistoryCacheKey(wallet: string, targets: LpWalletHistoryTarget[]): st
 	return `${wallet}|mixv2|${sig}`
 }
 
+/** Bluefin lifecycle Move types under both CLMM + spot packages (GraphQL typed query). */
+function bluefinTypedEventPaths(): string[] {
+	const structs = [
+		'PositionOpened',
+		'LiquidityProvided',
+		'LiquidityRemoved',
+		'UserFeeCollected',
+		'UserRewardCollected',
+		'PositionClosed',
+	]
+	const pkgs = [PROTOCOL_PACKAGES.BLUEFIN_CLMM, PROTOCOL_PACKAGES.BLUEFIN_SPOT]
+	const paths: string[] = []
+	for (const pkg of pkgs) {
+		for (const s of structs) paths.push(`${pkg}::events::${s}`)
+	}
+	return paths
+}
+
+/** Momentum lifecycle Move types (published_at + original package). */
+function momentumTypedEventPaths(): string[] {
+	const liq = ['OpenPositionEvent', 'ClosePositionEvent', 'AddLiquidityEvent', 'RemoveLiquidityEvent']
+	const col = ['FeeCollectedEvent', 'CollectPoolRewardEvent']
+	const pkgs = [MOMENTUM_PUBLISHED_AT, PROTOCOL_PACKAGES.MOMENTUM_CLMM]
+	const paths: string[] = []
+	for (const pkg of pkgs) {
+		for (const s of liq) paths.push(`${pkg}::liquidity::${s}`)
+		for (const s of col) paths.push(`${pkg}::collect::${s}`)
+	}
+	return paths
+}
+
 /**
- * Один прохід по `FromAddress` tx: події Bluefin `::events::` та Momentum `{published_at}::liquidity|collect::*`.
- * Транзакції в порядку **descending**, щоб при ліміті сторінок зберігались недавні LP-події.
+ * Primary: GraphQL `SenderAndMoveEventType` (avoids gRPC ListTransactions pruning).
+ * Fallback: `FromAddress` TX window with try/catch → historyPartial on failure.
  */
 export async function scanLpWalletPositionHistory(
 	walletAddress: string,
@@ -1026,71 +1103,109 @@ export async function scanLpWalletPositionHistory(
 	}
 
 	let historyPartial = false
-	let cursor: string | null | undefined
 
-	for (let page = 0; page < MAX_TX_PAGES; page++) {
-		const r = await suiClient.queryTransactionBlocks({
-			filter: { FromAddress: walletAddress },
-			options: { showEvents: true },
-			limit: TX_PAGE,
-			order: 'descending',
-			cursor: cursor ?? null,
-		})
-		for (const tx of r.data) {
-			const rawTs = tx.timestampMs
-			const tsSec = rawTs ? parseInt(String(rawTs), 10) / 1000 : 0
-			for (const ev of tx.events ?? []) {
-				const typeStr = ev.type
-				const pjRaw = ev.parsedJson
-				if (!pjRaw || typeof pjRaw !== 'object') continue
-				const pj = pjRaw as Parsed
+	const ingestRaw = (
+		ev: { type: string; parsedJson?: unknown; id?: { eventSeq: string; txDigest: string }; timestampMs?: string | number | null },
+		txDigest: string,
+		tsSec: number,
+	) => {
+		const typeStr = ev.type
+		const pjRaw = ev.parsedJson
+		if (!pjRaw || typeof pjRaw !== 'object') return
+		const pj = pjRaw as Parsed
+		let posNorm: string
+		let kind: 'bf' | 'mt'
+		if (isBluefinLpLifecycleMoveEventType(typeStr)) {
+			const pos = readPositionId(pj)
+			if (!pos) return
+			try {
+				posNorm = normalizeSuiAddress(pos)
+			} catch {
+				return
+			}
+			if (!wantBf.has(posNorm)) return
+			kind = 'bf'
+		} else if (isMomentumLpLifecycleMoveEventType(typeStr)) {
+			const pos = readMomentumPositionId(pj)
+			if (!pos) return
+			try {
+				posNorm = normalizeSuiAddress(pos)
+			} catch {
+				return
+			}
+			if (!wantMt.has(posNorm)) return
+			kind = 'mt'
+		} else {
+			return
+		}
+		const dec = decByPos.get(posNorm)
+		if (!dec) return
+		const pe =
+			kind === 'bf'
+				? parseEventFromSui(ev as never, txDigest, tsSec, posNorm, dec.a, dec.b)
+				: parseMomentumEventFromSui(ev as never, txDigest, tsSec, posNorm, dec.a, dec.b)
+		if (pe) byPos.get(posNorm)!.push(pe)
+	}
 
-				let posNorm: string
-				let kind: 'bf' | 'mt'
-				if (isBluefinLpLifecycleMoveEventType(typeStr)) {
-					const pos = readPositionId(pj)
-					if (!pos) continue
-					try {
-						posNorm = normalizeSuiAddress(pos)
-					} catch {
-						continue
-					}
-					if (!wantBf.has(posNorm)) continue
-					kind = 'bf'
-				} else if (isMomentumLpLifecycleMoveEventType(typeStr)) {
-					const pos = readMomentumPositionId(pj)
-					if (!pos) continue
-					try {
-						posNorm = normalizeSuiAddress(pos)
-					} catch {
-						continue
-					}
-					if (!wantMt.has(posNorm)) continue
-					kind = 'mt'
-				} else {
-					continue
-				}
-
-				const dec = decByPos.get(posNorm!)
-				if (!dec) continue
-				let pe: PositionEvent | null
-				if (kind === 'bf') {
-					pe = parseEventFromSui(ev, tx.digest, tsSec, posNorm!, dec.a, dec.b)
-				} else {
-					pe = parseMomentumEventFromSui(ev, tx.digest, tsSec, posNorm!, dec.a, dec.b)
-				}
-				if (pe) {
-					byPos.get(posNorm!)!.push(pe)
-				}
+	// ── GraphQL typed path (preferred) ─────────────────────────────────────
+	try {
+		const typedPaths = [
+			...(wantBf.size ? bluefinTypedEventPaths() : []),
+			...(wantMt.size ? momentumTypedEventPaths() : []),
+		]
+		if (typedPaths.length) {
+			const typed = await querySenderAndMoveEventTypes(walletAddress, typedPaths, {
+				maxPagesPerType: 40,
+				pageSize: 50,
+			})
+			if (typed.partial) historyPartial = true
+			for (const ev of typed.events) {
+				const dig = ev.id?.txDigest ?? ''
+				const rawMs = ev.timestampMs != null ? Number(ev.timestampMs) : NaN
+				const tsSec = Number.isFinite(rawMs) ? Math.floor(rawMs / 1000) : 0
+				ingestRaw(ev, dig, tsSec)
 			}
 		}
-		if (!r.hasNextPage) break
-		const next = r.nextCursor
-		if (next == null) break
-		cursor = next
-		if (page + 1 >= MAX_TX_PAGES) {
+	} catch (e) {
+		console.warn('[lp-history] GraphQL typed scan failed — TX fallback', e)
+		historyPartial = true
+	}
+
+	const hasAnyDeposit = [...byPos.values()].some((list) =>
+		list.some((e) => e.type === 'add_liquidity' || e.type === 'open_position'),
+	)
+
+	// ── TX fallback only when typed found nothing useful ───────────────────
+	if (!hasAnyDeposit) {
+		let cursor: string | null | undefined
+		try {
+			for (let page = 0; page < MAX_TX_PAGES; page++) {
+				const r = await suiClient.queryTransactionBlocks({
+					filter: { FromAddress: walletAddress },
+					options: { showEvents: true },
+					limit: TX_PAGE,
+					order: 'descending',
+					cursor: cursor ?? null,
+				})
+				for (const tx of r.data) {
+					const rawTs = tx.timestampMs
+					const tsSec = rawTs ? parseInt(String(rawTs), 10) / 1000 : 0
+					for (const ev of tx.events ?? []) {
+						ingestRaw(ev, tx.digest, tsSec)
+					}
+				}
+				if (!r.hasNextPage) break
+				const next = r.nextCursor
+				if (next == null) break
+				cursor = next
+				if (page + 1 >= MAX_TX_PAGES) {
+					historyPartial = true
+					break
+				}
+			}
+		} catch (e) {
+			console.warn('[lp-history] FromAddress TX scan failed (pruning?)', e)
 			historyPartial = true
-			break
 		}
 	}
 

@@ -951,7 +951,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 						const since = server ? positionDeltaSince(server.positions, p.id) : undefined
 						const origDecA = p.turbosOriginalDecimalsA ?? p.tokenADecimals
 						const origDecB = p.turbosOriginalDecimalsB ?? p.tokenBDecimals
-						let evs = await scanTurbosPositionEvents(
+						const scan = await scanTurbosPositionEvents(
 							address,
 							p.id,
 							p.turbosPositionObjectId ?? '',
@@ -959,6 +959,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 							origDecB,
 							since,
 						)
+						let evs = scan.events
 						if (p.turbosSwapped) {
 							evs = evs.map((e) => ({
 								...e,
@@ -975,7 +976,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 							}))
 						}
 						evs = mergeLpHistoryEvents(seeded, evs)
-						const enriched = await enrichBluefinOpenPositionWithEvents(p, evs, false)
+						const enriched = await enrichBluefinOpenPositionWithEvents(p, evs, scan.partial)
 						return { id: p.id, evs: enriched.events, merged: enriched.merged }
 					})
 						.then((rows) => {

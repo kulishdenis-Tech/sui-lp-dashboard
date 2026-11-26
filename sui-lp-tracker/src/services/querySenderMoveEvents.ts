@@ -13,8 +13,12 @@ export type ChainEventPageRow = {
 
 export type SenderMoveScanResult = {
 	events: ChainEventPageRow[]
-	/** True when any type hit the page cap (older events may exist). */
+	/** True when any type hit the page cap (older events may exist) or failed. */
 	partial: boolean
+	/** Event count per Move type path (0 = typed query empty for that path). */
+	byType: Record<string, number>
+	/** Types that returned 0 events (caller may fall back per-type). */
+	emptyTypes: string[]
 }
 
 const DEFAULT_PAGE_SIZE = 50
@@ -40,11 +44,13 @@ export async function querySenderAndMoveEventTypes(
 	const cutoff = options?.stopBeforeTsSec ?? -Infinity
 	const out: ChainEventPageRow[] = []
 	const seen = new Set<string>()
+	const byType: Record<string, number> = {}
 	let partial = false
 
 	for (const type of moveEventTypes) {
 		let cursor: unknown
 		let typePartial = false
+		let typeCount = 0
 		for (let page = 0; page < maxPages; page++) {
 			try {
 				const r = await Promise.race([
@@ -74,6 +80,7 @@ export async function querySenderAndMoveEventTypes(
 					if (seen.has(key)) continue
 					seen.add(key)
 					out.push(ev as unknown as ChainEventPageRow)
+					typeCount++
 				}
 				if (reachedCutoff) break
 				if (!r.hasNextPage || !r.nextCursor) break
@@ -85,8 +92,13 @@ export async function querySenderAndMoveEventTypes(
 				break
 			}
 		}
+		byType[type] = typeCount
 		if (typePartial) partial = true
 	}
 
-	return { events: out, partial }
+	const emptyTypes = Object.entries(byType)
+		.filter(([, n]) => n === 0)
+		.map(([t]) => t)
+
+	return { events: out, partial, byType, emptyTypes }
 }

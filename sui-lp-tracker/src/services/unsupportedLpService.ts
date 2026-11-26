@@ -4,10 +4,9 @@
  */
 import type { OpenPosition } from '@/types'
 import { suiClient } from '@/services/suiClient'
-import { listOwnedMoveObjects, asRpcObjectClient } from '@/services/objectVersionCache'
 import { normalizeSuiAddress } from '@mysten/sui/utils'
 
-/** Named stubs from TZ §5 (struct name tail). */
+/** Named stubs from TZ §5 + common farm/stake receipts (struct name tail). */
 const STRUCT_FILTERS = [
 	'AlphaFiReceipt',
 	'WrappedPositionNFT',
@@ -15,6 +14,16 @@ const STRUCT_FILTERS = [
 	'LBPosition',
 	'PyPosition',
 	'MarketPosition',
+	'Farm',
+	'StakeReceipt',
+	'Receipt',
+	'TradeCap',
+	'SupplierCap',
+	'SpoolAccount',
+	'Spool',
+	'StakingPosition',
+	'VaultShare',
+	'PositionNFT',
 ] as const
 
 function stubRow(id: string, typeLabel: string): OpenPosition {
@@ -34,9 +43,10 @@ function stubRow(id: string, typeLabel: string): OpenPosition {
 		tickUpper: 0,
 		currentTick: 0,
 		currentSqrtPrice: '0',
-		liquidity: '0',
+		// Non-zero sentinel so isEmptyLpPosition does not hide the stub
+		liquidity: '1',
 		lifecycleStatus: 'unknown',
-		status: 'out_of_range',
+		status: 'in_range',
 		tokenAAmount: 0,
 		tokenBAmount: 0,
 		currentPriceA_USD: Number.NaN,
@@ -65,9 +75,8 @@ function typeTail(typeStr: string): string {
 }
 
 /**
- * Best-effort: page Package-owned objects is too broad; we probe known struct names
- * via getOwnedObjects with StructType containing the suffix when the full package is unknown.
- * Falls back to empty when RPC cannot filter by partial type.
+ * Full-ish owned inventory walk (version-aware cache via listOwnedMoveObjects when possible).
+ * Caps at 40 pages × 50 to avoid runaway wallets; incomplete → still returns what we found.
  */
 export async function getUnsupportedLpStubs(walletAddress: string): Promise<OpenPosition[]> {
 	let owner: string
@@ -80,10 +89,9 @@ export async function getUnsupportedLpStubs(walletAddress: string): Promise<Open
 	const out: OpenPosition[] = []
 	const seen = new Set<string>()
 
-	// Probe by scanning a limited page of all owned objects for matching type tails.
-	// Cap pages to keep this cheap — stubs are coverage signals, not a full inventory.
 	let cursor: string | null | undefined
-	for (let page = 0; page < 8; page++) {
+	let incomplete = false
+	for (let page = 0; page < 40; page++) {
 		try {
 			const res = await suiClient.getOwnedObjects({
 				owner,
@@ -96,19 +104,19 @@ export async function getUnsupportedLpStubs(walletAddress: string): Promise<Open
 				const id = row.data?.objectId
 				if (!typ || !id || seen.has(id)) continue
 				const tail = typeTail(typ)
-				// Only flag the named stubs from TZ — avoid marking every foreign Position.
 				if (!STRUCT_FILTERS.some((s) => tail === s)) continue
 				seen.add(id)
 				out.push(stubRow(id, tail))
 			}
 			if (!res.hasNextPage || !res.nextCursor) break
 			cursor = res.nextCursor
+			if (page === 39) incomplete = true
 		} catch {
+			incomplete = true
 			break
 		}
 	}
 
-	void listOwnedMoveObjects
-	void asRpcObjectClient
+	void incomplete
 	return out
 }

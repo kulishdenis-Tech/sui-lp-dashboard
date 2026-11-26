@@ -1,8 +1,11 @@
 /**
  * Scallop lending — ObligationKey → Obligation (collateral + debt).
  *
- * Package (initial): 0xefe8…fddf (docs.scallop.io mainnet addresses).
- * WitTable collateral/debt entries are dynamic fields; we page them and price via resolveSpots.
+ * Package (initial): 0xefe8…fddf (docs.scallop.io / publish-result.mainnet).
+ * Market shared object: PROTOCOL_PACKAGES.SCALLOP_MARKET (`0xa757975…`).
+ * WitTable: nested `fields.table.id` (not the WitTable wrapper id).
+ * Debt: amount × market.borrow_index / debt.borrow_index
+ * (protocol::borrow_dynamics / obligation_debts).
  * HF uses a conservative 80% LT when reserve config is unavailable.
  */
 import type {
@@ -17,11 +20,14 @@ import { listOwnedMoveObjects, asRpcObjectClient, multiGetObjectsHydrated } from
 import { resolveSpots } from '@/services/spotPrice/resolveSpots'
 import { enrichSupplyLiquidationPrices, normalizeLiquidationThresholdFactor } from '@/utils/supplyLiquidationPrice'
 import { extractTypeName } from '@/services/turbosService'
+import { PROTOCOL_PACKAGES } from '@/utils/constants'
 import { normalizeSuiAddress } from '@mysten/sui/utils'
 
 export const SCALLOP_PROTOCOL_PKG =
 	'0xefe8b36d5b2e43728cc323298626b83177803521d195cfb11e15b910e892fddf' as const
 export const SCALLOP_OBLIGATION_KEY = `${SCALLOP_PROTOCOL_PKG}::obligation::ObligationKey` as const
+/** Shared Market object id (not a package). */
+export const SCALLOP_MARKET_OBJECT_ID = PROTOCOL_PACKAGES.SCALLOP_MARKET
 
 const DEFAULT_LT = 0.8
 
@@ -52,12 +58,35 @@ function unwrap(val: unknown): Record<string, unknown> | null {
 	return o
 }
 
+/**
+ * WitTable stores the inner Table under `table` / `fields.table`.
+ * The wrapper UID must NOT be used for getDynamicFields.
+ */
 function tableId(wrapper: unknown): string | null {
 	const f = unwrap(wrapper)
-	if (!f) return null
-	const idW = f.id as Record<string, unknown> | undefined
-	const id = idW?.id ?? f.id
-	return typeof id === 'string' && id.startsWith('0x') ? id : null
+	if (!f || f.table == null) return null
+	const inner = unwrap(f.table)
+	if (!inner) {
+		if (typeof f.table === 'string' && f.table.startsWith('0x')) return f.table
+		return null
+	}
+	const idNode = inner.id as Record<string, unknown> | string | undefined
+	if (typeof idNode === 'string' && idNode.startsWith('0x')) return idNode
+	if (idNode && typeof idNode === 'object') {
+		const nested = unwrap(idNode)
+		const id = (nested?.id ?? (idNode as { id?: unknown }).id) as unknown
+		if (typeof id === 'string' && id.startsWith('0x')) return id
+		if (id && typeof id === 'object' && typeof (id as { id?: unknown }).id === 'string') {
+			const deep = (id as { id: string }).id
+			if (deep.startsWith('0x')) return deep
+		}
+	}
+	return null
+}
+
+/** Exported for unit tests. */
+export function scallopTableIdFromWitTable(wrapper: unknown): string | null {
+	return tableId(wrapper)
 }
 
 function readU64(v: unknown): number {
@@ -66,17 +95,23 @@ function readU64(v: unknown): number {
 	return 0
 }
 
-async function readWitTableEntries(
-	parentId: string,
-): Promise<Array<{ coinType: string; amountRaw: number }>> {
-	const out: Array<{ coinType: string; amountRaw: number }> = []
+type WitEntry = { coinType: string; amountRaw: number; borrowIndex: number | null }
+
+async function readWitTableEntries(parentId: string): Promise<WitEntry[]> {
+	const out: WitEntry[] = []
 	let cursor: string | null | undefined
 	for (let page = 0; page < 20; page++) {
-		const res = await suiClient.getDynamicFields({
-			parentId,
-			cursor: cursor ?? undefined,
-			limit: 50,
-		})
+		let res: Awaited<ReturnType<typeof suiClient.getDynamicFields>>
+		try {
+			res = await suiClient.getDynamicFields({
+				parentId,
+				cursor: cursor ?? undefined,
+				limit: 50,
+			})
+		} catch (e) {
+			console.warn('[scallop] getDynamicFields failed', parentId.slice(0, 12), e)
+			break
+		}
 		const ids = res.data.map((d) => d.objectId).filter(Boolean)
 		if (ids.length) {
 			const objs = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), ids)
@@ -94,11 +129,61 @@ async function readWitTableEntries(
 					readU64(value.value) ||
 					readU64(value.debt) ||
 					readU64(value.borrow_amount)
-				if (coinType && amount > 0) out.push({ coinType, amountRaw: amount })
+				const borrowIndex =
+					readU64(value.borrow_index) ||
+					readU64(value.borrowIndex) ||
+					null
+				if (coinType && amount > 0) {
+					out.push({
+						coinType,
+						amountRaw: amount,
+						borrowIndex: borrowIndex && borrowIndex > 0 ? borrowIndex : null,
+					})
+				}
 			}
 		}
 		if (!res.hasNextPage || !res.nextCursor) break
 		cursor = res.nextCursor as string
+	}
+	return out
+}
+
+/**
+ * Load market.borrow_dynamics WitTable → coinType → borrow_index.
+ * Source: protocol::market::Market.borrow_dynamics (docs / borrow_dynamics.move).
+ */
+async function loadMarketBorrowIndexes(): Promise<Map<string, number>> {
+	const out = new Map<string, number>()
+	try {
+		const objs = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), [
+			SCALLOP_MARKET_OBJECT_ID,
+		])
+		const f = contentFields(objs[0])
+		if (!f) return out
+		const dynamicsTable = tableId(f.borrow_dynamics)
+		if (!dynamicsTable) return out
+		const entries = await readWitTableEntries(dynamicsTable)
+		// BorrowDynamic entries use borrow_index as the primary u64 field we stored in amountRaw
+		// when `amount` is absent — re-read carefully via dedicated path below.
+		const res = await suiClient.getDynamicFields({ parentId: dynamicsTable, limit: 50 })
+		const ids = res.data.map((d) => d.objectId).filter(Boolean)
+		if (!ids.length) return out
+		const dynObjs = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), ids)
+		for (const obj of dynObjs) {
+			const cf = contentFields(obj)
+			if (!cf) continue
+			const name = cf.name
+			const coinType =
+				extractTypeName(name) ??
+				(typeof name === 'string' ? name : null) ??
+				extractTypeName((cf.value as Record<string, unknown>)?.name)
+			const value = unwrap(cf.value) ?? cf
+			const idx = readU64(value.borrow_index) || readU64(value.borrowIndex)
+			if (coinType && idx > 0) out.set(coinType.toLowerCase(), idx)
+		}
+		void entries
+	} catch (e) {
+		console.warn('[scallop] loadMarketBorrowIndexes failed', e)
 	}
 	return out
 }
@@ -122,10 +207,22 @@ export async function getScallopPositions(walletAddress: string): Promise<Lendin
 		owner = walletAddress.trim()
 	}
 
-	const keys = await listOwnedMoveObjects(asRpcObjectClient(suiClient), {
-		owner,
-		filter: { StructType: SCALLOP_OBLIGATION_KEY },
-	})
+	let keys: Awaited<ReturnType<typeof listOwnedMoveObjects>>
+	try {
+		keys = await listOwnedMoveObjects(asRpcObjectClient(suiClient), {
+			owner,
+			filter: { StructType: SCALLOP_OBLIGATION_KEY },
+		})
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e)
+		console.warn('[scallop] listOwnedMoveObjects failed', e)
+		return {
+			...EMPTY_SCALLOP_SNAP,
+			incomplete: true,
+			error: `owned: ${msg}`,
+			metricsLive: false,
+		}
+	}
 	if (!keys.length) return EMPTY_SCALLOP_SNAP
 
 	const obligationIds: string[] = []
@@ -141,9 +238,17 @@ export async function getScallopPositions(walletAddress: string): Promise<Lendin
 			}
 		}
 	}
-	if (!obligationIds.length) return EMPTY_SCALLOP_SNAP
+	if (!obligationIds.length) {
+		return {
+			...EMPTY_SCALLOP_SNAP,
+			incomplete: true,
+			error: 'obligation keys unreadable',
+			metricsLive: false,
+		}
+	}
 
 	const oblObjs = await multiGetObjectsHydrated(asRpcObjectClient(suiClient), obligationIds)
+	const marketBorrowIndex = await loadMarketBorrowIndexes()
 
 	const supplies: SupplyPosition[] = []
 	const borrows: BorrowPosition[] = []
@@ -151,11 +256,12 @@ export async function getScallopPositions(walletAddress: string): Promise<Lendin
 	let totalBorrowedUSD = 0
 	const obligationHfs: number[] = []
 	const allCoinTypes = new Set<string>()
+	let tablesUnreadable = false
 
 	type Pending = {
 		oblId: string
-		collaterals: Array<{ coinType: string; amountRaw: number }>
-		debts: Array<{ coinType: string; amountRaw: number }>
+		collaterals: WitEntry[]
+		debts: WitEntry[]
 	}
 	const pending: Pending[] = []
 
@@ -165,6 +271,7 @@ export async function getScallopPositions(walletAddress: string): Promise<Lendin
 		const oblId = obligationIds[i]!
 		const colTable = tableId(f.collaterals)
 		const debtTable = tableId(f.debts)
+		if (!colTable && !debtTable) tablesUnreadable = true
 		const collaterals = colTable ? await readWitTableEntries(colTable) : []
 		const debts = debtTable ? await readWitTableEntries(debtTable) : []
 		for (const c of collaterals) allCoinTypes.add(c.coinType)
@@ -173,8 +280,14 @@ export async function getScallopPositions(walletAddress: string): Promise<Lendin
 	}
 
 	if (!pending.some((p) => p.collaterals.length || p.debts.length)) {
-		// Keys found but tables empty / unreadable → surface partial empty book
-		return { ...EMPTY_SCALLOP_SNAP }
+		return {
+			...EMPTY_SCALLOP_SNAP,
+			incomplete: true,
+			error: tablesUnreadable
+				? 'wit_table.id missing (wrapper id used?)'
+				: 'tables empty / unreadable',
+			metricsLive: false,
+		}
 	}
 
 	const meta = new Map<string, { symbol: string; decimals: number }>()
@@ -250,7 +363,17 @@ export async function getScallopPositions(walletAddress: string): Promise<Lendin
 
 		for (const d of p.debts) {
 			const m = meta.get(d.coinType) ?? { symbol: '?', decimals: 9 }
-			const amount = d.amountRaw / 10 ** m.decimals
+			const marketIdx =
+				marketBorrowIndex.get(d.coinType.toLowerCase()) ??
+				[...marketBorrowIndex.entries()].find(([k]) =>
+					k.endsWith(d.coinType.split('::').slice(-2).join('::').toLowerCase()),
+				)?.[1]
+			const debtIdx = d.borrowIndex
+			let amountRaw = d.amountRaw
+			if (marketIdx && debtIdx && debtIdx > 0) {
+				amountRaw = (d.amountRaw * marketIdx) / debtIdx
+			}
+			const amount = amountRaw / 10 ** m.decimals
 			const price = px(d.coinType)
 			const debtUSD = Number.isFinite(price) ? amount * price : Number.NaN
 			if (Number.isFinite(debtUSD)) {

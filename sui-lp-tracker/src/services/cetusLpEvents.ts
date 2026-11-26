@@ -28,6 +28,7 @@ const CETUS_LP_EVENT_STRUCT_SET = new Set([
 	'CollectRewardV2Event',
 	'HarvestEvent',
 	'ClosePositionEvent',
+	'OpenPositionEvent',
 ])
 
 const CETUS_STRUCT_TO_EVTYPE: Record<string, EventType> = {
@@ -40,7 +41,16 @@ const CETUS_STRUCT_TO_EVTYPE: Record<string, EventType> = {
 	CollectRewardV2Event: 'collect_reward',
 	HarvestEvent: 'collect_reward',
 	ClosePositionEvent: 'close_position',
+	OpenPositionEvent: 'open_position',
 }
+
+/** Structs whose typed query may live under upgrade packages (not CETUS_CLMM alone). */
+const CETUS_V2_STRUCTS = new Set([
+	'AddLiquidityV2Event',
+	'RemoveLiquidityV2Event',
+	'OpenPositionEvent',
+	'CollectRewardV2Event',
+])
 
 /**
  * Extract Move struct name, stripping generic type parameters first.
@@ -474,8 +484,13 @@ function saveCetusSenderCache(
 	})
 }
 
-/** Cetus CLMM LP event Move types (original package id — type identity survives upgrades). */
-const CETUS_TYPED_EVENT_PATHS = [
+/**
+ * Cetus CLMM LP event Move type paths.
+ * V1 structs keep the original package id; V2 structs (Add/RemoveLiquidityV2,
+ * OpenPosition, CollectRewardV2) were published under upgrade packages —
+ * query all candidate packages so typed GraphQL does not miss them.
+ */
+const CETUS_EVENT_STRUCTS = [
 	'AddLiquidityEvent',
 	'RemoveLiquidityEvent',
 	'AddLiquidityV2Event',
@@ -486,7 +501,41 @@ const CETUS_TYPED_EVENT_PATHS = [
 	'HarvestEvent',
 	'ClosePositionEvent',
 	'OpenPositionEvent',
-].map((s) => `${PROTOCOL_PACKAGES.CETUS_CLMM}::pool::${s}`)
+] as const
+
+const CETUS_TYPED_PACKAGES = [
+	PROTOCOL_PACKAGES.CETUS_CLMM,
+	PROTOCOL_PACKAGES.CETUS_CLMM_V2,
+	PROTOCOL_PACKAGES.CETUS_CLMM_REWARD_V2,
+] as const
+
+/** Exported for unit tests — full typed Move paths across Cetus packages. */
+export function buildCetusTypedEventPaths(): string[] {
+	const paths: string[] = []
+	for (const pkg of CETUS_TYPED_PACKAGES) {
+		for (const s of CETUS_EVENT_STRUCTS) {
+			paths.push(`${pkg}::pool::${s}`)
+		}
+	}
+	return paths
+}
+
+const CETUS_TYPED_EVENT_PATHS = buildCetusTypedEventPaths()
+
+function isCriticalEmptyTypedPath(typePath: string): boolean {
+	const struct = typePath.split('::').pop() ?? ''
+	if (!CETUS_V2_STRUCTS.has(struct) && struct !== 'ClosePositionEvent' && struct !== 'RemoveLiquidityEvent') {
+		return false
+	}
+	// Prefer the package that actually owns the V2 struct
+	if (struct === 'CollectRewardV2Event') {
+		return typePath.startsWith(PROTOCOL_PACKAGES.CETUS_CLMM_REWARD_V2)
+	}
+	if (CETUS_V2_STRUCTS.has(struct)) {
+		return typePath.startsWith(PROTOCOL_PACKAGES.CETUS_CLMM_V2)
+	}
+	return typePath.startsWith(PROTOCOL_PACKAGES.CETUS_CLMM)
+}
 
 /**
  * Scan ALL Cetus LP lifecycle events emitted by walletAddress.
@@ -556,6 +605,7 @@ async function _scanCetusWalletEventsInner(
 
 	const PAGE_TIMEOUT_MS = 12_000
 
+	let criticalTypedEmpty: boolean
 	try {
 		const typed = await querySenderAndMoveEventTypes(walletAddress, CETUS_TYPED_EVENT_PATHS, {
 			maxPagesPerType: cached ? MAX_CETUS_DELTA_PAGES : Math.min(MAX_EVENT_PAGES, 40),
@@ -567,17 +617,25 @@ async function _scanCetusWalletEventsInner(
 			if (!isCetusLpEventType(ev.type)) continue
 			newEvents.push(ev)
 		}
+		criticalTypedEmpty = typed.emptyTypes.some(isCriticalEmptyTypedPath)
 		pagesScanned = CETUS_TYPED_EVENT_PATHS.length
 		console.log(
-			`[cetus-scan] typed SenderAndMoveEventType: ${newEvents.length} Cetus LP events (partial=${typed.partial}, warm=${cached != null})`,
+			`[cetus-scan] typed SenderAndMoveEventType: ${newEvents.length} Cetus LP events (partial=${typed.partial}, emptyCritical=${criticalTypedEmpty}, warm=${cached != null})`,
 		)
 	} catch (e) {
 		console.warn('[cetus-scan] typed scan failed — falling back to Sender-only', e)
+		criticalTypedEmpty = true
 	}
 
-	// Fallback: wallet-wide Sender scan when typed path returned nothing on cold start.
-	if (newEvents.length === 0 && !cached) {
-		for (let page = 0; page < scanPages && hasMore && !reachedCutoff; page++) {
+	// Fallback: wallet-wide Sender when all typed empty OR a critical V2 type returned 0
+	// (do not wait for "all typed empty" — CollectFee alone must not skip RemoveLiquidityV2).
+	const needSenderFallback = newEvents.length === 0 || criticalTypedEmpty
+	if (needSenderFallback) {
+		const fallbackPages = cached ? MAX_CETUS_DELTA_PAGES : scanPages
+		const seenKeys = new Set(
+			newEvents.map((ev) => `${ev.id?.txDigest ?? ''}|${ev.id?.eventSeq ?? '0'}|${ev.type}`),
+		)
+		for (let page = 0; page < fallbackPages && hasMore && !reachedCutoff; page++) {
 			try {
 				const r = await Promise.race([
 					suiClient.queryEvents({
@@ -598,11 +656,15 @@ async function _scanCetusWalletEventsInner(
 						reachedCutoff = true
 						break
 					}
+					const seq = ev.id?.eventSeq != null ? String(ev.id.eventSeq) : '0'
+					const key = `${ev.id?.txDigest ?? ''}|${seq}|${ev.type}`
+					if (seenKeys.has(key)) continue
+					seenKeys.add(key)
 					newEvents.push(ev as unknown as ChainEventLike)
 				}
 				hasMore = r.hasNextPage
 				cursor = r.nextCursor ?? null
-				if (page === scanPages - 1 && hasMore) historyPartial = true
+				if (page === fallbackPages - 1 && hasMore) historyPartial = true
 			} catch (e) {
 				if (String((e as Error)?.message).includes('timeout')) senderScanTimedOut = true
 				historyPartial = true
@@ -610,7 +672,7 @@ async function _scanCetusWalletEventsInner(
 			}
 		}
 		console.log(
-			`[cetus-scan] Sender fallback: ${pagesScanned} pages, ${newEvents.length} Cetus LP events`,
+			`[cetus-scan] Sender fallback: ${pagesScanned} pages, ${newEvents.length} Cetus LP events (criticalEmpty=${criticalTypedEmpty})`,
 		)
 	}
 

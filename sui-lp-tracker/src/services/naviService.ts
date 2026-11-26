@@ -682,7 +682,10 @@ export async function getNaviPositions(
 		const priceUSD = n(pool.oracle?.price)
 		liquidationValue += supplyHuman * priceUSD * lt
 	}
-	const healthFactor = totalBorrowedUSD > 0 ? liquidationValue / totalBorrowedUSD : null
+	// Dust borrow (< $1) → hide absurd HF; treat as no meaningful borrow.
+	const meaningfulBorrow = totalBorrowedUSD >= 1
+	const healthFactor =
+		meaningfulBorrow && liquidationValue > 0 ? liquidationValue / totalBorrowedUSD : null
 
 	for (const b of borrows) {
 		b.healthFactor = healthFactor ?? 0

@@ -549,6 +549,10 @@ export interface LendingSnapshot {
 	metricsLive?: boolean
 	readStale?: boolean
 	lastSuccessAtMs?: number
+	/** True when owned keys/objects exist but book could not be fully valued. */
+	incomplete?: boolean
+	/** Machine-readable reason when status is error/partial. */
+	error?: string
 }
 
 export type SpotSource =

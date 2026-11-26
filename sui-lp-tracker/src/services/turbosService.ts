@@ -881,19 +881,20 @@ export async function getTurbosPositions(
 			currentPriceA_USD: dPxA,
 			currentPriceB_USD: dPxB,
 			currentValueUSD: valueUsd,
-			depositedUSD: 0,        // set by enrichment
-			pnlUSD: 0,              // set by enrichment
-			pnlPct: 0,              // set by enrichment
+			// NaN until enrichment finishes — never surface silent deposit/PnL = 0
+			depositedUSD: Number.NaN,
+			pnlUSD: Number.NaN,
+			pnlPct: Number.NaN,
 			unclaimedFeeA: dFeeA,
 			unclaimedFeeB: dFeeB,
 			unclaimedFeeUSD: feeUsd,
 			unclaimedRewardUSD: unclRewardUsd,
-			openedAt: 0,            // set by enrichment
-			daysOpen: 0,            // set by enrichment
-			lifetimeEarningsUSD: 0, // set by enrichment
-			vsHodlDeltaUSD: 0,      // set by enrichment
-			aprEstimatePct: 0,      // set by enrichment
-			historyPartial: pricePartial,
+			openedAt: 0,
+			daysOpen: 0,
+			lifetimeEarningsUSD: Number.NaN,
+			vsHodlDeltaUSD: Number.NaN,
+			aprEstimatePct: 0,
+			historyPartial: true,
 		})
 	}
 

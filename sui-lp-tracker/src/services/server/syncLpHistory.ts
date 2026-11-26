@@ -73,7 +73,7 @@ async function enrichTurbosOpen(
 	return mapPool(turbos, TURBOS_ENRICH_CONCURRENCY, async (p) => {
 		const origDecA = p.turbosOriginalDecimalsA ?? p.tokenADecimals
 		const origDecB = p.turbosOriginalDecimalsB ?? p.tokenBDecimals
-		let evs = await scanTurbosPositionEvents(
+		const scan = await scanTurbosPositionEvents(
 			wallet,
 			p.id,
 			p.turbosPositionObjectId ?? '',
@@ -81,6 +81,7 @@ async function enrichTurbosOpen(
 			origDecB,
 			options?.sinceByPositionId?.[p.id],
 		)
+		let evs = scan.events
 		if (p.turbosSwapped) {
 			evs = evs.map((e) => ({
 				...e,
@@ -98,7 +99,7 @@ async function enrichTurbosOpen(
 		}
 		const seeded = options?.seedEventsByPositionId?.[p.id] ?? []
 		evs = mergeLpHistoryEvents(seeded, evs)
-		const enriched = await enrichBluefinOpenPositionWithEvents(p, evs, false)
+		const enriched = await enrichBluefinOpenPositionWithEvents(p, evs, scan.partial)
 		return { id: p.id, events: enriched.events }
 	})
 }
