@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.7
+
+- LP history: GraphQL typed `SenderAndMoveEventType` замість gRPC `ListTransactions` / `FromAddress` у scanSession, enrichment і closed (Cetus/Bluefin/Momentum/Turbos) — глибше за ~16 днів pruning, без `BELOW_EARLIEST_AVAILABLE`.
+- `[scan] step=… ms=… source=graphql|grpc` таймінги для scanSession / Turbos / closed fallbacks; live harness друкує top-5 найповільніших кроків.
+
 ## 2.5.6
 
 - Overview: unsupported/staking inventory stubs no longer appear as `—/—` UNKNOWN rows and no longer trigger «Some data is unavailable» (they had no value → LP marked missing). A one-line note links to the LP tab.

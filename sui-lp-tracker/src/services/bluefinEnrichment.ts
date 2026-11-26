@@ -26,6 +26,7 @@ import { syntheticOpenFromClosed } from '@/utils/syntheticOpenFromClosed'
 import { isEmptyLpPosition } from '@/utils/lpLifecycle'
 import { scanCetusPositionEventsByWalletTxs } from '@/services/cetusLpEvents'
 import { scanTurbosPositionEvents } from '@/services/turbosLpEvents'
+import { timedScanStep } from '@/services/scanTiming'
 
 function quoteKey(coinType: string, ts: number): string {
 	return historicalQuoteKey(coinType, ts)
@@ -768,14 +769,16 @@ export async function enrichAllBluefinOpenPositions(
 
 	if (needTxScan.length > 0) {
 		try {
-			const tx = await scanLpWalletPositionHistory(
-				wallet,
-				needTxScan.map((p) => ({
-					id: p.id,
-					tokenADecimals: p.tokenADecimals,
-					tokenBDecimals: p.tokenBDecimals,
-					protocol: p.protocol,
-				})),
+			const tx = await timedScanStep('enrich.lpHistory.typed', 'graphql', () =>
+				scanLpWalletPositionHistory(
+					wallet,
+					needTxScan.map((p) => ({
+						id: p.id,
+						tokenADecimals: p.tokenADecimals,
+						tokenBDecimals: p.tokenBDecimals,
+						protocol: p.protocol,
+					})),
+				),
 			)
 			if (tx.historyPartial) {
 				if (needTxScan.some((p) => p.protocol === 'bluefin')) bfScanPartial = true
@@ -1220,14 +1223,15 @@ export async function enrichAllBluefinClosedPositions(
 							/* non-fatal — keep existing merged events */
 						}
 					} else if (cp.protocol === 'cetus' && walletAddress) {
-						// Cetus fallback: deep wallet TX scan (FromAddress).
-						// Covers positions older than the 2500-event wallet Sender scan window.
+						// Cetus fallback: deep GraphQL typed (no gRPC FromAddress).
 						try {
-							const targeted = await scanCetusPositionEventsByWalletTxs(
-								walletAddress,
-								cp.id,
-								synth.tokenADecimals,
-								synth.tokenBDecimals,
+							const targeted = await timedScanStep('closed.cetus.deepTyped', 'graphql', () =>
+								scanCetusPositionEventsByWalletTxs(
+									walletAddress,
+									cp.id,
+									synth.tokenADecimals,
+									synth.tokenBDecimals,
+								),
 							)
 							if (targeted.length > 0) {
 								mergedEvents = mergePositionEvents(targeted, mergedEvents)
@@ -1236,20 +1240,19 @@ export async function enrichAllBluefinClosedPositions(
 							/* non-fatal — keep existing merged events */
 						}
 					} else if (cp.protocol === 'turbos') {
-						// Turbos fallback: Sender-based scan for positions where events are empty/partial.
+						// Turbos fallback: GraphQL typed Move events for this NFT.
 						try {
-							const targeted = await scanTurbosPositionEvents(
-								walletAddress ?? '',
-								cp.id,
-								'',   // positionObjectId not stored on ClosedPosition; nftId covers newer events
-								synth.tokenADecimals,
-								synth.tokenBDecimals,
+							const targeted = await timedScanStep('closed.turbos.typed', 'graphql', () =>
+								scanTurbosPositionEvents(
+									walletAddress ?? '',
+									cp.id,
+									'', // positionObjectId not on ClosedPosition; nftId covers newer events
+									synth.tokenADecimals,
+									synth.tokenBDecimals,
+								),
 							)
 							if (targeted.events.length > 0) {
 								mergedEvents = mergePositionEvents(targeted.events, mergedEvents)
-							}
-							if (targeted.partial) {
-								/* leave partialHistory set below */
 							}
 						} catch {
 							/* non-fatal — keep existing merged events */

@@ -6,6 +6,12 @@ import {
 	type MomentumWalletRawEvt,
 } from '@/services/eventParser'
 import { normalizeSuiAddress } from '@mysten/sui/utils'
+import {
+	getLastScanTimings,
+	resetScanTimings,
+	timedScanStep,
+	type ScanStepTiming,
+} from '@/services/scanTiming'
 
 export type LpWalletScanSession = {
 	walletNorm: string
@@ -17,6 +23,8 @@ export type LpWalletScanSession = {
 		rawByPositionId: Map<string, MomentumWalletRawEvt[]>
 		historyPartial: boolean
 	}
+	/** Per-step timings from the last ensureLpWalletScanSession run. */
+	timings?: ScanStepTiming[]
 }
 
 let currentSession: LpWalletScanSession | null = null
@@ -56,6 +64,7 @@ export function invalidateLpWalletScanSession(wallet: string): void {
 
 /**
  * Один cold/warm scan Bluefin + Momentum raw events на `loadAll` / Refresh.
+ * GraphQL typed + Sender pages only (no gRPC ListTransactions / FromAddress TX window).
  * Ніколи не кидає — при RPC/мережевій помилці повертає порожню сесію (enrichment має fallback).
  */
 export async function ensureLpWalletScanSession(
@@ -77,10 +86,16 @@ export async function ensureLpWalletScanSession(
 	}
 
 	inflight = (async () => {
-		// Parallel BF+MMT — shared Sender page cache + typed GraphQL concurrency cut wall time ~2×.
+		resetScanTimings()
+		const tAll = Date.now()
+		// Parallel BF+MMT — shared Sender page cache + typed GraphQL concurrency.
 		const [bluefinSettled, momentumSettled] = await Promise.allSettled([
-			scanBluefinWalletAllPositionEvents(wallet),
-			scanMomentumWalletAllPositionEvents(wallet),
+			timedScanStep('scanSession.bluefin', 'graphql', () =>
+				scanBluefinWalletAllPositionEvents(wallet),
+			),
+			timedScanStep('scanSession.momentum', 'graphql', () =>
+				scanMomentumWalletAllPositionEvents(wallet),
+			),
 		])
 		let bluefin = emptyBluefinScan()
 		let momentum = emptyMomentumScan()
@@ -100,10 +115,19 @@ export async function ensureLpWalletScanSession(
 				momentumSettled.reason,
 			)
 		}
+		const totalMs = Date.now() - tAll
+		console.log(
+			`[scan] step=scanSession.total ms=${totalMs} source=graphql bfPos=${bluefin.rawByPositionId.size} mmtPos=${momentum.rawByPositionId.size}`,
+		)
+		const timings = [
+			...getLastScanTimings(),
+			{ step: 'scanSession.total', ms: totalMs, source: 'graphql' as const },
+		]
 		const session: LpWalletScanSession = {
 			walletNorm: norm,
 			bluefin,
 			momentum,
+			timings,
 		}
 		currentSession = session
 		return session

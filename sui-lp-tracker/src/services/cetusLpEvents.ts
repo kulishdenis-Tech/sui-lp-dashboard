@@ -826,102 +826,67 @@ export function invalidateCetusEventCache(walletAddress: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Deep wallet TX scan (FromAddress-based fallback for old closed positions)
+// Deep GraphQL typed fallback (replaces gRPC FromAddress ListTransactions)
 // ---------------------------------------------------------------------------
 
 /**
- * Session-level cache: walletAddress → deep TX scan promise.
- * Separate from _walletScanCache — covers ALL wallet TXs, not just the last
- * 2500 events from the Sender scan.
+ * Session-level cache: walletAddress → deep typed GraphQL scan promise.
+ * Separate from _walletScanCache — uses more pages per Move type for old closed positions.
  */
 const _walletTxScanCache = new Map<string, Promise<Map<string, RawEvent[]>>>()
 
-/** Max pages for the deep TX scan (100 × 50 = up to 5 000 TXs from the wallet). */
-const MAX_TX_SCAN_PAGES = 100
+/** Deeper typed pages than the primary Sender/typed wallet scan (GraphQL archive). */
+const MAX_DEEP_TYPED_PAGES = 80
 
 /**
- * Scan ALL TXs sent by the wallet, extracting Cetus LP events grouped by position.
- *
- * Unlike the Sender event scan (limited to the last ~2500 total events emitted
- * by the wallet), this walks the full TX history and therefore reaches events
- * from positions that were opened months or years ago.
- *
- * Returns a Map from normalised positionId → list of RawEvents (enriched with
- * tx digest + tx-level timestamp so they can be parsed later with decimals).
+ * Deep GraphQL typed scan of Cetus LP events for a wallet, grouped by position.
+ * Avoids gRPC `ListTransactions` / FromAddress pruning (BELOW_EARLIEST_AVAILABLE).
  */
-async function scanCetusWalletTxs(
+async function scanCetusWalletDeepTyped(
 	walletAddress: string,
 ): Promise<Map<string, RawEvent[]>> {
 	const byPosition = new Map<string, RawEvent[]>()
+	const t0 = Date.now()
 
-	let cursor: string | null | undefined
-	let hasMore = true
-
-	const TX_PAGE_TIMEOUT_MS = 15_000
-
-	for (let page = 0; page < MAX_TX_SCAN_PAGES && hasMore; page++) {
-		try {
-			const r = await Promise.race([
-				suiClient.queryTransactionBlocks({
-					filter: { FromAddress: walletAddress },
-					options: { showEvents: true },
-					limit: 50,
-					cursor: cursor ?? undefined,
-					order: 'descending',
-				}),
-				new Promise<never>((_, rej) =>
-					setTimeout(() => rej(new Error('queryTxBlocks-page-timeout')), TX_PAGE_TIMEOUT_MS),
-				),
-			])
-
-			for (const tx of r.data) {
-				const tsSec = tx.timestampMs ? parseInt(String(tx.timestampMs), 10) / 1000 : 0
-				for (const ev of (tx.events ?? []) as RawEvent[]) {
-					if (!isCetusLpEventType(ev.type)) continue
-					if (!ev.parsedJson || typeof ev.parsedJson !== 'object') continue
-					const pj = ev.parsedJson as Parsed
-					const pid = readPositionFromEvent(pj)
-					if (!pid) continue
-
-					// Enrich the event with tx-level metadata so consumers can parse it later
-					const enriched: RawEvent = {
-						type: ev.type,
-						parsedJson: ev.parsedJson,
-						id: {
-							eventSeq: (ev.id as { eventSeq?: string } | undefined)?.eventSeq ?? '0',
-							txDigest: tx.digest,
-						},
-						timestampMs: String(Math.floor(tsSec * 1000)),
-					}
-
-					if (!byPosition.has(pid)) byPosition.set(pid, [])
-					byPosition.get(pid)!.push(enriched)
-				}
+	try {
+		const typed = await querySenderAndMoveEventTypes(walletAddress, CETUS_TYPED_EVENT_PATHS, {
+			maxPagesPerType: MAX_DEEP_TYPED_PAGES,
+			pageSize: EVENTS_PER_PAGE,
+			typeConcurrency: 3,
+		})
+		for (const ev of typed.events) {
+			if (!isCetusLpEventType(ev.type)) continue
+			if (!ev.parsedJson || typeof ev.parsedJson !== 'object') continue
+			const pj = ev.parsedJson as Parsed
+			const pid = readPositionFromEvent(pj)
+			if (!pid) continue
+			const enriched: RawEvent = {
+				type: ev.type,
+				parsedJson: ev.parsedJson,
+				id: {
+					eventSeq: ev.id?.eventSeq ?? '0',
+					txDigest: ev.id?.txDigest ?? '',
+				},
+				timestampMs:
+					ev.timestampMs != null ? String(ev.timestampMs) : undefined,
 			}
-
-			hasMore = r.hasNextPage
-			cursor = r.nextCursor ?? null
-		} catch {
-			break
+			if (!byPosition.has(pid)) byPosition.set(pid, [])
+			byPosition.get(pid)!.push(enriched)
 		}
+		console.log(
+			`[cetus-deep-typed] GraphQL done: ${byPosition.size} positions, partial=${typed.partial}, ms=${Date.now() - t0}`,
+		)
+	} catch (e) {
+		console.warn('[cetus-deep-typed] GraphQL scan failed', e)
 	}
-
-	 
-	console.log(`[cetus-tx-scan] TX scan done: ${byPosition.size} positions found, keys:`, [...byPosition.keys()].map(k => k.slice(0, 16)))
 
 	return byPosition
 }
 
 /**
- * Returns all Cetus LP events for one position using a deep wallet TX scan.
- *
- * Uses `queryTransactionBlocks({ FromAddress: wallet })` to walk the wallet's
- * full TX history (up to 5 000 TXs).  This is the fallback for old closed
- * positions whose events fall outside the 2 500-event window of the fast
- * Sender-based scan.
- *
- * The result is cached per wallet for 5 minutes so that multiple old positions
- * share a single scan.
+ * Returns Cetus LP events for one position via deep GraphQL typed wallet scan.
+ * Fallback when the primary Sender/typed window missed opening events.
+ * Cached per wallet for 5 minutes.
  */
 export async function scanCetusPositionEventsByWalletTxs(
 	walletAddress: string,
@@ -936,12 +901,10 @@ export async function scanCetusPositionEventsByWalletTxs(
 		return []
 	}
 
-	// Use or create the wallet-wide TX scan promise (deduplicated)
 	let scanPromise = _walletTxScanCache.get(walletAddress)
 	if (!scanPromise) {
-		scanPromise = scanCetusWalletTxs(walletAddress)
+		scanPromise = scanCetusWalletDeepTyped(walletAddress)
 		_walletTxScanCache.set(walletAddress, scanPromise)
-		// Evict after 5 minutes so a Refresh re-scans
 		setTimeout(() => _walletTxScanCache.delete(walletAddress), 5 * 60 * 1000)
 	}
 
