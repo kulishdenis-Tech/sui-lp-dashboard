@@ -101,7 +101,7 @@ async function loadPortfolioSnapshotDetailedOnce(
 			id: 'alphalend',
 			ok: false,
 			error: e instanceof Error ? e.message : String(e),
-			status: 'unavailable',
+			status: 'error',
 		})
 	}
 
@@ -115,7 +115,7 @@ async function loadPortfolioSnapshotDetailedOnce(
 			id: 'navi',
 			ok: false,
 			error: e instanceof Error ? e.message : String(e),
-			status: 'unavailable',
+			status: 'error',
 		})
 	}
 
@@ -129,7 +129,7 @@ async function loadPortfolioSnapshotDetailedOnce(
 			id: 'current',
 			ok: false,
 			error: e instanceof Error ? e.message : String(e),
-			status: 'unavailable',
+			status: 'error',
 		})
 	}
 

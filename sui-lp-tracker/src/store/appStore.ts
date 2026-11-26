@@ -708,7 +708,20 @@ export const useAppStore = create<AppState>((set, get) => ({
 			void afterBalanceRpc(() => getSuilendPositions(address)).then((snap) => {
 				if (isStale()) return
 				suilendDone = true
-				set({ suilendSnapshot: snap })
+				if (snap.incomplete || snap.error) {
+					const prev = get().suilendSnapshot
+					const keep =
+						prev != null &&
+						!prev.incomplete &&
+						(prev.supplies.length > 0 || prev.borrows.length > 0)
+					set({
+						suilendSnapshot: keep
+							? { ...prev, readStale: true, metricsLive: false, error: snap.error }
+							: snap,
+					})
+				} else {
+					set({ suilendSnapshot: snap })
+				}
 				recomputeNetWorth()
 				onLendingAllDone()
 			}).catch((e) => {
@@ -718,14 +731,31 @@ export const useAppStore = create<AppState>((set, get) => ({
 					const prev = get().suilendSnapshot
 					const keep =
 						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
-					set({ suilendSnapshot: keep ? prev : EMPTY_SUILEND_SNAP })
+					set({
+						suilendSnapshot: keep
+							? { ...prev, readStale: true, metricsLive: false }
+							: { ...EMPTY_SUILEND_SNAP, incomplete: true, error: String(e) },
+					})
 					onLendingAllDone()
 				}
 			})
 			void afterBalanceRpc(() => getScallopPositions(address)).then((snap) => {
 				if (isStale()) return
 				scallopDone = true
-				set({ scallopSnapshot: snap })
+				if (snap.incomplete || snap.error) {
+					const prev = get().scallopSnapshot
+					const keep =
+						prev != null &&
+						!prev.incomplete &&
+						(prev.supplies.length > 0 || prev.borrows.length > 0)
+					set({
+						scallopSnapshot: keep
+							? { ...prev, readStale: true, metricsLive: false, error: snap.error }
+							: snap,
+					})
+				} else {
+					set({ scallopSnapshot: snap })
+				}
 				recomputeNetWorth()
 				onLendingAllDone()
 			}).catch((e) => {
@@ -735,7 +765,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 					const prev = get().scallopSnapshot
 					const keep =
 						prev != null && (prev.supplies.length > 0 || prev.borrows.length > 0)
-					set({ scallopSnapshot: keep ? prev : EMPTY_SCALLOP_SNAP })
+					set({
+						scallopSnapshot: keep
+							? { ...prev, readStale: true, metricsLive: false }
+							: { ...EMPTY_SCALLOP_SNAP, incomplete: true, error: String(e) },
+					})
 					onLendingAllDone()
 				}
 			})

@@ -193,15 +193,65 @@ export async function scanBluefinWalletAllPositionEvents(walletAddress: string):
 	const seenPkgs = new Set<string>(idbEntry?.seenPkgs ?? [])
 
 	if (!idbEntry) {
-		// ── Cold start: full scan ───────────────────────────────────────────────
-		 
+		// ── Cold start: GraphQL typed first, then Sender safety net ─────────────
 		console.log('[bf-scan] cold start wallet=', walletNormKey.slice(0, 12))
+
+		try {
+			const typed = await querySenderAndMoveEventTypes(walletAddress, bluefinTypedEventPaths(), {
+				maxPagesPerType: 40,
+				pageSize: 50,
+			})
+			if (typed.partial) historyPartial = true
+			const dedupe = assistDedupeSetsFrom(rawByPositionId)
+			for (const ev of typed.events) {
+				const typeStr = ev.type
+				if (!isBluefinLpLifecycleMoveEventType(typeStr)) continue
+				const pjRaw = ev.parsedJson
+				if (!pjRaw || typeof pjRaw !== 'object') continue
+				const pj = pjRaw as Parsed
+				const sn = structNameFromType(typeStr)
+				if (!STRUCT_TO_TYPE[sn]) continue
+				const pid = readPositionId(pj)
+				if (!pid) continue
+				let posNorm: string
+				try {
+					posNorm = normalizeSuiAddress(pid)
+				} catch {
+					continue
+				}
+				const pkg = pkgFromMoveType(typeStr)
+				if (pkg) seenPkgs.add(pkg)
+				const dig = ev.id?.txDigest ?? ''
+				if (!dig) continue
+				const rawMs = ev.timestampMs != null ? Number(ev.timestampMs) : NaN
+				const tsSec = Number.isFinite(rawMs) ? Math.floor(rawMs / 1000) : 0
+				const row: BluefinWalletRawEvt = {
+					digest: dig,
+					tsSec,
+					event: { type: typeStr, parsedJson: ev.parsedJson, id: ev.id },
+				}
+				const dk = walletEvtDedupeKey(row)
+				let s = dedupe.get(posNorm)
+				if (!s) {
+					s = new Set()
+					dedupe.set(posNorm, s)
+				}
+				if (s.has(dk)) continue
+				s.add(dk)
+				const arr = rawByPositionId.get(posNorm) ?? []
+				arr.push(row)
+				rawByPositionId.set(posNorm, arr)
+			}
+			console.log('[bf-scan] GraphQL typed done — positions=', rawByPositionId.size)
+		} catch (e) {
+			console.warn('[bf-scan] GraphQL typed cold scan failed', e)
+			historyPartial = true
+		}
 
 		await mergeBluefinSenderQueryEvents(walletAddress, rawByPositionId, (partial) => {
 			if (partial) historyPartial = true
 		}, seenPkgs)
 
-		 
 		console.log('[bf-scan] Phase 1 done — positions=', rawByPositionId.size, '| seenPkgs=', [...seenPkgs])
 
 		await mergeBluefinClosedGlobal(walletAddress, rawByPositionId, seenPkgs)

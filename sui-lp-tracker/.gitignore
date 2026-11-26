@@ -39,6 +39,7 @@ data/
 
 # Temp files
 *.tmp
+.cutover-head.txt
 
 
 !.env.example
