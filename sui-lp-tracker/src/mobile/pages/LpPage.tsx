@@ -15,6 +15,7 @@ import { isLpPositionHistoryEnriched, lpProtocolUsesOnChainHistory } from '@/uti
 import { CascadeManageMenu } from '@/pages/autopilot/CascadeManageMenu'
 import { groupRememberedCascades } from '@/pages/autopilot/groupRememberedCascades'
 import { classifyLpBand } from '@/pages/overviewLab/overviewMetrics'
+import { describeUnsupportedType } from '@/utils/unsupportedLp'
 
 type View = 'open' | 'vaults' | 'closed'
 
@@ -279,7 +280,7 @@ export function LpPage() {
 						<div className={`${card} space-y-1 px-3 py-2 text-sm text-slate-300`}>
 							{unsupportedGroups.map((g) => (
 								<p key={g.typeLabel}>
-									Unsupported ({g.typeLabel}, {g.count})
+									{g.count}× {g.typeLabel} — {describeUnsupportedType(g.typeLabel)}
 								</p>
 							))}
 						</div>
