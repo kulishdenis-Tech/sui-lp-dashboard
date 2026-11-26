@@ -77,20 +77,28 @@ export async function ensureLpWalletScanSession(
 	}
 
 	inflight = (async () => {
-		// Послідовно — менше одночасних RPC (стабільніше у вбудованих браузерах / після restart dev-сервера).
+		// Parallel BF+MMT — shared Sender page cache + typed GraphQL concurrency cut wall time ~2×.
+		const [bluefinSettled, momentumSettled] = await Promise.allSettled([
+			scanBluefinWalletAllPositionEvents(wallet),
+			scanMomentumWalletAllPositionEvents(wallet),
+		])
 		let bluefin = emptyBluefinScan()
 		let momentum = emptyMomentumScan()
-		try {
-			bluefin = await scanBluefinWalletAllPositionEvents(wallet)
-		} catch (e) {
-			 
-			console.warn('[lpScanSession] Bluefin wallet scan failed — continuing with empty raw', e)
+		if (bluefinSettled.status === 'fulfilled') {
+			bluefin = bluefinSettled.value
+		} else {
+			console.warn(
+				'[lpScanSession] Bluefin wallet scan failed — continuing with empty raw',
+				bluefinSettled.reason,
+			)
 		}
-		try {
-			momentum = await scanMomentumWalletAllPositionEvents(wallet)
-		} catch (e) {
-			 
-			console.warn('[lpScanSession] Momentum wallet scan failed — continuing with empty raw', e)
+		if (momentumSettled.status === 'fulfilled') {
+			momentum = momentumSettled.value
+		} else {
+			console.warn(
+				'[lpScanSession] Momentum wallet scan failed — continuing with empty raw',
+				momentumSettled.reason,
+			)
 		}
 		const session: LpWalletScanSession = {
 			walletNorm: norm,

@@ -9,6 +9,14 @@ const COPY_KEYS = [
 	'SUPABASE_SERVICE_ROLE_KEY',
 	'WATCH_WALLETS',
 	'CRON_SECRET',
+	'VITE_BLOCKVISION_API_KEY',
+	'BLOCKVISION_API_KEY',
+	'VITE_SUI_GRPC_URL',
+	'SUI_GRPC_URL',
+	'SUI_GRAPHQL_URL',
+	'PYTH_HERMES_ACCESS_TOKEN',
+	'HERMES_ACCESS_TOKEN',
+	'PYTH_API_KEY',
 ] as const
 
 /**
@@ -24,4 +32,25 @@ export function hydrateViteServerEnv(mode: string): void {
 	}
 	const cg = env.COINGECKO_API_KEY || env.VITE_COINGECKO_API_KEY
 	if (cg) process.env.COINGECKO_API_KEY = cg
+	// Suilend SDK Hermes client reads these aliases.
+	const hermes =
+		env.PYTH_HERMES_ACCESS_TOKEN ||
+		env.HERMES_ACCESS_TOKEN ||
+		env.PYTH_API_KEY ||
+		process.env.PYTH_HERMES_ACCESS_TOKEN ||
+		process.env.HERMES_ACCESS_TOKEN ||
+		process.env.PYTH_API_KEY
+	if (hermes) {
+		process.env.PYTH_HERMES_ACCESS_TOKEN = hermes
+		process.env.HERMES_ACCESS_TOKEN = hermes
+	}
+}
+
+/** True when a Hermes/Pyth token is available for Suilend SDK price refresh. */
+export function hasPythHermesAccessToken(): boolean {
+	return Boolean(
+		process.env.PYTH_HERMES_ACCESS_TOKEN?.trim() ||
+			process.env.HERMES_ACCESS_TOKEN?.trim() ||
+			process.env.PYTH_API_KEY?.trim(),
+	)
 }

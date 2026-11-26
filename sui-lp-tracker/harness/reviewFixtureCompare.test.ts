@@ -63,18 +63,46 @@ describe('reviewFixtureCompare §8.3 closedAtLeast', () => {
 })
 
 describe('reviewFixtureCompare §8.1 suilend', () => {
-	it('FAIL when suilend source incomplete/error (not silent pass)', async () => {
+	it('SKIPPED on Hermes/Pyth 401 (not FAIL)', async () => {
 		const { checkSuilend } = await import('./reviewFixtureCompare.mjs')
 		const verdicts = checkSuilend(
 			'N05',
 			{ suilend: { supply_usd: 1, borrow_usd: 0 } },
 			{
-				sources: { suilend: { status: 'partial', error: 'obligations: HTTP 401' } },
+				sources: { suilend: { status: 'partial', error: 'obligations: HTTP error! status: 401' } },
 				suilendIncomplete: true,
-				suilendIncompleteReason: 'obligations: HTTP 401',
+				suilendIncompleteReason: 'obligations: HTTP error! status: 401',
 			},
 		)
-		expect(verdicts[0]!.status).toBe('FAIL')
-		expect(verdicts[0]!.msg).toMatch(/401|error/i)
+		expect(verdicts[0]!.status).toBe('SKIPPED')
+		expect(verdicts[0]!.msg).toMatch(/401|skipped/i)
+	})
+
+	it('SKIPPED when suilendSkipped flag set (no key)', async () => {
+		const { checkSuilend } = await import('./reviewFixtureCompare.mjs')
+		const verdicts = checkSuilend(
+			'N01',
+			{ suilend: { supply_usd: 1, borrow_usd: 0 } },
+			{
+				suilendSkipped: true,
+				suilendSkipReason: 'no PYTH_HERMES_ACCESS_TOKEN in .env',
+				sources: { suilend: { status: 'skipped' } },
+			},
+		)
+		expect(verdicts[0]!.status).toBe('SKIPPED')
+	})
+})
+
+describe('reviewFixtureCompare wallet timeout', () => {
+	it('INCONCLUSIVE on walletTimeout (not FAIL)', () => {
+		const all = evaluateWallet(
+			'W06',
+			{ expect: { closedAtLeast: { cetus: 11 } } },
+			{ walletTimeout: true, walletTimeoutMs: 240_000 },
+		)
+		expect(all).toHaveLength(1)
+		expect(all[0]!.status).toBe('INCONCLUSIVE')
+		expect(all[0]!.msg).toMatch(/TIMEOUT/i)
+		expect(summarizeVerdicts(all).exitCode).toBe(0)
 	})
 })

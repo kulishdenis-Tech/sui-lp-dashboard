@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.5.4
+
+- `review:fixture:live` швидкість: `--quick` (default PR) / `--full` / `--wallets`; 4–6 паралельних лейнів; timeout → INCONCLUSIVE; прогрес/ETA + JSON-дамп після кожного гаманця; disk-кеш за checkpoint.
+- Suilend без Hermes-ключа або 401 → SKIPPED (той самий `.env`, що `serve-prod`), не FAIL.
+- Hotspots: BF+MMT `scanSession` паралельно; спільний Sender page cache; `SenderAndMoveEventType` типи з concurrency; stage timings у live harness.
+- Quick closed: перша сторінка typed `SenderAndMoveEventType` (не raw sender mix); N05 Scallop borrow якір ~126 SUI.
+
 ## 2.5.3
 
 - `review:fixture:live` викликає реальні сервіси дашборда (gRPC + GraphQL через vite-node), не fixture-anchor.
