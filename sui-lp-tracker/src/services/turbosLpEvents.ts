@@ -1,14 +1,16 @@
 /**
  * Turbos Finance CLMM — LP event scanning.
  *
- * GraphQL `SenderAndMoveEventType` (TX sender + Move type) — deeper than gRPC
- * ListTransactions (~16d pruning / BELOW_EARLIEST_AVAILABLE).
+ * MintEvent/BurnEvent carry `owner` = wallet (TX sender), not the NFT id.
+ * CollectEventV2 / CollectRewardEventV2 carry `owner` = nftId.
+ * BurnNftEvent / MintNftEvent (position_manager) carry `nft_address`.
  *
- * Filtering:
- *   parsedJson.owner === nftId    ← newer Turbos (MintEvent, BurnEvent, CollectEventV2, CollectRewardEventV2)
- *   parsedJson.position === posId ← older Turbos (AddLiquidityEvent, RemoveLiquidityEvent)
+ * Strategy (GraphQL only — no gRPC FromAddress ListTransactions):
+ *  1. Typed Sender+MoveEventType for collect* + *NftEvent paths
+ *  2. transactions(filter: { affectedObject: nft|position }) for Mint/Burn amounts
  */
 import type { EventType, PositionEvent } from '@/types'
+import { suiClient } from '@/services/suiClient'
 import { normalizeSuiAddress } from '@mysten/sui/utils'
 import Decimal from 'decimal.js'
 import { PROTOCOL_PACKAGES } from '@/utils/constants'
@@ -55,26 +57,29 @@ const TURBOS_STRUCT_TO_EVTYPE: Record<string, EventType | null> = {
 	BurnPositionEvent: null,
 }
 
-/** Structs that emit under identity package vs upgrade package (verified via GraphQL). */
-const TURBOS_TYPED_STRUCTS = [
-	'MintEvent',
-	'BurnEvent',
-	'AddLiquidityEvent',
-	'RemoveLiquidityEvent',
-	'DecreaseLiquidityEvent',
-	'CollectEvent',
-	'CollectFeeEvent',
-	'CollectRewardEvent',
-	'CollectEventV2',
-	'CollectRewardEventV2',
-] as const
-
+/** Collect* live under identity + published_at; *Nft under position_manager on published_at. */
 function buildTurbosTypedEventPaths(): string[] {
 	const pkgs = [PROTOCOL_PACKAGES.TURBOS, PROTOCOL_PACKAGES.TURBOS_PUBLISHED_AT]
+	const poolStructs = [
+		'MintEvent',
+		'BurnEvent',
+		'CollectEvent',
+		'CollectFeeEvent',
+		'CollectRewardEvent',
+		'CollectEventV2',
+		'CollectRewardEventV2',
+		'AddLiquidityEvent',
+		'RemoveLiquidityEvent',
+		'DecreaseLiquidityEvent',
+	] as const
+	const nftStructs = ['MintNftEvent', 'BurnNftEvent', 'BurnPositionEvent', 'ClosePositionEvent'] as const
 	const paths: string[] = []
 	for (const pkg of pkgs) {
-		for (const s of TURBOS_TYPED_STRUCTS) {
+		for (const s of poolStructs) paths.push(`${pkg}::pool::${s}`)
+		for (const s of nftStructs) {
+			paths.push(`${pkg}::position_manager::${s}`)
 			paths.push(`${pkg}::pool::${s}`)
+			paths.push(`${pkg}::position::${s}`)
 		}
 	}
 	return paths
@@ -168,7 +173,19 @@ function symbolFromCoinType(ct: string): string {
 	return p[p.length - 1] ?? 'REWARD'
 }
 
+function readNftRef(pj: Parsed): string | null {
+	for (const k of ['owner', 'nft_address', 'nft_id', 'position_nft', 'position'] as const) {
+		const v = pj[k]
+		if (typeof v === 'string' && v.startsWith('0x')) {
+			const n = normSafe(v)
+			if (n) return n
+		}
+	}
+	return null
+}
+
 const TURBOS_DELTA_OVERLAP_SEC = 3 * 3600
+const MAX_AFFECTED_TX_PAGES = 40
 
 export type TurbosScanResult = { events: PositionEvent[]; partial: boolean }
 
@@ -181,8 +198,11 @@ function parseTurbosEvent(
 	},
 	nftNorm: string,
 	posNorm: string,
+	walletNorm: string,
 	tokenADecimals: number,
 	tokenBDecimals: number,
+	/** When true, Mint/Burn with owner=wallet are accepted (from affectedObject TX). */
+	allowWalletOwnedMintBurn: boolean,
 ): PositionEvent | null {
 	if (!ev.type || !ev.parsedJson) return null
 	const sn = structNameFromType(ev.type)
@@ -193,9 +213,15 @@ function parseTurbosEvent(
 	const pj = ev.parsedJson as Parsed
 	const ownerVal = typeof pj['owner'] === 'string' ? normSafe(pj['owner'] as string) : null
 	const posVal = typeof pj['position'] === 'string' ? normSafe(pj['position'] as string) : null
-	const matchesNft = ownerVal === nftNorm
-	const matchesPos = !!posNorm && posVal === posNorm
-	if (!matchesNft && !matchesPos) return null
+	const nftRef = readNftRef(pj)
+
+	const isMintOrBurn = evTypeOrNull === 'add_liquidity' || evTypeOrNull === 'remove_liquidity'
+	const matchesNft = ownerVal === nftNorm || nftRef === nftNorm
+	const matchesPos = !!posNorm && (posVal === posNorm || nftRef === posNorm)
+	const matchesWalletMintBurn =
+		allowWalletOwnedMintBurn && isMintOrBurn && ownerVal === walletNorm
+
+	if (!matchesNft && !matchesPos && !matchesWalletMintBurn) return null
 
 	const rawMs = ev.timestampMs != null ? Number(ev.timestampMs) : NaN
 	const ts = Number.isFinite(rawMs) ? Math.floor(rawMs / 1000) : 0
@@ -324,7 +350,76 @@ function parseTurbosEvent(
 }
 
 /**
- * Scan all LP events for a Turbos position via GraphQL typed Move events.
+ * GraphQL `affectedObject` TX pages for an NFT / position (not gRPC FromAddress).
+ */
+async function scanAffectedObjectEvents(
+	objectId: string,
+	nftNorm: string,
+	posNorm: string,
+	walletNorm: string,
+	tokenADecimals: number,
+	tokenBDecimals: number,
+	sinceTs: number,
+	out: PositionEvent[],
+	seen: Set<string>,
+): Promise<boolean> {
+	let partial = false
+	let cursor: string | undefined
+	const stopBefore = sinceTs > 0 ? sinceTs - TURBOS_DELTA_OVERLAP_SEC : 0
+	for (let page = 0; page < MAX_AFFECTED_TX_PAGES; page++) {
+		const res = await suiClient
+			.queryTransactionBlocks({
+				filter: { ChangedObject: objectId },
+				options: { showEvents: true },
+				limit: 50,
+				cursor,
+				order: 'descending',
+			})
+			.catch(() => null)
+		if (!res) {
+			partial = true
+			break
+		}
+		let stop = false
+		for (const tx of res.data) {
+			const ts = tx.timestampMs ? Math.floor(Number(tx.timestampMs) / 1000) : 0
+			if (stopBefore > 0 && ts > 0 && ts < stopBefore) {
+				stop = true
+				break
+			}
+			for (const ev of tx.events ?? []) {
+				const pe = parseTurbosEvent(
+					{
+						type: ev.type,
+						parsedJson: ev.parsedJson,
+						id: {
+							eventSeq: ev.id?.eventSeq ?? '0',
+							txDigest: tx.digest,
+						},
+						timestampMs: tx.timestampMs,
+					},
+					nftNorm,
+					posNorm,
+					walletNorm,
+					tokenADecimals,
+					tokenBDecimals,
+					true,
+				)
+				if (!pe || seen.has(pe.id)) continue
+				seen.add(pe.id)
+				out.push(pe)
+			}
+		}
+		if (stop || !res.hasNextPage) break
+		cursor = res.nextCursor ?? undefined
+		if (!cursor) break
+		if (page === MAX_AFFECTED_TX_PAGES - 1) partial = true
+	}
+	return partial
+}
+
+/**
+ * Scan all LP events for a Turbos position (GraphQL typed + affectedObject).
  */
 export async function scanTurbosPositionEvents(
 	walletAddress: string,
@@ -355,8 +450,7 @@ export async function scanTurbosPositionEvents(
 	}
 
 	const deltaSince = sinceTs != null && sinceTs > 0 ? sinceTs : 0
-	const stopBefore =
-		deltaSince > 0 ? deltaSince - TURBOS_DELTA_OVERLAP_SEC : undefined
+	const stopBefore = deltaSince > 0 ? deltaSince - TURBOS_DELTA_OVERLAP_SEC : undefined
 
 	let partial = false
 	const out: PositionEvent[] = []
@@ -369,9 +463,17 @@ export async function scanTurbosPositionEvents(
 			stopBeforeTsSec: stopBefore,
 			typeConcurrency: 3,
 		})
-		partial = typed.partial
+		if (typed.partial) partial = true
 		for (const ev of typed.events) {
-			const pe = parseTurbosEvent(ev, nftNorm, posNorm, tokenADecimals, tokenBDecimals)
+			const pe = parseTurbosEvent(
+				ev,
+				nftNorm,
+				posNorm,
+				walletNorm,
+				tokenADecimals,
+				tokenBDecimals,
+				false,
+			)
 			if (!pe || seen.has(pe.id)) continue
 			seen.add(pe.id)
 			out.push(pe)
@@ -381,11 +483,41 @@ export async function scanTurbosPositionEvents(
 		partial = true
 	}
 
+	// Mint/Burn amounts: GraphQL affectedObject on NFT (and position if distinct).
+	const tAff = Date.now()
+	const affPartialNft = await scanAffectedObjectEvents(
+		nftNorm,
+		nftNorm,
+		posNorm,
+		walletNorm,
+		tokenADecimals,
+		tokenBDecimals,
+		deltaSince,
+		out,
+		seen,
+	)
+	let affPartialPos = false
+	if (posNorm && posNorm !== nftNorm) {
+		affPartialPos = await scanAffectedObjectEvents(
+			posNorm,
+			nftNorm,
+			posNorm,
+			walletNorm,
+			tokenADecimals,
+			tokenBDecimals,
+			deltaSince,
+			out,
+			seen,
+		)
+	}
+	if (affPartialNft || affPartialPos) partial = true
+	recordScanStep('turbos.affectedObject', Date.now() - tAff, 'graphql')
+
 	const hasOpen = out.some((e) => e.type === 'add_liquidity')
 	if (!hasOpen) partial = true
 
 	out.sort((a, b) => a.timestamp - b.timestamp)
-	recordScanStep('turbos.typed', Date.now() - t0, 'graphql')
+	recordScanStep('turbos.typed+affected', Date.now() - t0, 'graphql')
 	return { events: out, partial }
 }
 

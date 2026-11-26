@@ -98,26 +98,36 @@ async function fetchTurbosBurnedNftSeeds(
 		})
 		for (const ev of typed.events) {
 			const pj = (ev.parsedJson ?? {}) as Record<string, unknown>
-			const owner =
-				typeof pj.owner === 'string'
-					? pj.owner
+			// Prefer BurnNftEvent.nft_address — BurnEvent.owner is the wallet, not the NFT.
+			const rawNft =
+				typeof pj.nft_address === 'string'
+					? pj.nft_address
 					: typeof pj.nft_id === 'string'
 						? pj.nft_id
 						: typeof pj.position_nft === 'string'
 							? pj.position_nft
 							: null
-			if (!owner || !owner.startsWith('0x')) continue
+			if (!rawNft || !rawNft.startsWith('0x')) continue
 			let nftId: string
 			try {
-				nftId = normalizeSuiAddress(owner)
+				nftId = normalizeSuiAddress(rawNft)
 			} catch {
 				continue
 			}
 			if (seen.has(nftId)) continue
 			seen.add(nftId)
-			const poolId = typeof pj.pool === 'string' ? pj.pool : ''
+			const poolId =
+				typeof pj.pool_id === 'string'
+					? pj.pool_id
+					: typeof pj.pool === 'string'
+						? pj.pool
+						: ''
 			const positionId =
-				typeof pj.position === 'string' ? pj.position : nftId
+				typeof pj.position_id === 'string'
+					? pj.position_id
+					: typeof pj.position === 'string'
+						? pj.position
+						: nftId
 			out.push({
 				nftId,
 				poolId,
@@ -190,9 +200,9 @@ export async function getTurbosClosedPositions(walletAddress: string): Promise<C
 			const pool = poolMap.get(nft.poolId)
 			if (!pool) return
 
-			// Coin types come from the NFT TypeName fields
-			const rawCtA = nft.coinTypeA ?? ''
-			const rawCtB = nft.coinTypeB ?? ''
+			// NFT TypeName first; burned seeds fall back to pool Move generics.
+			const rawCtA = nft.coinTypeA ?? pool.coinTypeA ?? ''
+			const rawCtB = nft.coinTypeB ?? pool.coinTypeB ?? ''
 			if (!rawCtA || !rawCtB) return
 
 			const metaA = getMeta(rawCtA)
