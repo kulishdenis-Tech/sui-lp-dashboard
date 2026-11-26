@@ -98,15 +98,11 @@ const scanMomentumAllCache = new Map<
 export function clearMomentumScanCache(walletAddress: string): void {
 	try {
 		const walletNormKey = normalizeSuiAddress(walletAddress)
-		const memCacheKey = `${walletNormKey}|mmt_events_all_v4`
-		scanMomentumAllCache.delete(memCacheKey)
+		scanMomentumAllCache.delete(`${walletNormKey}|mmt_events_all_v5`)
 	} catch {
 		// ignore
 	}
 }
-/** TX-scan для Momentum та для scanLpWalletPositionHistory. */
-const MAX_TX_PAGES = 80
-const TX_PAGE = 50
 /** Sender-event scan для Bluefin (120 сторінок ≈ 6000 events). */
 const MAX_BF_SENDER_EVENT_PAGES = 120
 const BF_EVENTS_PAGE_SIZE = 50
@@ -620,17 +616,15 @@ async function mergeMomentumSenderEvents(
 }
 
 /**
- * Обхід подій Momentum гаманця двофазово:
- * 1. TX scan `queryTransactionBlocks(FromAddress)` — 40 сторінок (≈ 2000 TX).
- * 2. `queryEvents({ Sender: wallet })` — 40 сторінок Momentum-подій як safety net
- *    (ловить позиції, яких немає у TX-вікні фази 1).
+ * Momentum wallet events: GraphQL typed + Sender safety net only.
+ * No `queryTransactionBlocks(FromAddress)` — Mysten gRPC prunes (~16d) with BELOW_EARLIEST_AVAILABLE.
  */
 export async function scanMomentumWalletAllPositionEvents(walletAddress: string): Promise<{
 	rawByPositionId: Map<string, MomentumWalletRawEvt[]>
 	historyPartial: boolean
 }> {
 	const walletNormKey = normalizeSuiAddress(walletAddress)
-	const memCacheKey = `${walletNormKey}|mmt_events_all_v4`
+	const memCacheKey = `${walletNormKey}|mmt_events_all_v5`
 
 	// ── 1. In-memory cache (5 min TTL) ────────────────────────────────────────
 	const cached = scanMomentumAllCache.get(memCacheKey)
@@ -648,100 +642,55 @@ export async function scanMomentumWalletAllPositionEvents(walletAddress: string)
 		: new Map()
 	let historyPartial = idbEntry?.historyPartial ?? false
 
+	const ingestTyped = (ev: {
+		type: string
+		parsedJson?: unknown
+		id?: { eventSeq: string; txDigest: string }
+		timestampMs?: string | number | null
+	}) => {
+		const typeStr = ev.type
+		if (!isMomentumLpLifecycleMoveEventType(typeStr)) return
+		const pjRaw = ev.parsedJson
+		if (!pjRaw || typeof pjRaw !== 'object') return
+		const pj = pjRaw as Parsed
+		const sn = structNameFromType(typeStr)
+		if (!isMomentumLpLifecycleStruct(sn)) return
+		const pid = readMomentumPositionId(pj)
+		if (!pid) return
+		let posNorm: string
+		try {
+			posNorm = normalizeSuiAddress(pid)
+		} catch {
+			return
+		}
+		const rawMs = ev.timestampMs != null ? Number(ev.timestampMs) : NaN
+		const tsSec = Number.isFinite(rawMs) ? Math.floor(rawMs / 1000) : 0
+		const dig = ev.id?.txDigest ?? ''
+		const row: MomentumWalletRawEvt = { digest: dig, tsSec, event: ev as never }
+		const arr = rawByPositionId.get(posNorm) ?? []
+		if (!arr.some((e) => e.digest === dig && e.event.type === typeStr)) {
+			arr.push(row)
+			rawByPositionId.set(posNorm, arr)
+		}
+	}
+
 	if (!idbEntry) {
-		// ── Cold start: GraphQL typed first (avoid gRPC TX pruning) ─────────────
+		// ── Cold start: GraphQL typed + Sender (no gRPC TX) ────────────────────
 		try {
 			const typed = await querySenderAndMoveEventTypes(walletAddress, momentumTypedEventPaths(), {
 				maxPagesPerType: 40,
 				pageSize: 50,
 			})
 			if (typed.partial) historyPartial = true
-			for (const ev of typed.events) {
-				const typeStr = ev.type
-				if (!isMomentumLpLifecycleMoveEventType(typeStr)) continue
-				const pjRaw = ev.parsedJson
-				if (!pjRaw || typeof pjRaw !== 'object') continue
-				const pj = pjRaw as Parsed
-				const sn = structNameFromType(typeStr)
-				if (!isMomentumLpLifecycleStruct(sn)) continue
-				const pid = readMomentumPositionId(pj)
-				if (!pid) continue
-				let posNorm: string
-				try {
-					posNorm = normalizeSuiAddress(pid)
-				} catch {
-					continue
-				}
-				const rawMs = ev.timestampMs != null ? Number(ev.timestampMs) : NaN
-				const tsSec = Number.isFinite(rawMs) ? Math.floor(rawMs / 1000) : 0
-				const dig = ev.id?.txDigest ?? ''
-				const row: MomentumWalletRawEvt = { digest: dig, tsSec, event: ev as never }
-				const arr = rawByPositionId.get(posNorm) ?? []
-				arr.push(row)
-				rawByPositionId.set(posNorm, arr)
-			}
+			for (const ev of typed.events) ingestTyped(ev)
+			console.log('[mmt-scan] GraphQL typed done — positions=', rawByPositionId.size)
 		} catch (e) {
 			console.warn('[mmt-scan] GraphQL typed cold scan failed', e)
 			historyPartial = true
 		}
 
-		let cursor: string | null | undefined
-
-		// Phase 1b: TX scan only when GraphQL returned nothing
-		if (rawByPositionId.size === 0) {
-			try {
-				for (let page = 0; page < MAX_TX_PAGES; page++) {
-					const r = await suiClient.queryTransactionBlocks({
-						filter: { FromAddress: walletAddress },
-						options: { showEvents: true },
-						limit: TX_PAGE,
-						order: 'descending',
-						cursor: cursor ?? null,
-					})
-					for (const tx of r.data) {
-						const rawTs = tx.timestampMs
-						const tsSec = rawTs ? parseInt(String(rawTs), 10) / 1000 : 0
-						for (const ev of tx.events ?? []) {
-							const typeStr = ev.type
-							if (!isMomentumLpLifecycleMoveEventType(typeStr)) continue
-							const pjRaw = ev.parsedJson
-							if (!pjRaw || typeof pjRaw !== 'object') continue
-							const pj = pjRaw as Parsed
-							const sn = structNameFromType(typeStr)
-							if (!isMomentumLpLifecycleStruct(sn)) continue
-							const pid = readMomentumPositionId(pj)
-							if (!pid) continue
-							let posNorm: string
-							try {
-								posNorm = normalizeSuiAddress(pid)
-							} catch {
-								continue
-							}
-							const row: MomentumWalletRawEvt = { digest: tx.digest, tsSec, event: ev }
-							const arr = rawByPositionId.get(posNorm) ?? []
-							arr.push(row)
-							rawByPositionId.set(posNorm, arr)
-						}
-					}
-					if (!r.hasNextPage) break
-					const next = r.nextCursor
-					if (next == null) break
-					cursor = next
-					if (page + 1 >= MAX_TX_PAGES) {
-						historyPartial = true
-						break
-					}
-				}
-			} catch (e) {
-				console.warn('[mmt-scan] TX cold scan failed', e)
-				historyPartial = true
-			}
-		}
-
-		// Phase 2: Sender event scan — safety net for positions outside typed window
 		await mergeMomentumSenderEvents(walletAddress, rawByPositionId)
 
-		// Save to IDB
 		await saveLpCacheEntry({
 			id: `${walletNormKey}|momentum`,
 			walletNorm: walletNormKey,
@@ -753,58 +702,24 @@ export async function scanMomentumWalletAllPositionEvents(walletAddress: string)
 			fullScanDoneAt: Date.now(),
 		})
 	} else {
-		// ── Warm start: delta scan ──────────────────────────────────────────────
+		// ── Warm: GraphQL typed delta + Sender (no FromAddress TX) ─────────────
 		const lastTs = idbEntry.lastEventTs
-
-		// Delta TX scan: stop when TXs are older than threshold
-		const cutoffTs = lastTs - DELTA_OVERLAP_SEC
-		let cursor: string | null | undefined
-		let txAdded = 0
-
-		for (let page = 0; page < MAX_MMT_DELTA_TX_PAGES; page++) {
-			const r = await suiClient.queryTransactionBlocks({
-				filter: { FromAddress: walletAddress },
-				options: { showEvents: true },
-				limit: TX_PAGE,
-				order: 'descending',
-				cursor: cursor ?? null,
+		let typedAdded = 0
+		try {
+			const typed = await querySenderAndMoveEventTypes(walletAddress, momentumTypedEventPaths(), {
+				maxPagesPerType: Math.min(MAX_MMT_DELTA_TX_PAGES, 10),
+				pageSize: 50,
+				stopBeforeTsSec: lastTs - DELTA_OVERLAP_SEC,
 			})
-			let reachedCutoff = false
-			for (const tx of r.data) {
-				const rawTs = tx.timestampMs
-				const tsSec = rawTs ? parseInt(String(rawTs), 10) / 1000 : 0
-				if (tsSec < cutoffTs) { reachedCutoff = true; break }
-				for (const ev of tx.events ?? []) {
-					const typeStr = ev.type
-					if (!isMomentumLpLifecycleMoveEventType(typeStr)) continue
-					const pjRaw = ev.parsedJson
-					if (!pjRaw || typeof pjRaw !== 'object') continue
-					const pj = pjRaw as Parsed
-					const sn = structNameFromType(typeStr)
-					if (!isMomentumLpLifecycleStruct(sn)) continue
-					const pid = readMomentumPositionId(pj)
-					if (!pid) continue
-					let posNorm: string
-					try { posNorm = normalizeSuiAddress(pid) } catch { continue }
-					const row: MomentumWalletRawEvt = { digest: tx.digest, tsSec, event: ev }
-					const arr = rawByPositionId.get(posNorm) ?? []
-					// Simple dedup: skip if identical digest already present for this position
-					if (!arr.some(e => e.digest === tx.digest && e.event.type === typeStr)) {
-						arr.push(row)
-						rawByPositionId.set(posNorm, arr)
-						txAdded++
-					}
-				}
-			}
-			if (reachedCutoff || !r.hasNextPage) break
-			const next = r.nextCursor
-			if (next == null) break
-			cursor = next
+			const before = flattenToRows(rawByPositionId).length
+			for (const ev of typed.events) ingestTyped(ev)
+			typedAdded = flattenToRows(rawByPositionId).length - before
+		} catch (e) {
+			console.warn('[mmt-scan] GraphQL typed delta failed', e)
 		}
 
-		// Delta sender event scan
 		const senderAdded = await mergeMomentumSenderEvents(walletAddress, rawByPositionId, lastTs)
-		const totalAdded = txAdded + senderAdded
+		const totalAdded = typedAdded + senderAdded
 
 		if (totalAdded > 0) {
 			await saveLpCacheEntry({
@@ -1109,8 +1024,8 @@ function momentumTypedEventPaths(): string[] {
 }
 
 /**
- * Primary: GraphQL `SenderAndMoveEventType` (avoids gRPC ListTransactions pruning).
- * Fallback: `FromAddress` TX window with try/catch → historyPartial on failure.
+ * GraphQL `SenderAndMoveEventType` only (no gRPC ListTransactions / FromAddress).
+ * Deep typed retry when deposits are still missing after the first pass.
  */
 export async function scanLpWalletPositionHistory(
 	walletAddress: string,
@@ -1194,12 +1109,13 @@ export async function scanLpWalletPositionHistory(
 		if (pe) byPos.get(posNorm)!.push(pe)
 	}
 
-	// ── GraphQL typed path (preferred) ─────────────────────────────────────
+	const typedPaths = [
+		...(wantBf.size ? bluefinTypedEventPaths() : []),
+		...(wantMt.size ? momentumTypedEventPaths() : []),
+	]
+
+	// ── GraphQL typed path ─────────────────────────────────────────────────
 	try {
-		const typedPaths = [
-			...(wantBf.size ? bluefinTypedEventPaths() : []),
-			...(wantMt.size ? momentumTypedEventPaths() : []),
-		]
 		if (typedPaths.length) {
 			const typed = await querySenderAndMoveEventTypes(walletAddress, typedPaths, {
 				maxPagesPerType: 40,
@@ -1214,7 +1130,7 @@ export async function scanLpWalletPositionHistory(
 			}
 		}
 	} catch (e) {
-		console.warn('[lp-history] GraphQL typed scan failed — TX fallback', e)
+		console.warn('[lp-history] GraphQL typed scan failed', e)
 		historyPartial = true
 	}
 
@@ -1222,38 +1138,26 @@ export async function scanLpWalletPositionHistory(
 		list.some((e) => e.type === 'add_liquidity' || e.type === 'open_position'),
 	)
 
-	// ── TX fallback only when typed found nothing useful ───────────────────
-	if (!hasAnyDeposit) {
-		let cursor: string | null | undefined
+	// Deeper GraphQL pages when deposits still missing (no gRPC FromAddress).
+	if (!hasAnyDeposit && typedPaths.length > 0) {
 		try {
-			for (let page = 0; page < MAX_TX_PAGES; page++) {
-				const r = await suiClient.queryTransactionBlocks({
-					filter: { FromAddress: walletAddress },
-					options: { showEvents: true },
-					limit: TX_PAGE,
-					order: 'descending',
-					cursor: cursor ?? null,
-				})
-				for (const tx of r.data) {
-					const rawTs = tx.timestampMs
-					const tsSec = rawTs ? parseInt(String(rawTs), 10) / 1000 : 0
-					for (const ev of tx.events ?? []) {
-						ingestRaw(ev, tx.digest, tsSec)
-					}
-				}
-				if (!r.hasNextPage) break
-				const next = r.nextCursor
-				if (next == null) break
-				cursor = next
-				if (page + 1 >= MAX_TX_PAGES) {
-					historyPartial = true
-					break
-				}
+			const deep = await querySenderAndMoveEventTypes(walletAddress, typedPaths, {
+				maxPagesPerType: 80,
+				pageSize: 50,
+			})
+			if (deep.partial) historyPartial = true
+			for (const ev of deep.events) {
+				const dig = ev.id?.txDigest ?? ''
+				const rawMs = ev.timestampMs != null ? Number(ev.timestampMs) : NaN
+				const tsSec = Number.isFinite(rawMs) ? Math.floor(rawMs / 1000) : 0
+				ingestRaw(ev, dig, tsSec)
 			}
 		} catch (e) {
-			console.warn('[lp-history] FromAddress TX scan failed (pruning?)', e)
+			console.warn('[lp-history] GraphQL deep typed retry failed', e)
 			historyPartial = true
 		}
+	} else if (!hasAnyDeposit) {
+		historyPartial = true
 	}
 
 	await hydrateMomentumRewardAmounts(byPos)

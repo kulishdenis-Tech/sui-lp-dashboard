@@ -2,6 +2,8 @@
 
 ## 2.5.7
 
+- LP history: GraphQL typed `SenderAndMoveEventType` замість gRPC `ListTransactions` / `FromAddress` у scanSession, enrichment і closed (Cetus/Bluefin/Momentum/Turbos) — глибше за ~16 днів pruning, без `BELOW_EARLIEST_AVAILABLE`.
+- `[scan] step=… ms=… source=graphql|grpc` таймінги для scanSession / Turbos / closed fallbacks; live harness друкує top-5 найповільніших кроків.
 - LP: «Show/Hide empty» moved to the tab row (next to Positions / Vaults / Closed); duplicated «Open positions (N)» heading removed; Positions tab count follows the toggle.
 - LP: «Unsupported» list renamed «Not tracked yet» with plain-language hints per object (leverage market cap, farm stake receipt, AlphaLend position cap, vault receipt); desktop and mobile.
 

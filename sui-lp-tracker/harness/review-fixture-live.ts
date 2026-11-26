@@ -40,6 +40,7 @@ import { enrichAllCetusOpenPositions } from '@/services/cetusOpenEnrichment'
 import { scanTurbosPositionEvents } from '@/services/turbosLpEvents'
 import { enrichBluefinOpenPositionWithEvents } from '@/services/bluefinEnrichment'
 import { ensureLpWalletScanSession } from '@/services/lpScanSession'
+import { getLastScanTimings, type ScanStepTiming } from '@/services/scanTiming'
 import { querySenderAndMoveEventTypes } from '@/services/querySenderMoveEvents'
 import { buildCetusTypedEventPaths } from '@/services/cetusLpEvents'
 import { MOMENTUM_PUBLISHED_AT, PROTOCOL_PACKAGES } from '@/utils/constants'
@@ -71,6 +72,8 @@ type LiveWalletRow = {
 	walletFatal?: string
 	walletTimeout?: boolean
 	walletTimeoutMs?: number
+	/** `[scan] step=…` timings from ensureLpWalletScanSession / enrichment. */
+	scanTimings?: ScanStepTiming[]
 	suilendSuppliedUsd?: number
 	suilendBorrowedUsd?: number
 	suilendIncomplete?: boolean
@@ -528,6 +531,10 @@ async function loadWallet(
 			if (!r.ok) {
 				row.incomplete = true
 				row.harness_step_error = true
+			} else if (r.value?.timings?.length) {
+				row.scanTimings = [...r.value.timings]
+			} else {
+				row.scanTimings = [...getLastScanTimings()]
 			}
 		})
 		await timed(stages, 'enrichment', async () => {
@@ -542,6 +549,15 @@ async function loadWallet(
 			else {
 				row.incomplete = true
 				row.harness_step_error = true
+			}
+			const after = getLastScanTimings()
+			if (after.length) {
+				const prev = row.scanTimings ?? []
+				const seen = new Set(prev.map((t) => `${t.step}|${t.ms}|${t.source}`))
+				row.scanTimings = [
+					...prev,
+					...after.filter((t) => !seen.has(`${t.step}|${t.ms}|${t.source}`)),
+				]
 			}
 		})
 	} else {
@@ -786,12 +802,18 @@ async function main() {
 			const stages = Object.entries(live.stageMs ?? {})
 				.map(([k, v]) => `${k}=${(v / 1000).toFixed(1)}s`)
 				.join(' ')
+			const topScan = [...(live.scanTimings ?? [])]
+				.sort((a, b) => b.ms - a.ms)
+				.slice(0, 5)
+				.map((t) => `${t.step}=${t.ms}ms/${t.source}`)
+				.join(' ')
 			console.log(
 				`[live] ${id} done ${(live.elapsedMs / 1000).toFixed(1)}s` +
 					(live.fromCache ? ' (cache)' : '') +
 					` · fail=${fails}` +
 					(stages ? ` · ${stages}` : ''),
 			)
+			if (topScan) console.log(`[live] ${id} top-scan ${topScan}`)
 			for (const v of verdicts) printVerdict(v)
 		} catch (e) {
 			const msg = errMsg(e)
@@ -882,6 +904,24 @@ async function main() {
 	console.log(
 		`[review:fixture:live] summary PASS=${sum.pass} FAIL=${sum.fail} INCONCLUSIVE=${sum.inconclusive} SKIPPED=${sum.skipped} · ${totalSec}s`,
 	)
+
+	const globalTop = Object.values(results)
+		.flatMap((r) =>
+			(r.scanTimings ?? []).map((t) => ({
+				wallet: r.id,
+				step: t.step,
+				ms: t.ms,
+				source: t.source,
+			})),
+		)
+		.sort((a, b) => b.ms - a.ms)
+		.slice(0, 5)
+	if (globalTop.length) {
+		console.log('[review:fixture:live] top-5 slowest scanSession steps:')
+		for (const t of globalTop) {
+			console.log(`  ${t.wallet} ${t.step} ms=${t.ms} source=${t.source}`)
+		}
+	}
 	process.exit(sum.exitCode)
 }
 
