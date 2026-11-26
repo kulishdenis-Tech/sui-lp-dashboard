@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.6
+
+- Overview: unsupported/staking inventory stubs no longer appear as `—/—` UNKNOWN rows and no longer trigger «Some data is unavailable» (they had no value → LP marked missing). A one-line note links to the LP tab.
+- LP: «Hide empty» toggle on Open positions (remembered). Cetus post-hack compensation certificates (emptied by Cetus, cannot be closed on-chain) move from Open to Closed in a dedicated section.
+
 ## 2.5.5
 
 - Suilend без Hermes: `tolerateMissingPriceFeeds` + on-chain `reserve.price`; оцінка DefiLlama current → spots; ключ з того ж `.env`, що `serve-prod` якщо є.

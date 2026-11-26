@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { isNonClmmInventoryPosition } from '@/utils/unsupportedLp'
 import { useNavigate } from 'react-router-dom'
 import { useCurrentAccount } from '@mysten/dapp-kit-react'
 import { useShallow } from 'zustand/react/shallow'
@@ -330,7 +331,7 @@ export function OverviewLabPage() {
 
 	const {
 		netWorth,
-		openPositions,
+		openPositions: allOpenPositions,
 		tokenBalances,
 		lendingSnapshot,
 		naviSnapshot,
@@ -365,6 +366,13 @@ export function OverviewLabPage() {
 			setActiveTab: s.setActiveTab,
 		})),
 	)
+
+	// Inventory stubs (unsupported / staking) are not LP positions: keep them out of tables, counts and value coverage.
+	const openPositions = useMemo(
+		() => allOpenPositions.filter((p) => !isNonClmmInventoryPosition(p)),
+		[allOpenPositions],
+	)
+	const inventoryCount = allOpenPositions.length - openPositions.length
 
 	const {
 		snapshots,
@@ -1010,6 +1018,14 @@ export function OverviewLabPage() {
 				hideAmounts={hideAmounts}
 				onOpen={(id) => navigate(`/lp/position/${encodeURIComponent(id)}`)}
 			/>
+			{inventoryCount > 0 ? (
+				<p className="-mt-1 px-1 text-[11px] text-slate-500">
+					{inventoryCount} other DeFi {inventoryCount === 1 ? 'object' : 'objects'} (unsupported / staking) —{' '}
+					<button type="button" className="text-sky-400 hover:text-sky-300" onClick={() => setActiveTab('lp')}>
+						see LP tab
+					</button>
+				</p>
+			) : null}
 
 			{/* Bottom row: LP by protocol · Token exposure · Lending */}
 			<div className="overview-lab__enter overview-lab__enter--3 grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
