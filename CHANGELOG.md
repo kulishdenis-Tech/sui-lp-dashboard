@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.5.12
+
+- Cetus closed: без `add_liquidity` (partial history) — `depositedUSD`/`pnlUSD`/`pnlPct` = NaN (не рахувати withdraw@spot як прибуток). N06: 29 таких рядків давали ~$586 фейкового PnL при однакових розмірах виводу.
+
 ## 2.5.11
 
 - Cetus closed placeholders (pool meta miss): пара `?—?`, бейдж **partial**, `pnlUSD`/`depositedUSD`/`fees` = NaN — не входять у ClosedSummaryStrip PnL-агрегати; UI маркер на desktop і mobile.

@@ -457,8 +457,15 @@ export async function getCetusClosedPositions(
 				rowPartial = true
 				anyRowPartial = true
 			}
+			// Missing add_liquidity ⇒ unknown cost basis. Do NOT treat withdraw@spot as profit
+			// (N06 bot wallets reuse size → identical fake PnL across distinct positionIds).
+			const missingDepositBasis = !events.some((e) => e.type === 'add_liquidity')
+			if (missingDepositBasis) {
+				rowPartial = true
+				anyRowPartial = true
+			}
 
-			// Placeholder coin types (SUI/SUI stand-in) — do not invent USD totals.
+			// Placeholder coin types / missing deposit basis — do not invent USD PnL.
 			let depositedUSD: number
 			let closedValueUSD: number
 			let totalFeesUSD: number
@@ -471,13 +478,19 @@ export async function getCetusClosedPositions(
 				pnlUSD = Number.NaN
 				pnlPct = Number.NaN
 			} else {
-				depositedUSD =
-					(pxA > 0 ? depositedA * pxA : 0) + (pxB > 0 ? depositedB * pxB : 0)
 				closedValueUSD =
 					(pxA > 0 ? withdrawnA * pxA : 0) + (pxB > 0 ? withdrawnB * pxB : 0)
 				totalFeesUSD = (pxA > 0 ? feesA * pxA : 0) + (pxB > 0 ? feesB * pxB : 0)
-				pnlUSD = closedValueUSD + totalFeesUSD - depositedUSD
-				pnlPct = depositedUSD > 0 ? (pnlUSD / depositedUSD) * 100 : 0
+				if (missingDepositBasis) {
+					depositedUSD = Number.NaN
+					pnlUSD = Number.NaN
+					pnlPct = Number.NaN
+				} else {
+					depositedUSD =
+						(pxA > 0 ? depositedA * pxA : 0) + (pxB > 0 ? depositedB * pxB : 0)
+					pnlUSD = closedValueUSD + totalFeesUSD - depositedUSD
+					pnlPct = depositedUSD > 0 ? (pnlUSD / depositedUSD) * 100 : 0
+				}
 			}
 
 			// Normalise token order: Cetus orders pool tokens by coin-type address, so a
