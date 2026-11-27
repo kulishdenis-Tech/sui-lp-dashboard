@@ -83,6 +83,88 @@ function spotPriceSafe(raw: number | null | undefined): number {
 	return raw
 }
 
+const POOL_META_CHUNK = 40
+
+/**
+ * Resolve missing coinTypeA/B on burned seeds via pool object types.
+ * Chunked multiGet + per-id getObject retry — avoids silent [] under RPC stress.
+ */
+async function fillCetusSeedCoinTypes(
+	seeds: { poolId: string; coinTypeA: string; coinTypeB: string }[],
+	opts?: { forceRetry?: boolean },
+): Promise<void> {
+	const need = seeds.filter((s) => !s.coinTypeA || !s.coinTypeB)
+	if (need.length === 0) return
+	const ids = [...new Set(need.map((s) => s.poolId))]
+	const coinsByPool = new Map<string, { coinTypeA: string; coinTypeB: string }>()
+
+	for (let i = 0; i < ids.length; i += POOL_META_CHUNK) {
+		const chunk = ids.slice(i, i + POOL_META_CHUNK)
+		let objs: Awaited<ReturnType<typeof suiClient.multiGetObjects>> = []
+		for (let attempt = 0; attempt < (opts?.forceRetry ? 3 : 2); attempt++) {
+			try {
+				objs = await suiClient.multiGetObjects({
+					ids: chunk,
+					options: { showType: true },
+				})
+				break
+			} catch (e) {
+				console.warn(
+					`[cetus-closed] multiGetObjects pools attempt ${attempt + 1} failed`,
+					e instanceof Error ? e.message : e,
+				)
+				if (attempt === (opts?.forceRetry ? 2 : 1)) objs = []
+				else await new Promise((r) => setTimeout(r, 400 * (attempt + 1)))
+			}
+		}
+		for (let j = 0; j < chunk.length; j++) {
+			const type = objs[j]?.data?.type
+			if (!type) continue
+			// Pool<CoinA, CoinB> and Event<CoinA, CoinB> share the same type-param layout.
+			const pair = cetusPoolCoinsFromEventType(type)
+			if (pair) coinsByPool.set(chunk[j]!, pair)
+		}
+	}
+
+	// Cap per-id fallback — under gRPC cooldown, 1000+ getObject calls never finish.
+	const stillMissing = ids.filter((id) => !coinsByPool.has(id)).slice(0, 24)
+	if (stillMissing.length > 0) {
+		const concurrency = 3
+		let cursor = 0
+		await Promise.all(
+			Array.from({ length: Math.min(concurrency, stillMissing.length) }, async () => {
+				for (;;) {
+					const idx = cursor++
+					if (idx >= stillMissing.length) return
+					const poolId = stillMissing[idx]!
+					for (let attempt = 0; attempt < 2; attempt++) {
+						try {
+							const obj = await suiClient.getObject({
+								id: poolId,
+								options: { showType: true },
+							})
+							const type = obj.data?.type
+							if (!type) break
+							const pair = cetusPoolCoinsFromEventType(type)
+							if (pair) coinsByPool.set(poolId, pair)
+							break
+						} catch {
+							await new Promise((r) => setTimeout(r, 250 * (attempt + 1)))
+						}
+					}
+				}
+			}),
+		)
+	}
+
+	for (const seed of need) {
+		const pair = coinsByPool.get(seed.poolId)
+		if (!pair) continue
+		seed.coinTypeA = pair.coinTypeA
+		seed.coinTypeB = pair.coinTypeB
+	}
+}
+
 async function fetchCoinMetas(coinTypes: string[]): Promise<Map<string, CoinMeta>> {
 	const mm = new Map<string, CoinMeta>()
 	await Promise.allSettled(
@@ -125,6 +207,7 @@ export async function getCetusClosedPositions(
 	// 1. Burned closes from wallet events only (never owned liquidity===0 NFTs).
 	const closed: ParsedPosition[] = []
 	let burnedSeeds: ReturnType<typeof cetusBurnedSeedsFromWalletMap> = []
+	// (mutated / replaced on stepwise retry)
 	try {
 		const scan = await loadCetusWalletScan(walletAddress)
 		if (scan.historyPartial) {
@@ -154,30 +237,29 @@ export async function getCetusClosedPositions(
 		incomplete = true
 		reason = 'scan_timeout'
 	}
-	const needPoolCoins = burnedSeeds.filter((s) => !s.coinTypeA || !s.coinTypeB)
-	if (needPoolCoins.length > 0) {
-		const ids = [...new Set(needPoolCoins.map((s) => s.poolId))]
-		const objs = await suiClient.multiGetObjects({
-			ids,
-			options: { showType: true },
-		}).catch(() => [])
-		const coinsByPool = new Map<string, { coinTypeA: string; coinTypeB: string }>()
-		for (let i = 0; i < ids.length; i++) {
-			const type = objs[i]?.data?.type
-			if (!type) continue
-			const pair = cetusPoolCoinsFromEventType(type)
-			if (pair) coinsByPool.set(ids[i]!, pair)
-		}
-		for (const seed of needPoolCoins) {
-			const pair = coinsByPool.get(seed.poolId)
-			if (!pair) continue
-			seed.coinTypeA = pair.coinTypeA
-			seed.coinTypeB = pair.coinTypeB
-		}
+	await fillCetusSeedCoinTypes(burnedSeeds)
+
+	// One short retry when every seed lacks coin types (RPC stress). Do NOT deep-rescan
+	// when ClosePosition seeds already exist — that only burns the timeout budget.
+	const missingCoins = () => burnedSeeds.filter((s) => !s.coinTypeA || !s.coinTypeB)
+	if (burnedSeeds.length > 0 && missingCoins().length === burnedSeeds.length) {
+		console.warn(
+			`[cetus-closed] ${burnedSeeds.length} ClosePosition seeds without coin types — retry pool meta once`,
+		)
+		await fillCetusSeedCoinTypes(burnedSeeds, { forceRetry: true })
 	}
+
 	const seen = new Set<string>()
+	let placeholderCoins = 0
 	for (const seed of burnedSeeds) {
-		if (!seed.coinTypeA || !seed.coinTypeB) continue
+		if (!seed.coinTypeA || !seed.coinTypeB) {
+			// Keep burned NFT in closed list so §8.3 does not see a silent zero.
+			seed.coinTypeA = seed.coinTypeA || '0x2::sui::SUI'
+			seed.coinTypeB = seed.coinTypeB || '0x2::sui::SUI'
+			placeholderCoins++
+			incomplete = true
+			reason = reason ?? 'meta_miss'
+		}
 		if (seen.has(seed.objectId)) continue
 		seen.add(seed.objectId)
 		closed.push({
@@ -189,6 +271,11 @@ export async function getCetusClosedPositions(
 			lowerTick: seed.lowerTick,
 			upperTick: seed.upperTick,
 		})
+	}
+	if (placeholderCoins > 0) {
+		console.warn(
+			`[cetus-closed] ${placeholderCoins}/${burnedSeeds.length} seeds used placeholder coin types after meta miss`,
+		)
 	}
 
 	if (closed.length === 0) {
@@ -268,9 +355,10 @@ export async function getCetusClosedPositions(
 				return [] as PositionEvent[]
 			})
 
-			// Pass 2: deep GraphQL typed wallet scan when opening deposit is missing.
+			// Pass 2: deep GraphQL only when this position has ZERO events in the wallet map.
+			// If we already have close/remove rows, skip deep (avoids N× deep scans on fat wallets).
 			let rowPartial = !events.some((e) => e.type === 'add_liquidity')
-			if (rowPartial) {
+			if (rowPartial && events.length === 0) {
 				let posNorm: string
 				try { posNorm = normalizeSuiAddress(pos.objectId) } catch { posNorm = pos.objectId }
 

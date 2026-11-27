@@ -1,0 +1,280 @@
+{
+  "snapshotAtUTC": "2026-11-27T10:51:18.736Z",
+  "wallets": [
+    {
+      "id": "N04",
+      "prev": {
+        "supply_usd": 3314.75,
+        "borrow_usd": 1545.64
+      },
+      "next": {
+        "supply_usd": 2938.9,
+        "borrow_usd": 1547.83
+      },
+      "live_supplies": 3,
+      "live_borrows": 1,
+      "assets": [
+        {
+          "asset": "sSUI",
+          "amount": 0.960762796,
+          "usd": 0.6897078852223891
+        },
+        {
+          "asset": "hBTC",
+          "amount": 0.0008424974426988573,
+          "usd": 51.90352263295542
+        },
+        {
+          "asset": "XAUm",
+          "amount": 0.788624241,
+          "usd": 2886.31152997841
+        }
+      ]
+    },
+    {
+      "id": "N05",
+      "prev": {
+        "supply_usd": 55142.17,
+        "borrow_usd": 23799.92
+      },
+      "next": {
+        "supply_usd": 55201.71,
+        "borrow_usd": 26190.51
+      },
+      "live_supplies": 6,
+      "live_borrows": 1,
+      "assets": [
+        {
+          "asset": "USDC",
+          "amount": 28846.264507610158,
+          "usd": 28843.339104079885
+        },
+        {
+          "asset": "WBTC",
+          "amount": 0.014391707540368127,
+          "usd": 887.9355398909016
+        },
+        {
+          "asset": "USDsui",
+          "amount": 6903.960170591186,
+          "usd": 6896.5296985022605
+        },
+        {
+          "asset": "USDC",
+          "amount": 7493.079962882389,
+          "usd": 7492.320062668264
+        },
+        {
+          "asset": "USDsui",
+          "amount": 4500.662430353344,
+          "usd": 4495.818537030657
+        },
+        {
+          "asset": "USDC",
+          "amount": 6586.437516532978,
+          "usd": 6585.769562193251
+        }
+      ]
+    },
+    {
+      "id": "N08",
+      "prev": {
+        "supply_usd": 387.94,
+        "borrow_usd": 22.17
+      },
+      "next": {
+        "supply_usd": 28.12,
+        "borrow_usd": 0
+      },
+      "live_supplies": 4,
+      "live_borrows": 0,
+      "assets": [
+        {
+          "asset": "WAL",
+          "amount": 1133.1240282720325,
+          "usd": 26.187976606597207
+        },
+        {
+          "asset": "IKA",
+          "amount": 238.84772296485832,
+          "usd": 0.11174804768600087
+        },
+        {
+          "asset": "sSUI",
+          "amount": 2.539506741,
+          "usd": 1.8230491762746308
+        },
+        {
+          "asset": "SEND",
+          "amount": 0.021105295470333317,
+          "usd": 0.0011953066400275608
+        }
+      ]
+    },
+    {
+      "id": "N13",
+      "prev": {
+        "supply_usd": 8713.74,
+        "borrow_usd": 2433.89
+      },
+      "next": {
+        "supply_usd": 9806.5,
+        "borrow_usd": 2296.97
+      },
+      "live_supplies": 8,
+      "live_borrows": 1,
+      "assets": [
+        {
+          "asset": "DEEP",
+          "amount": 141301.38194404138,
+          "usd": 1719.6929229719142
+        },
+        {
+          "asset": "SUI",
+          "amount": 8701.04249151761,
+          "usd": 6010.179112309534
+        },
+        {
+          "asset": "sSUI",
+          "amount": 1100.306197458,
+          "usd": 789.8826471064202
+        },
+        {
+          "asset": "WAL",
+          "amount": 9100.331172600536,
+          "usd": 210.32054207144228
+        },
+        {
+          "asset": "USDsui",
+          "amount": 573.6016271835737,
+          "usd": 572.984281373975
+        },
+        {
+          "asset": "xBTC",
+          "amount": 0.004905061454236515,
+          "usd": 302.27033165222554
+        },
+        {
+          "asset": "hBTC",
+          "amount": 0.0032608588067227417,
+          "usd": 200.89088737816223
+        },
+        {
+          "asset": "USDC",
+          "amount": 0.2756558097813638,
+          "usd": 0.2756278545333329
+        }
+      ]
+    },
+    {
+      "id": "N14",
+      "prev": {
+        "supply_usd": 36072.16,
+        "borrow_usd": 14987.52
+      },
+      "next": {
+        "supply_usd": 26098.38,
+        "borrow_usd": 13751.64
+      },
+      "live_supplies": 5,
+      "live_borrows": 2,
+      "assets": [
+        {
+          "asset": "xBTC",
+          "amount": 0.09988649821708388,
+          "usd": 6155.422358180617
+        },
+        {
+          "asset": "DEEP",
+          "amount": 68127.8530918225,
+          "usd": 829.1425406276286
+        },
+        {
+          "asset": "sSUI",
+          "amount": 18871.275401798,
+          "usd": 13547.22258502544
+        },
+        {
+          "asset": "WBTC",
+          "amount": 0.08637866923564043,
+          "usd": 5328.097017570407
+        },
+        {
+          "asset": "WAL",
+          "amount": 10319.557339623898,
+          "usd": 238.49845158841677
+        }
+      ]
+    },
+    {
+      "id": "N16",
+      "prev": {
+        "supply_usd": 30957.32,
+        "borrow_usd": 16450.45
+      },
+      "next": {
+        "supply_usd": 32704.39,
+        "borrow_usd": 18621.35
+      },
+      "live_supplies": 1,
+      "live_borrows": 2,
+      "assets": [
+        {
+          "asset": "xBTC",
+          "amount": 0.5307072215818174,
+          "usd": 32704.391040649334
+        }
+      ]
+    },
+    {
+      "id": "W01",
+      "prev": {
+        "supply_usd": 0.01,
+        "borrow_usd": 0
+      },
+      "next": {
+        "supply_usd": 0.01,
+        "borrow_usd": 0
+      },
+      "live_supplies": 2,
+      "live_borrows": 0,
+      "assets": [
+        {
+          "asset": "SUI",
+          "amount": 0.0001881055400300127,
+          "usd": 0.00012993247518331569
+        },
+        {
+          "asset": "sSUI",
+          "amount": 0.012513161,
+          "usd": 0.008982889269535449
+        }
+      ]
+    },
+    {
+      "id": "W03",
+      "prev": {
+        "supply_usd": 4308.55,
+        "borrow_usd": 2499.8
+      },
+      "next": {
+        "supply_usd": 4779.63,
+        "borrow_usd": 2500.58
+      },
+      "live_supplies": 2,
+      "live_borrows": 1,
+      "assets": [
+        {
+          "asset": "sSUI",
+          "amount": 6.366851557,
+          "usd": 4.570605503445561
+        },
+        {
+          "asset": "SUI",
+          "amount": 6916.940781126249,
+          "usd": 4775.061040974249
+        }
+      ]
+    }
+  ]
+}

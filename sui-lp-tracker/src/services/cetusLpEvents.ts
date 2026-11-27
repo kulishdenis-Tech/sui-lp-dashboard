@@ -226,16 +226,19 @@ export function cetusBurnedSeedsFromWalletMap(
 		}
 		for (const ev of evs) {
 			const name = structNameFromType(ev.type)
+			const pair = cetusPoolCoinsFromEventType(ev.type)
+			if (pair && (!coinTypeA || !coinTypeB)) {
+				coinTypeA = pair.coinTypeA
+				coinTypeB = pair.coinTypeB
+			}
 			if (
 				name !== 'AddLiquidityEvent' &&
 				name !== 'AddLiquidityV2Event' &&
 				name !== 'RemoveLiquidityEvent' &&
-				name !== 'RemoveLiquidityV2Event'
-			) continue
-			const pair = cetusPoolCoinsFromEventType(ev.type)
-			if (pair) {
-				coinTypeA = pair.coinTypeA
-				coinTypeB = pair.coinTypeB
+				name !== 'RemoveLiquidityV2Event' &&
+				name !== 'OpenPositionEvent'
+			) {
+				continue
 			}
 			if (!ev.parsedJson || typeof ev.parsedJson !== 'object') continue
 			const pj = ev.parsedJson as Parsed
