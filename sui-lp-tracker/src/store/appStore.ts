@@ -1132,18 +1132,36 @@ export const useAppStore = create<AppState>((set, get) => ({
 				const knownIds = new Set(get().closedPositions.map((p) => p.id.toLowerCase()))
 				const live = await fetchClosedFromAdapters(address)
 				if (isStaleClosed()) return
-				const fresh = live.filter((p) => !knownIds.has(p.id.toLowerCase()))
+				if (live.incomplete) {
+					set((st) => ({
+						lpInventoryIncomplete: true,
+						lpInventoryIncompleteReason:
+							st.lpInventoryIncompleteReason ?? live.reason ?? 'closed_scan_incomplete',
+					}))
+				}
+				const fresh = live.positions.filter((p) => !knownIds.has(p.id.toLowerCase()))
 				if (fresh.length === 0) return
-				const added = await getClosedPositions(address, { prefetched: fresh })
+				const added = await getClosedPositions(address, {
+					prefetched: fresh,
+					prefetchedIncomplete: live.incomplete,
+					prefetchedReason: live.reason,
+				})
 				if (isStaleClosed()) return
+				if (added.incomplete) {
+					set((st) => ({
+						lpInventoryIncomplete: true,
+						lpInventoryIncompleteReason:
+							st.lpInventoryIncompleteReason ?? added.reason ?? 'closed_scan_incomplete',
+					}))
+				}
 				const current = get().closedPositions
 				const keptEvents: Record<string, PositionEvent[]> = {}
 				for (const p of current) {
 					const ev = (p.events?.length ? p.events : get().positionEvents[p.id]) ?? []
 					if (ev.length > 0) keptEvents[p.id] = ev
 				}
-				const merged = mergeNewClosed(current, added)
-				const eventsMap = { ...keptEvents, ...eventsFromClosed(added) }
+				const merged = mergeNewClosed(current, added.positions)
+				const eventsMap = { ...keptEvents, ...eventsFromClosed(added.positions) }
 				_closedPositionsAddress = address
 				set((st) => ({
 					closedPositions: merged,
@@ -1212,12 +1230,30 @@ export const useAppStore = create<AppState>((set, get) => ({
 							await ensureLpWalletScanSession(address, { forceRefresh: false })
 							const live = await fetchClosedFromAdapters(address)
 							if (isStaleClosed()) return
-							const fresh = live.filter((p) => !knownIds.has(p.id.toLowerCase()))
+							if (live.incomplete) {
+								set((st) => ({
+									lpInventoryIncomplete: true,
+									lpInventoryIncompleteReason:
+										st.lpInventoryIncompleteReason ?? live.reason ?? 'closed_scan_incomplete',
+								}))
+							}
+							const fresh = live.positions.filter((p) => !knownIds.has(p.id.toLowerCase()))
 							if (fresh.length === 0) return
-							const added = await getClosedPositions(address, { prefetched: fresh })
+							const added = await getClosedPositions(address, {
+								prefetched: fresh,
+								prefetchedIncomplete: live.incomplete,
+								prefetchedReason: live.reason,
+							})
 							if (isStaleClosed()) return
-							const merged = mergeNewClosed(snap.positions, added)
-							applyClosed(merged, { ...(snap.eventsById ?? {}), ...eventsFromClosed(added) }, true)
+							if (added.incomplete) {
+								set((st) => ({
+									lpInventoryIncomplete: true,
+									lpInventoryIncompleteReason:
+										st.lpInventoryIncompleteReason ?? added.reason ?? 'closed_scan_incomplete',
+								}))
+							}
+							const merged = mergeNewClosed(snap.positions, added.positions)
+							applyClosed(merged, { ...(snap.eventsById ?? {}), ...eventsFromClosed(added.positions) }, true)
 						} catch (e) {
 							 
 							console.warn('[loadClosedPositions] reconcile failed', e)
@@ -1240,8 +1276,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 			await ensureLpWalletScanSession(address, { forceRefresh })
 			const closed = await getClosedPositions(address)
 			if (isStaleClosed()) return
-			const closedEventsMap = eventsFromClosed(closed)
-			applyClosed(closed, closedEventsMap, true)
+			if (closed.incomplete) {
+				set((st) => ({
+					lpInventoryIncomplete: true,
+					lpInventoryIncompleteReason:
+						st.lpInventoryIncompleteReason ?? closed.reason ?? 'closed_scan_incomplete',
+				}))
+			}
+			const closedEventsMap = eventsFromClosed(closed.positions)
+			applyClosed(closed.positions, closedEventsMap, true)
 		} catch (e) {
 			if (!isStaleClosed()) {
 				set({

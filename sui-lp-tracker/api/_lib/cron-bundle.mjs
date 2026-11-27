@@ -3394,18 +3394,22 @@ async function getCetusDlmmPositions(walletAddress, options) {
         currentPriceA_USD: pxaF ?? 0,
         currentPriceB_USD: pxbF ?? 0,
         currentValueUSD: valueUsd,
-        depositedUSD: 0,
-        pnlUSD: 0,
-        pnlPct: 0,
+        // History not read yet — Partial until Add/Remove enrichment (never silent $0 deposit).
+        depositedUSD: Number.NaN,
+        pnlUSD: Number.NaN,
+        pnlPct: Number.NaN,
         unclaimedFeeA: 0,
         unclaimedFeeB: 0,
         unclaimedFeeUSD: 0,
         unclaimedRewardUSD: 0,
         openedAt,
-        daysOpen: 0,
-        lifetimeEarningsUSD: 0,
-        vsHodlDeltaUSD: 0,
-        aprEstimatePct: 0,
+        daysOpen: Number.NaN,
+        lifetimeEarningsUSD: Number.NaN,
+        vsHodlDeltaUSD: Number.NaN,
+        aprEstimatePct: Number.NaN,
+        fees24hUSD: Number.NaN,
+        fees7dUSD: Number.NaN,
+        historyPartial: true,
         priceCurrentOverride: priceCur,
         priceRangeOverride: {
           min: Math.min(priceLo, priceHi),
@@ -4863,6 +4867,36 @@ async function getLlamaHistoricalQuote(coinType, timestampSec) {
       clearTimeout(t);
     }
   });
+}
+async function getLlamaCurrentPrices(coinTypes) {
+  const out = /* @__PURE__ */ new Map();
+  const unique = [...new Set(coinTypes.map((c) => c.trim()).filter(Boolean))];
+  if (!unique.length) return out;
+  const CHUNK3 = 40;
+  for (let i = 0; i < unique.length; i += CHUNK3) {
+    const chunk = unique.slice(i, i + CHUNK3);
+    const keys = chunk.map((ct) => `sui:${ct}`);
+    const path = `https://coins.llama.fi/prices/current/${keys.map(encodeURIComponent).join(",")}`;
+    await limiter(async () => {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), LLAMA_TIMEOUT_MS);
+      try {
+        const r = await fetch(extFetchUrl(path), { signal: ac.signal });
+        if (!r.ok) return;
+        const j = await r.json();
+        for (let k = 0; k < chunk.length; k++) {
+          const ct = chunk[k];
+          const key = keys[k];
+          const px = j.coins?.[key]?.price;
+          if (typeof px === "number" && Number.isFinite(px) && px > 0) out.set(ct, px);
+        }
+      } catch {
+      } finally {
+        clearTimeout(t);
+      }
+    });
+  }
+  return out;
 }
 
 // src/services/poolAddressCache.ts
@@ -6482,7 +6516,7 @@ import {
   SuilendClient,
   LENDING_MARKET_ID,
   LENDING_MARKET_TYPE,
-  initializeSuilend,
+  initializeSuilendAll,
   initializeObligations
 } from "@suilend/sdk";
 import { normalizeSuiAddress as normalizeSuiAddress2 } from "@mysten/sui/utils";
@@ -6496,6 +6530,33 @@ var EMPTY_SUILEND_SNAP = {
   rewardsToClaim: [],
   protocol: "Suilend"
 };
+var SUILEND_MARKETS = [
+  { id: LENDING_MARKET_ID, type: LENDING_MARKET_TYPE },
+  {
+    id: "0x74d92cb095b618f344486f77bcce87fbffc0fe0b46584bb1828bb291a222dda8",
+    type: "0x423f05ea163ae1bc5c03d75ef70d3e5d887455084118e46c4f76878530a03619::ember_market::EMBER_MARKET"
+  },
+  {
+    id: "0x2d7a85c0ad7c4d3c9c89a3785e32aa8d83ef3034148f49ce2d7c441bbba227be",
+    type: "0x699a706a737d36c4b52b8cbd8c4e6b16bdda9f7031c53720cb605c48e9ce1dcb::bitwise::BITWISE"
+  },
+  {
+    id: "0x8a8d8e138a28de1c637d0b0955e621b017da7010de388db5a18493eca99c5e82",
+    type: "0xd382f7d6e7596585b3063d5f4607de30a7a81adeb521d6b862b4c57defca746e::Matrixdock_gold::MATRIXDOCK_GOLD"
+  },
+  {
+    id: "0xd12df5fede59f1ac5e1f8413bc86bd6bc77fff2001366878df58ef6a26d58c67",
+    type: "0x7f3d30c31420e0c083a38b9c6f52e97e899f41bb31fa465a57044d29ea3f56e1::bucket_market::BUCKET_MARKET"
+  },
+  {
+    id: "0x0d3a7f758d19d11e8526f66cca43403a99da16862c570c43efe0f8c4a500f7f2",
+    type: "0x3628b6ea618a6cca71793bab63e88ea69e10d3a99b5c7b3df88ba01f165015d4::elixir::ELIXIR"
+  },
+  {
+    id: "0x13ec4438ef30dce971edde6e542b82c17a87fc2afeeee4be383b49f66d97a73b",
+    type: "0xc23f390508c4638809df6277cbc075e8016c260f04faa0fbb88d92a2d86a1de8::securitize::SECURITIZE"
+  }
+];
 function bnToNum(v) {
   if (v == null) return 0;
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
@@ -6513,12 +6574,22 @@ function errorSnap(reason) {
     metricsLive: false
   };
 }
-var _client2 = null;
-async function getClient2() {
-  if (_client2) return _client2;
+function hermesAccessToken() {
+  const t = process.env.PYTH_HERMES_ACCESS_TOKEN?.trim() || process.env.HERMES_ACCESS_TOKEN?.trim() || process.env.PYTH_API_KEY?.trim();
+  return t || void 0;
+}
+function onChainReservePriceFeedSource() {
+  return {
+    getLatestPriceFeeds: async () => [],
+    getLatestPriceFeedsPartial: async (ids) => ({ feeds: [], missing: [...ids] })
+  };
+}
+var _clients = null;
+async function getClients() {
+  if (_clients) return _clients;
   const grpc = getDashboardGrpcClient();
-  _client2 = await SuilendClient.initialize(LENDING_MARKET_ID, LENDING_MARKET_TYPE, grpc);
-  return _client2;
+  _clients = await SuilendClient.initializeAll([...SUILEND_MARKETS], grpc);
+  return _clients;
 }
 async function getSuilendPositions(walletAddress) {
   let owner;
@@ -6528,31 +6599,58 @@ async function getSuilendPositions(walletAddress) {
     owner = walletAddress.trim();
   }
   const grpc = getDashboardGrpcClient();
-  let client;
+  let clients;
   try {
-    client = await getClient2();
+    clients = await getClients();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.warn("[suilend] initialize failed", e);
+    console.warn("[suilend] initializeAll failed", e);
     return errorSnap(`initialize: ${msg}`);
   }
-  let obligations;
+  const token = hermesAccessToken();
+  const initOpts = token ? { pythConnectionConfig: { accessToken: token } } : {
+    pythConnection: onChainReservePriceFeedSource(),
+    tolerateMissingPriceFeeds: true
+  };
+  const obligations = [];
+  const marketErrors = [];
   try {
-    const init = await initializeSuilend(grpc, client);
-    const owned = await initializeObligations(
+    const inits = await initializeSuilendAll(
       grpc,
-      client,
-      init.refreshedRawReserves,
-      init.reserveMap,
-      owner
+      clients.map((suilendClient) => ({ suilendClient })),
+      void 0,
+      initOpts
     );
-    obligations = owned.obligations;
+    const settled = await Promise.allSettled(
+      clients.map(
+        (client, i) => initializeObligations(
+          grpc,
+          client,
+          inits[i].refreshedRawReserves,
+          inits[i].reserveMap,
+          owner
+        )
+      )
+    );
+    for (let i = 0; i < settled.length; i++) {
+      const s = settled[i];
+      if (s.status === "fulfilled") {
+        obligations.push(...s.value.obligations ?? []);
+      } else {
+        const msg = s.reason instanceof Error ? s.reason.message : String(s.reason);
+        marketErrors.push(`${SUILEND_MARKETS[i]?.id.slice(0, 10)}\u2026: ${msg}`);
+        console.warn("[suilend] initializeObligations market failed", SUILEND_MARKETS[i]?.id, s.reason);
+      }
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.warn("[suilend] initializeSuilend/obligations failed", e);
+    console.warn("[suilend] initializeSuilendAll failed", e);
     return errorSnap(`obligations: ${msg}`);
   }
-  if (!obligations?.length) return EMPTY_SUILEND_SNAP;
+  if (!obligations.length) {
+    if (marketErrors.length) return errorSnap(`obligations: ${marketErrors.join("; ")}`);
+    return EMPTY_SUILEND_SNAP;
+  }
   const spotTypes = [
     ...new Set(
       obligations.flatMap((o) => [
@@ -6568,12 +6666,33 @@ async function getSuilendPositions(walletAddress) {
     } catch {
     }
   }
-  const priceOf = (ct, reservePrice) => {
+  let llama = /* @__PURE__ */ new Map();
+  try {
+    llama = await getLlamaCurrentPrices(spotTypes);
+  } catch {
+  }
+  const preferLlama = !token;
+  const fromSpots = (ct) => {
     const hit = spots.get(ct)?.price;
     if (hit != null && hit > 0) return hit;
     for (const [k, v] of spots) {
       if (k.toLowerCase() === ct.toLowerCase() && v.price > 0) return v.price;
     }
+    return null;
+  };
+  const fromLlama = (ct) => {
+    const ll = llama.get(ct);
+    if (ll != null && ll > 0) return ll;
+    for (const [k, v] of llama) {
+      if (k.toLowerCase() === ct.toLowerCase() && v > 0) return v;
+    }
+    return null;
+  };
+  const priceOf = (ct, reservePrice) => {
+    const primary = preferLlama ? fromLlama(ct) : fromSpots(ct);
+    if (primary != null) return primary;
+    const secondary = preferLlama ? fromSpots(ct) : fromLlama(ct);
+    if (secondary != null) return secondary;
     return reservePrice > 0 ? reservePrice : Number.NaN;
   };
   const supplies = [];
@@ -6679,7 +6798,8 @@ async function getSuilendPositions(walletAddress) {
     healthFactor,
     rewardsToClaim: [],
     protocol: "Suilend",
-    metricsLive: true
+    metricsLive: true,
+    ...marketErrors.length ? { incomplete: true, error: `partial markets: ${marketErrors.join("; ")}` } : {}
   };
 }
 
@@ -14256,7 +14376,34 @@ async function getAftermathFarmsPositions(walletAddress) {
 // src/services/unsupportedLpService.ts
 init_suiClient();
 import { normalizeSuiAddress as normalizeSuiAddress21 } from "@mysten/sui/utils";
-var STRUCT_FILTERS = [
+var TYPE_RULES = [
+  { pkgPrefix: "25929e7f", module: "position", struct: "Position", label: "CLMM Position", kind: "unsupported" },
+  { pkgPrefix: "943535", module: "position", struct: "Position", label: "Farm Position", kind: "unsupported" },
+  { pkgPrefix: "ba0dd78b", module: "farm", struct: "StakeReceipt", label: "Kriya StakeReceipt", kind: "unsupported" },
+  { pkgPrefix: "3d5653b0", module: "staking", struct: "Position", label: "Haedal staking::Position", kind: "unsupported" },
+  { pkgPrefix: "cd86f775", module: "receipt", struct: "Receipt", label: "Vault Receipt", kind: "unsupported" },
+  { pkgPrefix: "2c8d603b", module: "balance_manager", struct: "TradeCap", label: "DeepBook TradeCap", kind: "unsupported" },
+  { pkgPrefix: "97d94737", module: "margin_pool", struct: "SupplierCap", label: "DeepBook SupplierCap", kind: "unsupported" },
+  { pkgPrefix: "e87f1b2d", module: "spool_account", struct: "SpoolAccount", label: "Scallop SpoolAccount", kind: "unsupported" },
+  {
+    pkgPrefix: "042a1a41",
+    module: "leverage_obligation",
+    struct: "LeverageMarketOwnerCap",
+    label: "LeverageMarketOwnerCap",
+    kind: "unsupported"
+  },
+  {
+    pkgPrefix: "41b1def4",
+    module: "alphalend_slush_pool",
+    struct: "PositionCap",
+    label: "alphalend_slush PositionCap",
+    kind: "unsupported"
+  },
+  { pkgPrefix: "3", module: "staking_pool", struct: "StakedSui", label: "StakedSui", kind: "staking" },
+  { pkgPrefix: "", module: "staking_pool", struct: "StakedWal", label: "StakedWal", kind: "staking" },
+  { pkgPrefix: "", module: "staked_wal", struct: "StakedWal", label: "StakedWal", kind: "staking" }
+];
+var STRUCT_TAILS = /* @__PURE__ */ new Set([
   "AlphaFiReceipt",
   "WrappedPositionNFT",
   "CetusVaultVester",
@@ -14272,15 +14419,54 @@ var STRUCT_FILTERS = [
   "Spool",
   "StakingPosition",
   "VaultShare",
-  "PositionNFT"
-];
-function stubRow(id, typeLabel) {
+  "PositionNFT",
+  "LeverageMarketOwnerCap",
+  "PositionCap",
+  "StakedSui",
+  "StakedWal"
+]);
+function parseTypeRef(typeStr) {
+  const bare = typeStr.includes("<") ? typeStr.slice(0, typeStr.indexOf("<")) : typeStr;
+  const parts = bare.split("::");
+  if (parts.length < 3) return null;
+  const struct = parts[parts.length - 1] ?? "";
+  const module = parts[parts.length - 2] ?? "";
+  const pkg = (parts[0] ?? "").toLowerCase().replace(/^0x0+/, "0x");
+  return { pkg, module, struct, bare };
+}
+function pkgHex(pkg) {
+  return pkg.replace(/^0x/i, "").replace(/^0+/, "") || "0";
+}
+function classifyOwnedMoveType(typeStr) {
+  const ref = parseTypeRef(typeStr);
+  if (!ref) return null;
+  const hex = pkgHex(ref.pkg);
+  for (const rule of TYPE_RULES) {
+    if (ref.module !== rule.module || ref.struct !== rule.struct) continue;
+    if (!rule.pkgPrefix) return { label: rule.label, kind: rule.kind };
+    const pref = rule.pkgPrefix.toLowerCase();
+    if (hex.startsWith(pref) || pref.startsWith(hex)) {
+      return { label: rule.label, kind: rule.kind };
+    }
+    if (pref === "3" && (hex === "3" || ref.pkg === "0x3" || ref.pkg === "0x0000000000000000000000000000000000000000000000000000000000000003")) {
+      return { label: rule.label, kind: rule.kind };
+    }
+  }
+  if (STRUCT_TAILS.has(ref.struct)) {
+    const kind = ref.struct === "StakedSui" || ref.struct === "StakedWal" ? "staking" : "unsupported";
+    return { label: ref.struct, kind };
+  }
+  return null;
+}
+function stubRow(id, typeLabel, kind, opts) {
+  const protocol = kind === "staking" ? "staking" : "unsupported";
+  const pair = kind === "staking" ? `Staking (${typeLabel}${opts?.amountHuman != null && opts.coinSymbol ? `, ${opts.amountHuman} ${opts.coinSymbol}` : ""})` : `Unsupported (${typeLabel})`;
   return {
     id,
-    protocol: "unsupported",
+    protocol,
     poolId: "",
-    pair: `Unsupported (${typeLabel})`,
-    tokenA: "\u2014",
+    pair,
+    tokenA: opts?.coinSymbol ?? "\u2014",
     tokenB: "\u2014",
     tokenAAddress: "",
     tokenBAddress: "",
@@ -14291,11 +14477,10 @@ function stubRow(id, typeLabel) {
     tickUpper: 0,
     currentTick: 0,
     currentSqrtPrice: "0",
-    // Non-zero sentinel so isEmptyLpPosition does not hide the stub
-    liquidity: "1",
+    liquidity: "0",
     lifecycleStatus: "unknown",
-    status: "in_range",
-    tokenAAmount: 0,
+    status: "unsupported",
+    tokenAAmount: opts?.amountHuman ?? 0,
     tokenBAmount: 0,
     currentPriceA_USD: Number.NaN,
     currentPriceB_USD: Number.NaN,
@@ -14312,52 +14497,101 @@ function stubRow(id, typeLabel) {
     lifetimeEarningsUSD: Number.NaN,
     vsHodlDeltaUSD: Number.NaN,
     aprEstimatePct: Number.NaN,
-    historyPartial: true
+    historyPartial: true,
+    unsupportedType: typeLabel
   };
 }
-function typeTail(typeStr) {
-  const bare = typeStr.includes("<") ? typeStr.slice(0, typeStr.indexOf("<")) : typeStr;
-  const parts = bare.split("::");
-  return parts[parts.length - 1] ?? bare;
+function groupLabels(positions) {
+  const m = /* @__PURE__ */ new Map();
+  for (const p of positions) {
+    const label = p.unsupportedType ?? "Unknown";
+    m.set(label, (m.get(label) ?? 0) + 1);
+  }
+  return [...m.entries()].map(([typeLabel, count]) => ({ typeLabel, count })).sort((a, b) => b.count - a.count || a.typeLabel.localeCompare(b.typeLabel));
 }
-async function getUnsupportedLpStubs(walletAddress) {
+function contentFields2(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  const o = obj;
+  const data = o.data ?? o;
+  const content = data.content;
+  if (!content) return null;
+  return content.fields ?? content;
+}
+function readPrincipalAmount(fields) {
+  if (!fields) return null;
+  const raw = fields.principal ?? fields.staked ?? fields.amount ?? fields.value;
+  if (typeof raw === "string" && /^\d+$/.test(raw)) {
+    const n2 = Number(raw) / 1e9;
+    return Number.isFinite(n2) ? n2 : null;
+  }
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw / 1e9;
+  return null;
+}
+async function scanUnsupportedInventory(walletAddress) {
   let owner;
   try {
     owner = normalizeSuiAddress21(walletAddress.trim());
   } catch {
     owner = walletAddress.trim();
   }
-  const out = [];
+  const unsupported = [];
+  const staking = [];
   const seen = /* @__PURE__ */ new Set();
-  let cursor;
   let incomplete = false;
-  for (let page = 0; page < 40; page++) {
+  let reason;
+  const ingest = (id, typ, fields) => {
+    if (seen.has(id)) return;
+    const hit = classifyOwnedMoveType(typ);
+    if (!hit) return;
+    seen.add(id);
+    if (hit.kind === "staking") {
+      const amt = readPrincipalAmount(fields);
+      const sym = hit.label === "StakedWal" ? "WAL" : "SUI";
+      staking.push(
+        stubRow(id, hit.label, "staking", {
+          amountHuman: amt ?? void 0,
+          coinSymbol: sym
+        })
+      );
+    } else {
+      unsupported.push(stubRow(id, hit.label, "unsupported"));
+    }
+  };
+  let cursor;
+  const MAX_PAGES2 = 80;
+  for (let page = 0; page < MAX_PAGES2; page++) {
     try {
       const res = await suiClient.getOwnedObjects({
         owner,
         cursor: cursor ?? void 0,
         limit: 50,
-        options: { showType: true }
+        options: { showType: true, showContent: true }
       });
       for (const row of res.data) {
         const typ = row.data?.type;
         const id = row.data?.objectId;
-        if (!typ || !id || seen.has(id)) continue;
-        const tail = typeTail(typ);
-        if (!STRUCT_FILTERS.some((s) => tail === s)) continue;
-        seen.add(id);
-        out.push(stubRow(id, tail));
+        if (!typ || !id) continue;
+        ingest(id, typ, contentFields2(row));
       }
       if (!res.hasNextPage || !res.nextCursor) break;
       cursor = res.nextCursor;
-      if (page === 39) incomplete = true;
-    } catch {
+      if (page === MAX_PAGES2 - 1 && res.hasNextPage) {
+        incomplete = true;
+        reason = `owned inventory truncated after ${MAX_PAGES2 * 50} objects`;
+      }
+    } catch (e) {
       incomplete = true;
+      reason = e instanceof Error ? e.message : String(e);
       break;
     }
   }
-  void incomplete;
-  return out;
+  return {
+    positions: unsupported,
+    groups: groupLabels(unsupported),
+    staking,
+    incomplete,
+    reason
+  };
 }
 
 // src/services/portfolioLpSources.ts
@@ -14396,8 +14630,7 @@ var LOADERS = {
   "haedal-lending-vaults": (w, o) => getHaedalLendingVaultPositions(w, { forceRefreshPrices: o?.forceRefreshPrices }),
   "current-multiply": (w, o) => getCurrentMultiplyVaultPositions(w, { forceRefreshPrices: o?.forceRefreshPrices }),
   turbos: (w) => getTurbosPositions(w),
-  aftermath: (w) => getAftermathFarmsPositions(w),
-  unsupported: (w) => getUnsupportedLpStubs(w)
+  aftermath: (w) => getAftermathFarmsPositions(w)
 };
 function timingEnabled() {
   return readEnv2("VITEST") !== "true" && readEnv2("SUI_LP_ADVISOR_DEV_TIMING") === "1";
@@ -14405,11 +14638,21 @@ function timingEnabled() {
 async function loadPortfolioLpSource(id, wallet, opts) {
   const t0 = Date.now();
   try {
+    if (id === "unsupported") {
+      const scan = await scanUnsupportedInventory(wallet);
+      return {
+        id,
+        ok: true,
+        positions: [...scan.positions, ...scan.staking],
+        incomplete: scan.incomplete,
+        reason: scan.reason
+      };
+    }
     const positions = await LOADERS[id](wallet, opts);
     return { id, ok: true, positions };
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
-    return { id, ok: false, error, positions: [] };
+    return { id, ok: false, error, positions: [], incomplete: true, reason: error };
   } finally {
     if (timingEnabled()) console.log(`[lp-source] ${id}: ${Date.now() - t0}ms`);
   }
@@ -14435,7 +14678,7 @@ async function loadAllPortfolioLpSources(wallet, opts) {
     error: l.error,
     count: l.ok ? l.positions.length : 0
   }));
-  let incomplete = loads.some((l) => !l.ok);
+  let incomplete = loads.some((l) => !l.ok || l.incomplete === true);
   const positions = loads.filter((l) => l.ok).flatMap((l) => l.positions);
   for (const p of positions) {
     const liq = typeof p.liquidity === "string" ? p.liquidity : "0";
@@ -14489,7 +14732,7 @@ async function loadPortfolioSnapshotDetailedOnce(rawAddress) {
       id: "alphalend",
       ok: false,
       error: e instanceof Error ? e.message : String(e),
-      status: "unavailable"
+      status: "error"
     });
   }
   let navi = EMPTY_NAVI_SNAP;
@@ -14502,7 +14745,7 @@ async function loadPortfolioSnapshotDetailedOnce(rawAddress) {
       id: "navi",
       ok: false,
       error: e instanceof Error ? e.message : String(e),
-      status: "unavailable"
+      status: "error"
     });
   }
   let current = EMPTY_CURRENT_SNAP;
@@ -14515,7 +14758,7 @@ async function loadPortfolioSnapshotDetailedOnce(rawAddress) {
       id: "current",
       ok: false,
       error: e instanceof Error ? e.message : String(e),
-      status: "unavailable"
+      status: "error"
     });
   }
   let suilend = EMPTY_SUILEND_SNAP;
@@ -14594,12 +14837,13 @@ function assemblePortfolioSnapshot(input) {
     error: l.error,
     count: l.ok ? l.positions.length : 0
   }));
-  const lpIncomplete = input.lpLoads.some((l) => !l.ok);
+  const lpIncomplete = input.lpLoads.some((l) => !l.ok || l.incomplete === true);
   const lendingIncomplete = input.lendingSources.some((s) => s.status !== "ok" || !s.ok);
   const incomplete = lpIncomplete || lendingIncomplete || !input.balanceOk || !input.classifyOk;
   let lpUSD = 0;
   let aftermathUSD = 0;
   for (const p of input.positions) {
+    if (p.protocol === "unsupported" || p.protocol === "staking" || p.status === "unsupported") continue;
     const val = isCurrentMultiplyVaultPosition(p) ? multiplyPortfolioContribution(p).usd : positionValueUsdOrNull(p) ?? liquidityUsdOrNull(p);
     if (val == null) continue;
     if (p.protocol === "aftermath") aftermathUSD += val;

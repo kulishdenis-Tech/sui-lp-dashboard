@@ -1,8 +1,8 @@
 /**
  * Turbos Finance CLMM — DexAdapter wrapper.
  */
-import type { DexAdapter } from './types'
-import type { ClosedPosition, OpenPosition, PositionEvent } from '@/types'
+import type { ClosedPositionsResult, DexAdapter } from './types'
+import type { OpenPosition, PositionEvent } from '@/types'
 import { getTurbosPositions } from '@/services/turbosService'
 import { getTurbosClosedPositions } from '@/services/turbosClosedPositions'
 import { scanTurbosPositionEvents, invalidateTurbosEventCache } from '@/services/turbosLpEvents'
@@ -19,24 +19,22 @@ export const turbosAdapter: DexAdapter = {
 		}
 	},
 
-	async getClosedPositions(wallet: string): Promise<ClosedPosition[]> {
+	async getClosedPositions(wallet: string): Promise<ClosedPositionsResult> {
 		try {
 			return await getTurbosClosedPositions(wallet)
 		} catch (e) {
 			console.error('[turbosAdapter] getClosedPositions failed', e)
-			return []
+			return { positions: [], incomplete: true, reason: 'adapter_error' }
 		}
 	},
 
 	async scanPositionEvents(
 		wallet: string,
-		positionId: string,  // = nftId for Turbos
+		positionId: string,
 		tokenADecimals: number,
 		tokenBDecimals: number,
 	): Promise<PositionEvent[]> {
 		try {
-			// positionId here is the NFT ID; positionObjectId not available via generic interface
-			// Newer Turbos events (MintEvent, BurnEvent, CollectEventV2) use owner=nftId so they'll be found
 			const scan = await scanTurbosPositionEvents(wallet, positionId, '', tokenADecimals, tokenBDecimals)
 			return scan.events
 		} catch {

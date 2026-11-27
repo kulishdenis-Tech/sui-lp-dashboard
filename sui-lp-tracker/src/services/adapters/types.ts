@@ -5,12 +5,21 @@
  * Додавання нового DEX = один рядок у registry.ts.
  *
  * Правила:
- *  - getOpenPositions / getClosedPositions ніколи не кидають — повертають []
+ *  - getOpenPositions ніколи не кидає — повертає []
+ *  - getClosedPositions ніколи не кидає — повертає ClosedPositionsResult
+ *    (incomplete=true при timeout/page_cap/error; не маскувати збій як порожній успіх)
  *  - scanPositionEvents ніколи не кидає — повертає []
  *  - invalidateCache — синхронна, non-fatal
  */
 
 import type { ClosedPosition, LpProtocol, OpenPosition, PositionEvent } from '@/types'
+
+/** Closed list + scan completeness (never equate incomplete empty to a proven zero). */
+export type ClosedPositionsResult = {
+	positions: ClosedPosition[]
+	incomplete: boolean
+	reason?: string
+}
 
 export interface DexAdapter {
 	/** Ідентифікатор протоколу (відповідає LpProtocol). */
@@ -24,9 +33,9 @@ export interface DexAdapter {
 
 	/**
 	 * Закриті позиції (нульова ліквідність або сканування подій).
-	 * Не кидає — внутрішні помилки → [].
+	 * Не кидає — timeout / page_cap / catch → incomplete=true (positions may be partial).
 	 */
-	getClosedPositions(wallet: string): Promise<ClosedPosition[]>
+	getClosedPositions(wallet: string): Promise<ClosedPositionsResult>
 
 	/**
 	 * Всі LP-події для конкретної позиції.

@@ -682,22 +682,23 @@ async function loadWallet(
 						'gql',
 					)
 					if (r.ok) {
-						row.closed[proto] = r.value.length
-						const truncated = r.value.some(
-							(c) => (c as { historyPartial?: boolean }).historyPartial === true,
-						)
+						const result = r.value
+						row.closed[proto] = result.positions.length
+						const rowPartial = result.positions.some((c) => c.partialHistory === true)
+						const truncated = result.incomplete === true || rowPartial
 						if (truncated) {
 							row.closedTruncated[proto] = true
 							row.incomplete = true
 							row.sources[`closed:${proto}`] = {
 								status: 'partial',
-								error: 'historyPartial on closed rows',
+								error: result.reason ?? 'closed_scan_incomplete',
 								host: gqlHost,
 								method: `${proto}.getClosedPositions`,
 							}
 						}
 					} else {
 						row.incomplete = true
+						row.closedTruncated[proto] = true
 						row.harness_step_error = true
 					}
 				}),

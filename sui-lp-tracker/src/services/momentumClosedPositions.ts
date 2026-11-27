@@ -1,4 +1,5 @@
 import type { ClosedPosition, PositionEvent } from '@/types'
+import type { ClosedPositionsResult } from '@/services/adapters/types'
 import type { BluefinPoolPairMeta } from '@/services/bluefinService'
 import { fetchMomentumPoolPairMeta, listMomentumOwnedPositionIds } from '@/services/momentumService'
 import {
@@ -63,7 +64,7 @@ export type MomentumClosedPreScan = {
 export async function getMomentumClosedPositions(
 	walletAddress: string,
 	preScanned?: MomentumClosedPreScan,
-): Promise<ClosedPosition[]> {
+): Promise<ClosedPositionsResult> {
 	const scan =
 		preScanned ??
 		(await scanMomentumWalletAllPositionEvents(walletAddress))
@@ -179,5 +180,9 @@ export async function getMomentumClosedPositions(
 	}
 
 	out.sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0))
-	return out
+	return {
+		positions: out,
+		incomplete: scanPartial === true,
+		reason: scanPartial ? 'page_cap' : undefined,
+	}
 }

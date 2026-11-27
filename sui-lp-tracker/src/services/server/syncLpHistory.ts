@@ -128,13 +128,19 @@ export async function syncLpHistoryForWallet(rawWallet: string): Promise<SyncLpH
 
 		const discovered = await fetchClosedFromAdapters(wallet)
 		const newIds = fullResync
-			? discovered.map((c) => c.id)
-			: discovered.filter((c) => !knownIds.has(c.id.toLowerCase())).map((c) => c.id)
+			? discovered.positions.map((c) => c.id)
+			: discovered.positions.filter((c) => !knownIds.has(c.id.toLowerCase())).map((c) => c.id)
 
-		const closed =
+		const closedResult =
 			newIds.length === 0
-				? []
-				: await getClosedPositions(wallet, { onlyIds: newIds, prefetched: discovered })
+				? { positions: [] as Awaited<ReturnType<typeof getClosedPositions>>['positions'], incomplete: discovered.incomplete, reason: discovered.reason }
+				: await getClosedPositions(wallet, {
+						onlyIds: newIds,
+						prefetched: discovered.positions,
+						prefetchedIncomplete: discovered.incomplete,
+						prefetchedReason: discovered.reason,
+					})
+		const closed = closedResult.positions
 
 		const openPositions = await loadOpenPositions(wallet)
 		const cursorRows = knownOpen.map((row) => ({

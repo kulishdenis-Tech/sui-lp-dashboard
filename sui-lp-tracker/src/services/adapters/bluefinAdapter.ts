@@ -2,8 +2,8 @@
  * Bluefin CLMM — DexAdapter обгортка.
  * Делегує до існуючих сервісів без їх переписування.
  */
-import type { DexAdapter } from './types'
-import type { ClosedPosition, OpenPosition, PositionEvent } from '@/types'
+import type { ClosedPositionsResult, DexAdapter } from './types'
+import type { OpenPosition, PositionEvent } from '@/types'
 import { getBluefinSpotPositions } from '@/services/bluefinService'
 import { getBluefinClosedPositions } from '@/services/bluefinClosedPositions'
 import { getPositionEvents, invalidateBluefinMomentumScanCache } from '@/services/eventParser'
@@ -16,13 +16,12 @@ export const bluefinAdapter: DexAdapter = {
 		try {
 			return await getBluefinSpotPositions(wallet)
 		} catch (e) {
-			 
 			console.error('[bluefinAdapter] getOpenPositions failed', e)
 			return []
 		}
 	},
 
-	async getClosedPositions(wallet: string): Promise<ClosedPosition[]> {
+	async getClosedPositions(wallet: string): Promise<ClosedPositionsResult> {
 		try {
 			const session = getLpWalletScanSession()
 			const preScanned = session?.walletNorm
@@ -30,9 +29,8 @@ export const bluefinAdapter: DexAdapter = {
 				: undefined
 			return await getBluefinClosedPositions(wallet, preScanned)
 		} catch (e) {
-			 
 			console.error('[bluefinAdapter] getClosedPositions failed', e)
-			return []
+			return { positions: [], incomplete: true, reason: 'adapter_error' }
 		}
 	},
 

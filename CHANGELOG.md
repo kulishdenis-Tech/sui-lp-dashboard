@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.5.8
+
+- Closed LP: `ClosedPositionsResult` (`incomplete` + reason) замість тихого `[]` при timeout/page_cap/adapter error; `lpInventoryIncomplete` + harness `closedTruncated` / source `partial` (truncation на `partialHistory`).
+- Bluefin cold `scanSession`: wallet-level typed GraphQL Promise cache (як Turbos), in-flight full-scan share, Sender cap ~50 після успішного typed, skip/cap global `PositionClosed`; той самий typed-cache для Momentum.
+- N10 Bluefin: `closedAtLeast=18` = event count; 2 «пропущені» vs live closed — owned opens, не баг discovery (min не знижуємо).
+- Suilend §8.1 N01/N02/N04: діагностика amount/px (толеранс ±5% без змін); N04 under — price drift XAUM при тих самих ctokens.
+
 ## 2.5.7
 
 - LP history: GraphQL typed `SenderAndMoveEventType` замість gRPC `ListTransactions` / `FromAddress` у scanSession, enrichment і closed (Cetus/Bluefin/Momentum/Turbos) — глибше за ~16 днів pruning, без `BELOW_EARLIEST_AVAILABLE`.

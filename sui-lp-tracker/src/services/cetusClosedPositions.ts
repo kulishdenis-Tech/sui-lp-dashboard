@@ -14,6 +14,7 @@
  *  6. Build ClosedPosition[]
  */
 import type { ClosedPosition, PositionEvent } from '@/types'
+import type { ClosedPositionsResult } from '@/services/adapters/types'
 import { suiClient } from '@/services/suiClient'
 import { normalizeSuiAddress } from '@mysten/sui/utils'
 import type { ParsedPool, ParsedPosition } from '@/services/cetusService'
@@ -109,13 +110,16 @@ async function fetchCoinMetas(coinTypes: string[]): Promise<Map<string, CoinMeta
  */
 export async function getCetusClosedPositions(
 	walletAddress: string,
-): Promise<ClosedPosition[]> {
+): Promise<ClosedPositionsResult> {
 	let walletNorm: string
 	try {
 		walletNorm = normalizeSuiAddress(walletAddress)
 	} catch {
 		walletNorm = walletAddress
 	}
+
+	let incomplete = false
+	let reason: string | undefined
 
 	// 1. Burned closes from wallet events only (never owned liquidity===0 NFTs).
 	const closed: ParsedPosition[] = []
@@ -125,6 +129,8 @@ export async function getCetusClosedPositions(
 	} catch (e) {
 		 
 		console.warn('[cetus-closed] burned-position scan failed', e)
+		incomplete = true
+		reason = 'scan_timeout'
 	}
 	const needPoolCoins = burnedSeeds.filter((s) => !s.coinTypeA || !s.coinTypeB)
 	if (needPoolCoins.length > 0) {
@@ -163,7 +169,9 @@ export async function getCetusClosedPositions(
 		})
 	}
 
-	if (closed.length === 0) return []
+	if (closed.length === 0) {
+		return { positions: [], incomplete, reason: incomplete ? reason ?? 'page_cap' : undefined }
+	}
 
 	// 2. Fetch pool metadata (fee rate, rewarder coin types)
 	const uniquePoolIds = [...new Set(closed.map((p) => p.poolId))]
@@ -174,6 +182,8 @@ export async function getCetusClosedPositions(
 		 
 		console.warn('[cetus-closed] fetchPools failed', e)
 		poolMap = new Map()
+		incomplete = true
+		reason = reason ?? 'adapter_error'
 	}
 
 	// 3. Collect all coin types for metadata + spot price lookup
@@ -212,6 +222,7 @@ export async function getCetusClosedPositions(
 
 	// 6. Scan events + build ClosedPosition for each position
 	const out: ClosedPosition[] = []
+	let anyRowPartial = false
 
 	await Promise.allSettled(
 		closed.map(async (pos) => {
@@ -220,27 +231,29 @@ export async function getCetusClosedPositions(
 			const metaB = getMeta(pos.coinTypeB)
 
 			// Scan on-chain events for this position.
-			// Pass 1: wallet-wide Sender scan (IDB warm-start, ~5 pages on repeat loads).
+			// Pass 1: wallet-wide Sender/typed scan (IDB warm-start).
 			let events = await scanCetusPositionEvents(
 				walletAddress,
 				pos.objectId,
 				metaA.decimals,
 				metaB.decimals,
-			).catch(() => [])
+			).catch(() => {
+				anyRowPartial = true
+				return [] as PositionEvent[]
+			})
 
-			// Pass 2: deep wallet TX scan — fires when the Sender scan window doesn't reach
-			// back far enough (position's events predate the last ~2500 Sender events).
-			// Closed positions are immutable → check IDB before hitting the chain.
-			if (!events.some((e) => e.type === 'add_liquidity')) {
+			// Pass 2: deep GraphQL typed wallet scan when opening deposit is missing.
+			let rowPartial = !events.some((e) => e.type === 'add_liquidity')
+			if (rowPartial) {
 				let posNorm: string
 				try { posNorm = normalizeSuiAddress(pos.objectId) } catch { posNorm = pos.objectId }
 
 				const idbHit = idbTxCache.get(posNorm)
 				if (idbHit && idbHit.events.length > 0) {
-					// IDB hit — use cached events, no RPC call needed
 					const seen = new Set(idbHit.events.map((e: PositionEvent) => e.id))
 					events = [...idbHit.events, ...events.filter((e) => !seen.has(e.id))]
 					events.sort((a, b) => a.timestamp - b.timestamp)
+					rowPartial = !events.some((e) => e.type === 'add_liquidity') || idbHit.scanPartial === true
 				} else {
 					try {
 						const targeted = await scanCetusPositionEventsByWalletTxs(
@@ -250,29 +263,29 @@ export async function getCetusClosedPositions(
 							metaB.decimals,
 						)
 						if (targeted.length > 0) {
-							// Merge: targeted events take priority, keep any extras from sender scan
 							const seen = new Set(targeted.map((e) => e.id))
 							events = [...targeted, ...events.filter((e) => !seen.has(e.id))]
 							events.sort((a, b) => a.timestamp - b.timestamp)
-							// Persist for future sessions (closed = immutable)
+							rowPartial = !events.some((e) => e.type === 'add_liquidity')
 							void saveClosedPosTxEntry({
 								id: `${walletNorm}|${posNorm}`,
 								walletNorm,
 								posNorm,
 								events: targeted,
-								scanPartial: false,
+								scanPartial: rowPartial,
 								cachedAt: Date.now(),
 							})
 						} else {
-							 
-							console.warn('[cetus-closed] no events found for position', pos.objectId.slice(0, 16), '— both Sender and deep TX scans returned empty')
+							rowPartial = true
+							console.warn('[cetus-closed] no events found for position', pos.objectId.slice(0, 16), '— Sender and deep typed scans empty')
 						}
 					} catch (err) {
-						 
+						rowPartial = true
 						console.warn('[cetus-closed] targeted scan failed for', pos.objectId.slice(0, 16), err)
 					}
 				}
 			}
+			if (rowPartial) anyRowPartial = true
 
 			events.sort((a, b) => a.timestamp - b.timestamp)
 
@@ -370,7 +383,7 @@ export async function getCetusClosedPositions(
 				closedAt,
 				daysOpen,
 				events: dEvents,
-				partialHistory: false,
+				partialHistory: rowPartial,
 				poolId: pos.poolId,
 				tokenAAddress: dCoinTypeA,
 				tokenBAddress: dCoinTypeB,
@@ -387,5 +400,9 @@ export async function getCetusClosedPositions(
 	)
 
 	out.sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0))
-	return out
+	if (anyRowPartial) {
+		incomplete = true
+		reason = reason ?? 'page_cap'
+	}
+	return { positions: out, incomplete, reason: incomplete ? reason : undefined }
 }
