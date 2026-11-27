@@ -250,6 +250,8 @@ export async function getCetusClosedPositions(
 	}
 
 	const seen = new Set<string>()
+	/** objectIds whose coin types are SUI placeholders (pool meta miss) — not real pairs. */
+	const placeholderCoinIds = new Set<string>()
 	let placeholderCoins = 0
 	for (const seed of burnedSeeds) {
 		if (!seed.coinTypeA || !seed.coinTypeB) {
@@ -257,6 +259,7 @@ export async function getCetusClosedPositions(
 			seed.coinTypeA = seed.coinTypeA || '0x2::sui::SUI'
 			seed.coinTypeB = seed.coinTypeB || '0x2::sui::SUI'
 			placeholderCoins++
+			placeholderCoinIds.add(seed.objectId)
 			incomplete = true
 			reason = reason ?? 'meta_miss'
 		}
@@ -449,14 +452,33 @@ export async function getCetusClosedPositions(
 				}
 			}
 
-			const depositedUSD =
-				(pxA > 0 ? depositedA * pxA : 0) + (pxB > 0 ? depositedB * pxB : 0)
-			const closedValueUSD =
-				(pxA > 0 ? withdrawnA * pxA : 0) + (pxB > 0 ? withdrawnB * pxB : 0)
-			const totalFeesUSD =
-				(pxA > 0 ? feesA * pxA : 0) + (pxB > 0 ? feesB * pxB : 0)
-			const pnlUSD = closedValueUSD + totalFeesUSD - depositedUSD
-			const pnlPct = depositedUSD > 0 ? (pnlUSD / depositedUSD) * 100 : 0
+			const coinPlaceholder = placeholderCoinIds.has(pos.objectId)
+			if (coinPlaceholder) {
+				rowPartial = true
+				anyRowPartial = true
+			}
+
+			// Placeholder coin types (SUI/SUI stand-in) — do not invent USD totals.
+			let depositedUSD: number
+			let closedValueUSD: number
+			let totalFeesUSD: number
+			let pnlUSD: number
+			let pnlPct: number
+			if (coinPlaceholder) {
+				depositedUSD = Number.NaN
+				closedValueUSD = Number.NaN
+				totalFeesUSD = Number.NaN
+				pnlUSD = Number.NaN
+				pnlPct = Number.NaN
+			} else {
+				depositedUSD =
+					(pxA > 0 ? depositedA * pxA : 0) + (pxB > 0 ? depositedB * pxB : 0)
+				closedValueUSD =
+					(pxA > 0 ? withdrawnA * pxA : 0) + (pxB > 0 ? withdrawnB * pxB : 0)
+				totalFeesUSD = (pxA > 0 ? feesA * pxA : 0) + (pxB > 0 ? feesB * pxB : 0)
+				pnlUSD = closedValueUSD + totalFeesUSD - depositedUSD
+				pnlPct = depositedUSD > 0 ? (pnlUSD / depositedUSD) * 100 : 0
+			}
 
 			// Normalise token order: Cetus orders pool tokens by coin-type address, so a
 			// stablecoin may end up as tokenA. Swap to canonical "crypto/stablecoin" order
@@ -465,7 +487,7 @@ export async function getCetusClosedPositions(
 			// because the direction of the price axis flips.
 			const aIsStable = STABLECOIN_SYMS.has(metaA.symbol.toUpperCase())
 			const bIsStable = STABLECOIN_SYMS.has(metaB.symbol.toUpperCase())
-			const swap = aIsStable && !bIsStable
+			const swap = !coinPlaceholder && aIsStable && !bIsStable
 
 			const dMetaA = swap ? metaB : metaA
 			const dMetaB = swap ? metaA : metaB
@@ -478,14 +500,16 @@ export async function getCetusClosedPositions(
 			const dTickUpper = swap ? -pos.lowerTick : pos.upperTick
 			const dEvents = swap ? events.map(swapEventAB) : events
 
-			const pair = `${dMetaA.symbol}/${dMetaB.symbol} · ${feeLbl}`
+			const pair = coinPlaceholder
+				? `?—? · ${feeLbl}`
+				: `${dMetaA.symbol}/${dMetaB.symbol} · ${feeLbl}`
 
 			out.push({
 				id: pos.objectId,
 				protocol: 'cetus',
 				pair,
-				tokenA: dMetaA.symbol,
-				tokenB: dMetaB.symbol,
+				tokenA: coinPlaceholder ? '?' : dMetaA.symbol,
+				tokenB: coinPlaceholder ? '?' : dMetaB.symbol,
 				fee: feeRate,
 				depositedUSD,
 				closedValueUSD,
@@ -499,14 +523,14 @@ export async function getCetusClosedPositions(
 				events: dEvents,
 				partialHistory: rowPartial,
 				poolId: pos.poolId,
-				tokenAAddress: dCoinTypeA,
-				tokenBAddress: dCoinTypeB,
+				tokenAAddress: coinPlaceholder ? undefined : dCoinTypeA,
+				tokenBAddress: coinPlaceholder ? undefined : dCoinTypeB,
 				tokenADecimals: dMetaA.decimals,
 				tokenBDecimals: dMetaB.decimals,
-				tokenAIconUrl: dMetaA.iconUrl,
-				tokenBIconUrl: dMetaB.iconUrl,
-				currentPriceA_USD: dPxA,
-				currentPriceB_USD: dPxB,
+				tokenAIconUrl: coinPlaceholder ? null : dMetaA.iconUrl,
+				tokenBIconUrl: coinPlaceholder ? null : dMetaB.iconUrl,
+				currentPriceA_USD: coinPlaceholder ? undefined : dPxA,
+				currentPriceB_USD: coinPlaceholder ? undefined : dPxB,
 				tickLower: dTickLower,
 				tickUpper: dTickUpper,
 			})

@@ -83,11 +83,16 @@ export function ClosedList({ allClosed, protocolFilter }: { allClosed: ClosedPos
 						<span className="flex min-w-0 items-center gap-2">
 							<ProtocolIcon protocol={c.protocol} size={16} />
 							<span className="truncate text-sm font-medium text-slate-100">{c.pair}</span>
-							{c.partialHistory ? <span className="text-amber-400">⚠</span> : null}
+							{c.partialHistory ? (
+								<span className="shrink-0 rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-400">
+									partial
+								</span>
+							) : null}
 						</span>
 						<span className={`text-sm font-medium tabular-nums ${tone(c.pnlUSD)}`}>
-							{c.pnlUSD >= 0 ? '+' : ''}
-							{formatUSDAdaptive(c.pnlUSD)}
+							{Number.isFinite(c.pnlUSD)
+								? `${c.pnlUSD >= 0 ? '+' : ''}${formatUSDAdaptive(c.pnlUSD)}`
+								: '—'}
 						</span>
 						<span className="text-xs text-slate-400">
 							{dateLabel(c.closedAt)} · {Number.isFinite(c.daysOpen) ? `${Math.round(c.daysOpen)}d` : '—'}

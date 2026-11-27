@@ -122,12 +122,20 @@ function ClosedPoolCell({ c }: { c: ClosedPosition }) {
 							{feeLabel}%
 						</span>
 						{c.partialHistory ? (
-							<TooltipIconButton
-								tip="Event history truncated by page limit — totals may be incomplete."
-								aria-label="History truncated"
-								className="text-amber-500/90 hover:text-amber-400/90"
-								leadingClassName="ml-0"
-							/>
+							<>
+								<span
+									className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-400/95"
+									title="Partial data — coin types or event history incomplete; excluded from PnL totals."
+								>
+									partial
+								</span>
+								<TooltipIconButton
+									tip="Partial data — coin types or event history incomplete; excluded from PnL totals."
+									aria-label="Partial history"
+									className="text-amber-500/90 hover:text-amber-400/90"
+									leadingClassName="ml-0"
+								/>
+							</>
 						) : null}
 						{c.partialIndexer ? (
 							<TooltipIconButton

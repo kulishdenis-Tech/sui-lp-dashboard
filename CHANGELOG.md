@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.5.11
+
+- Cetus closed placeholders (pool meta miss): пара `?—?`, бейдж **partial**, `pnlUSD`/`depositedUSD`/`fees` = NaN — не входять у ClosedSummaryStrip PnL-агрегати; UI маркер на desktop і mobile.
+
 ## 2.5.10
 
 - Cetus closed: ClosePosition seeds більше не відкидаються при timeout `multiGetObjects` (chunked retry + placeholder coin types); без deep-rescan коли seeds уже є; N06 solo **1560 ≥ 26**.
