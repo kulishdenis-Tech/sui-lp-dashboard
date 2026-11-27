@@ -15,6 +15,7 @@
  *  6. Build ClosedPosition[]
  */
 import type { ClosedPosition, PositionEvent } from '@/types'
+import type { ClosedPositionsResult } from '@/services/adapters/types'
 import { suiClient } from '@/services/suiClient'
 import { fetchTurbosClosedNfts, parsePoolObject } from '@/services/turbosService'
 import { scanTurbosPositionEvents } from '@/services/turbosLpEvents'
@@ -80,16 +81,24 @@ async function fetchCoinMetas(coinTypes: string[]): Promise<Map<string, CoinMeta
 	return mm
 }
 
+type TurbosBurnSeed = {
+	nftId: string
+	poolId: string
+	positionId: string
+	coinTypeA: string | null
+	coinTypeB: string | null
+}
+
 /** Discover burned Turbos NFT ids from Burn/Close Move events (GraphQL typed). */
 async function fetchTurbosBurnedNftSeeds(
 	walletAddress: string,
-): Promise<Array<{ nftId: string; poolId: string; positionId: string; coinTypeA: string | null; coinTypeB: string | null }>> {
-	const structs = ['BurnEvent', 'ClosePositionEvent', 'BurnNftEvent', 'BurnPositionEvent', 'RemoveLiquidityEvent']
+): Promise<{ seeds: TurbosBurnSeed[]; partial: boolean }> {
+	const structs = ['BurnNftEvent', 'BurnPositionEvent', 'ClosePositionEvent']
 	const pkgs = [PROTOCOL_PACKAGES.TURBOS, PROTOCOL_PACKAGES.TURBOS_PUBLISHED_AT]
 	const paths = pkgs.flatMap((pkg) =>
 		structs.flatMap((s) => [`${pkg}::pool::${s}`, `${pkg}::position_manager::${s}`, `${pkg}::position::${s}`]),
 	)
-	const out: Array<{ nftId: string; poolId: string; positionId: string; coinTypeA: string | null; coinTypeB: string | null }> = []
+	const out: TurbosBurnSeed[] = []
 	const seen = new Set<string>()
 	try {
 		const typed = await querySenderAndMoveEventTypes(walletAddress, paths, {
@@ -136,29 +145,40 @@ async function fetchTurbosBurnedNftSeeds(
 				coinTypeB: null,
 			})
 		}
+		return { seeds: out, partial: typed.partial }
 	} catch (e) {
 		console.warn('[turbos-closed] Burn event scan failed', e)
+		return { seeds: out, partial: true }
 	}
-	return out
 }
 
-export async function getTurbosClosedPositions(walletAddress: string): Promise<ClosedPosition[]> {
+export async function getTurbosClosedPositions(walletAddress: string): Promise<ClosedPositionsResult> {
+	let incomplete = false
+	let reason: string | undefined
 	// 1. Zero-liquidity NFTs + burned seeds from events
 	let closedNfts: Awaited<ReturnType<typeof fetchTurbosClosedNfts>> = []
 	try {
 		closedNfts = await fetchTurbosClosedNfts(walletAddress)
 	} catch (e) {
 		console.warn('[turbos-closed] fetchTurbosClosedNfts failed', e)
+		incomplete = true
+		reason = 'adapter_error'
 	}
-	const burned = await fetchTurbosBurnedNftSeeds(walletAddress)
+	const burnedRes = await fetchTurbosBurnedNftSeeds(walletAddress)
+	if (burnedRes.partial) {
+		incomplete = true
+		reason = reason ?? 'page_cap'
+	}
 	const ownedIds = new Set(closedNfts.map((n) => n.nftId))
-	for (const b of burned) {
+	for (const b of burnedRes.seeds) {
 		if (!ownedIds.has(b.nftId)) {
 			closedNfts.push(b)
 			ownedIds.add(b.nftId)
 		}
 	}
-	if (closedNfts.length === 0) return []
+	if (closedNfts.length === 0) {
+		return { positions: [], incomplete, reason: incomplete ? reason ?? 'page_cap' : undefined }
+	}
 
 	// 2. Pool metadata
 	const uniquePoolIds = [...new Set(closedNfts.map((n) => n.poolId))]
@@ -318,5 +338,10 @@ export async function getTurbosClosedPositions(walletAddress: string): Promise<C
 	)
 
 	out.sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0))
-	return out
+	const anyPartialRow = out.some((p) => p.partialHistory === true)
+	if (anyPartialRow) {
+		incomplete = true
+		reason = reason ?? 'page_cap'
+	}
+	return { positions: out, incomplete, reason: incomplete ? reason : undefined }
 }

@@ -1,10 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { ClosedPosition } from '@/types'
+import type { ClosedPositionsResult } from '@/services/adapters/types'
 
-const mockBluefin = vi.fn<(addr: string) => Promise<ClosedPosition[]>>()
-const mockMomentum = vi.fn<(addr: string) => Promise<ClosedPosition[]>>()
-const mockCetus = vi.fn<(addr: string) => Promise<ClosedPosition[]>>()
-const mockTurbos = vi.fn<(addr: string) => Promise<ClosedPosition[]>>()
+const mockBluefin = vi.fn<(addr: string) => Promise<ClosedPositionsResult>>()
+const mockMomentum = vi.fn<(addr: string) => Promise<ClosedPositionsResult>>()
+const mockCetus = vi.fn<(addr: string) => Promise<ClosedPositionsResult>>()
+const mockTurbos = vi.fn<(addr: string) => Promise<ClosedPositionsResult>>()
 const mockEnrich = vi.fn<(rows: ClosedPosition[], wallet: string) => Promise<ClosedPosition[]>>()
 const mockAugment = vi.fn<(wallet: string, rows: ClosedPosition[]) => Promise<ClosedPosition[]>>()
 
@@ -68,34 +69,41 @@ function minimalClosed(partial: Partial<ClosedPosition> & Pick<ClosedPosition, '
 	}
 }
 
+function ok(positions: ClosedPosition[]): ClosedPositionsResult {
+	return { positions, incomplete: false }
+}
+
 const WALLET = '0x0000000000000000000000000000000000000000000000000000000000000001'
 
 describe('getClosedPositions', () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
 		vi.spyOn(console, 'error').mockImplementation(() => {})
-		mockCetus.mockResolvedValue([])
-		mockTurbos.mockResolvedValue([])
+		mockCetus.mockResolvedValue(ok([]))
+		mockTurbos.mockResolvedValue(ok([]))
 	})
 
 	it('повертає злитий список, якщо enrich кидає', async () => {
 		const bf = minimalClosed({ id: 'bf-1', closedAt: 10 })
-		mockBluefin.mockResolvedValue([bf])
-		mockMomentum.mockResolvedValue([])
+		mockBluefin.mockResolvedValue(ok([bf]))
+		mockMomentum.mockResolvedValue(ok([]))
 		mockEnrich.mockRejectedValue(new Error('enrich failed'))
 
 		const out = await getClosedPositions(WALLET)
-		expect(out).toEqual([bf])
+		expect(out.positions).toEqual([bf])
+		expect(out.incomplete).toBe(false)
 	})
 
 	it('зберігає Bluefin, якщо Momentum кидає', async () => {
 		const bf = minimalClosed({ id: 'bf-2', closedAt: 20 })
-		mockBluefin.mockResolvedValue([bf])
+		mockBluefin.mockResolvedValue(ok([bf]))
 		mockMomentum.mockRejectedValue(new Error('mmt failed'))
 		mockEnrich.mockImplementation(async (rows) => rows)
 
 		const out = await getClosedPositions(WALLET)
-		expect(out).toEqual([bf])
+		expect(out.positions).toEqual([bf])
+		expect(out.incomplete).toBe(true)
+		expect(out.reason).toMatch(/momentum/)
 	})
 
 	it('скіпне Bluefin при помилці, але покаже Momentum', async () => {
@@ -105,11 +113,12 @@ describe('getClosedPositions', () => {
 			closedAt: 30,
 		})
 		mockBluefin.mockRejectedValue(new Error('bf failed'))
-		mockMomentum.mockResolvedValue([mmt])
+		mockMomentum.mockResolvedValue(ok([mmt]))
 		mockEnrich.mockImplementation(async (rows) => rows)
 
 		const out = await getClosedPositions(WALLET)
-		expect(out).toEqual([mmt])
+		expect(out.positions).toEqual([mmt])
+		expect(out.incomplete).toBe(true)
 		expect(mockBluefin).toHaveBeenCalledWith(WALLET)
 		expect(mockMomentum).toHaveBeenCalledWith(WALLET)
 	})
@@ -117,11 +126,28 @@ describe('getClosedPositions', () => {
 	it('сортує за closedAt спадання', async () => {
 		const a = minimalClosed({ id: 'a', closedAt: 1 })
 		const b = minimalClosed({ id: 'b', closedAt: 99 })
-		mockBluefin.mockResolvedValue([a])
-		mockMomentum.mockResolvedValue([b])
+		mockBluefin.mockResolvedValue(ok([a]))
+		mockMomentum.mockResolvedValue(ok([b]))
 		mockEnrich.mockImplementation(async (rows) => rows)
 
 		const out = await getClosedPositions(WALLET)
-		expect(out.map((x) => x.id)).toEqual(['b', 'a'])
+		expect(out.positions.map((x) => x.id)).toEqual(['b', 'a'])
+	})
+
+	it('timeout/incomplete не маскує як порожній успіх — incomplete=true, known rows лишаються', async () => {
+		const known = minimalClosed({ id: 'bf-known', closedAt: 50 })
+		mockBluefin.mockResolvedValue({
+			positions: [known],
+			incomplete: true,
+			reason: 'scan_timeout',
+		})
+		mockMomentum.mockResolvedValue(ok([]))
+		mockEnrich.mockImplementation(async (rows) => rows)
+
+		const out = await getClosedPositions(WALLET)
+		expect(out.incomplete).toBe(true)
+		expect(out.reason).toMatch(/scan_timeout/)
+		expect(out.positions).toHaveLength(1)
+		expect(out.positions[0]!.id).toBe('bf-known')
 	})
 })

@@ -1,4 +1,5 @@
 import type { ClosedPosition, PositionEvent } from '@/types'
+import type { ClosedPositionsResult } from '@/services/adapters/types'
 import {
 	fetchBluefinPoolPairMeta,
 	listBluefinOwnedPositionIds,
@@ -60,14 +61,14 @@ export type BluefinClosedPreScan = {
 }
 
 /**
- * Закриті Bluefin LP: події відправника гаманця (`FromAddress`); NFT позиції нема серед owned.
+ * Закриті Bluefin LP: GraphQL typed / Sender wallet events; NFT позиції нема серед owned.
  * Закриття: PositionClosed або фінальне LiquidityRemoved (без явної події закриття).
  * Агрегати USD — після `enrichAllBluefinClosedPositions`.
  */
 export async function getBluefinClosedPositions(
 	walletAddress: string,
 	preScanned?: BluefinClosedPreScan,
-): Promise<ClosedPosition[]> {
+): Promise<ClosedPositionsResult> {
 	const scan =
 		preScanned ??
 		(await scanBluefinWalletAllPositionEvents(walletAddress))
@@ -185,5 +186,9 @@ export async function getBluefinClosedPositions(
 	}
 
 	out.sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0))
-	return out
+	return {
+		positions: out,
+		incomplete: scanPartial === true,
+		reason: scanPartial ? 'page_cap' : undefined,
+	}
 }

@@ -2,8 +2,8 @@
  * Momentum CLMM — DexAdapter обгортка.
  * Делегує до існуючих сервісів без їх переписування.
  */
-import type { DexAdapter } from './types'
-import type { ClosedPosition, OpenPosition, PositionEvent } from '@/types'
+import type { ClosedPositionsResult, DexAdapter } from './types'
+import type { OpenPosition, PositionEvent } from '@/types'
 import { getMomentumPositions } from '@/services/momentumService'
 import { getMomentumClosedPositions } from '@/services/momentumClosedPositions'
 import { getPositionEvents, invalidateBluefinMomentumScanCache } from '@/services/eventParser'
@@ -16,13 +16,12 @@ export const momentumAdapter: DexAdapter = {
 		try {
 			return await getMomentumPositions(wallet)
 		} catch (e) {
-			 
 			console.error('[momentumAdapter] getOpenPositions failed', e)
 			return []
 		}
 	},
 
-	async getClosedPositions(wallet: string): Promise<ClosedPosition[]> {
+	async getClosedPositions(wallet: string): Promise<ClosedPositionsResult> {
 		try {
 			const session = getLpWalletScanSession()
 			const preScanned = session?.walletNorm
@@ -30,9 +29,8 @@ export const momentumAdapter: DexAdapter = {
 				: undefined
 			return await getMomentumClosedPositions(wallet, preScanned)
 		} catch (e) {
-			 
 			console.error('[momentumAdapter] getClosedPositions failed', e)
-			return []
+			return { positions: [], incomplete: true, reason: 'adapter_error' }
 		}
 	},
 

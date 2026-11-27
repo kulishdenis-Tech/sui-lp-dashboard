@@ -83,11 +83,71 @@ const scanCache = new Map<
 const CACHE_MS = 5 * 60 * 1000
 /** Кеш `scanBluefinWalletAllPositionEvents` (повний набір позицій гаманця). */
 const scanBluefinAllCache = new Map<string, { raw: Map<string, BluefinWalletRawEvt[]>; partial: boolean; at: number }>()
+/** In-flight full Bluefin scan — closed/enrich share one cold pass. */
+const scanBluefinInflight = new Map<
+	string,
+	Promise<{ rawByPositionId: Map<string, BluefinWalletRawEvt[]>; historyPartial: boolean }>
+>()
+/** Wallet-level typed GraphQL Promise cache (Turbos-style). */
+const _bluefinWalletTypedCache = new Map<
+	string,
+	Promise<Awaited<ReturnType<typeof querySenderAndMoveEventTypes>>>
+>()
+const _momentumWalletTypedCache = new Map<
+	string,
+	Promise<Awaited<ReturnType<typeof querySenderAndMoveEventTypes>>>
+>()
 /** Кеш повного скану Momentum-подій гаманця. */
 const scanMomentumAllCache = new Map<
 	string,
 	{ raw: Map<string, MomentumWalletRawEvt[]>; partial: boolean; at: number }
 >()
+
+function loadBluefinWalletTyped(
+	wallet: string,
+	mode: 'full' | 'delta',
+	stopBeforeTsSec?: number,
+): Promise<Awaited<ReturnType<typeof querySenderAndMoveEventTypes>>> {
+	const key = `${wallet}|${mode}`
+	let p = _bluefinWalletTypedCache.get(key)
+	if (!p) {
+		p = querySenderAndMoveEventTypes(wallet, bluefinTypedEventPaths(), {
+			maxPagesPerType: mode === 'delta' ? 8 : 40,
+			pageSize: 50,
+			stopBeforeTsSec,
+			typeConcurrency: 3,
+		}).catch((e) => {
+			_bluefinWalletTypedCache.delete(key)
+			throw e
+		})
+		_bluefinWalletTypedCache.set(key, p)
+		setTimeout(() => _bluefinWalletTypedCache.delete(key), CACHE_MS)
+	}
+	return p
+}
+
+function loadMomentumWalletTyped(
+	wallet: string,
+	mode: 'full' | 'delta',
+	stopBeforeTsSec?: number,
+): Promise<Awaited<ReturnType<typeof querySenderAndMoveEventTypes>>> {
+	const key = `${wallet}|${mode}`
+	let p = _momentumWalletTypedCache.get(key)
+	if (!p) {
+		p = querySenderAndMoveEventTypes(wallet, momentumTypedEventPaths(), {
+			maxPagesPerType: mode === 'delta' ? 10 : 40,
+			pageSize: 50,
+			stopBeforeTsSec,
+			typeConcurrency: 3,
+		}).catch((e) => {
+			_momentumWalletTypedCache.delete(key)
+			throw e
+		})
+		_momentumWalletTypedCache.set(key, p)
+		setTimeout(() => _momentumWalletTypedCache.delete(key), CACHE_MS)
+	}
+	return p
+}
 
 /**
  * Invalidate the in-memory Momentum scan cache for a wallet.
@@ -103,11 +163,15 @@ export function clearMomentumScanCache(walletAddress: string): void {
 		// ignore
 	}
 }
-/** Sender-event scan для Bluefin (120 сторінок ≈ 6000 events). */
+/** Sender-event scan для Bluefin (cold after successful typed → capped). */
 const MAX_BF_SENDER_EVENT_PAGES = 120
+/** Cold Sender pages when GraphQL typed already returned LP events. */
+const MAX_BF_SENDER_AFTER_TYPED = 50
 const BF_EVENTS_PAGE_SIZE = 50
 /** Глобальний scan PositionClosed (без TX-фетчів): фільтр по parsedJson.sender. */
 const MAX_BF_GLOBAL_CLOSED_PAGES = 250
+/** Cap global PositionClosed assist when typed already covered closes. */
+const MAX_BF_GLOBAL_CLOSED_PAGES_ASSIST = 40
 /**
  * Momentum Sender-event cold-start scan (100 pages × 50 = 5 000 events).
  * Runs as Phase 2 safety net after the TX scan in scanMomentumWalletAllPositionEvents.
@@ -173,9 +237,8 @@ export async function scanBluefinWalletAllPositionEvents(walletAddress: string):
 	historyPartial: boolean
 }> {
 	const walletNormKey = normalizeSuiAddress(walletAddress)
-	const memCacheKey = `${walletNormKey}|bluefin_events_all_v6`
+	const memCacheKey = `${walletNormKey}|bluefin_events_all_v7`
 
-	// ── 1. In-memory cache (5 min TTL) — fastest path ─────────────────────────
 	const cached = scanBluefinAllCache.get(memCacheKey)
 	if (cached && Date.now() - cached.at < CACHE_MS) {
 		const m = new Map<string, BluefinWalletRawEvt[]>()
@@ -183,136 +246,218 @@ export async function scanBluefinWalletAllPositionEvents(walletAddress: string):
 		return { rawByPositionId: m, historyPartial: cached.partial }
 	}
 
-	// ── 2. IDB persistent cache ────────────────────────────────────────────────
-	const idbEntry = await loadLpCacheEntry(walletNormKey, 'bluefin')
+	const existing = scanBluefinInflight.get(walletNormKey)
+	if (existing) return existing
 
-	const rawByPositionId: Map<string, BluefinWalletRawEvt[]> = idbEntry
-		? rowsToMap<BluefinWalletRawEvt>(idbEntry.rows)
-		: new Map()
-	let historyPartial = idbEntry?.historyPartial ?? false
-	const seenPkgs = new Set<string>(idbEntry?.seenPkgs ?? [])
+	const run = (async () => {
+		const idbEntry = await loadLpCacheEntry(walletNormKey, 'bluefin')
 
-	if (!idbEntry) {
-		// ── Cold start: GraphQL typed first, then Sender safety net ─────────────
-		console.log('[bf-scan] cold start wallet=', walletNormKey.slice(0, 12))
+		const rawByPositionId: Map<string, BluefinWalletRawEvt[]> = idbEntry
+			? rowsToMap<BluefinWalletRawEvt>(idbEntry.rows)
+			: new Map()
+		let historyPartial = idbEntry?.historyPartial ?? false
+		const seenPkgs = new Set<string>(idbEntry?.seenPkgs ?? [])
 
-		try {
-			const typed = await querySenderAndMoveEventTypes(walletAddress, bluefinTypedEventPaths(), {
-				maxPagesPerType: 40,
-				pageSize: 50,
-			})
-			if (typed.partial) historyPartial = true
-			const dedupe = assistDedupeSetsFrom(rawByPositionId)
-			for (const ev of typed.events) {
-				const typeStr = ev.type
-				if (!isBluefinLpLifecycleMoveEventType(typeStr)) continue
-				const pjRaw = ev.parsedJson
-				if (!pjRaw || typeof pjRaw !== 'object') continue
-				const pj = pjRaw as Parsed
-				const sn = structNameFromType(typeStr)
-				if (!STRUCT_TO_TYPE[sn]) continue
-				const pid = readPositionId(pj)
-				if (!pid) continue
-				let posNorm: string
-				try {
-					posNorm = normalizeSuiAddress(pid)
-				} catch {
-					continue
+		if (!idbEntry) {
+			console.log('[bf-scan] cold start wallet=', walletNormKey.slice(0, 12))
+			let typedClosedCount = 0
+			let typedOk = false
+			let typedPartial = true
+
+			try {
+				const typed = await loadBluefinWalletTyped(walletNormKey, 'full')
+				typedPartial = typed.partial
+				if (typed.partial) historyPartial = true
+				typedOk = typed.events.length > 0
+				const dedupe = assistDedupeSetsFrom(rawByPositionId)
+				for (const ev of typed.events) {
+					const typeStr = ev.type
+					if (!isBluefinLpLifecycleMoveEventType(typeStr)) continue
+					const pjRaw = ev.parsedJson
+					if (!pjRaw || typeof pjRaw !== 'object') continue
+					const pj = pjRaw as Parsed
+					const sn = structNameFromType(typeStr)
+					if (!STRUCT_TO_TYPE[sn]) continue
+					if (sn === 'PositionClosed') typedClosedCount++
+					const pid = readPositionId(pj)
+					if (!pid) continue
+					let posNorm: string
+					try {
+						posNorm = normalizeSuiAddress(pid)
+					} catch {
+						continue
+					}
+					const pkg = pkgFromMoveType(typeStr)
+					if (pkg) seenPkgs.add(pkg)
+					const dig = ev.id?.txDigest ?? ''
+					if (!dig) continue
+					const rawMs = ev.timestampMs != null ? Number(ev.timestampMs) : NaN
+					const tsSec = Number.isFinite(rawMs) ? Math.floor(rawMs / 1000) : 0
+					const row: BluefinWalletRawEvt = {
+						digest: dig,
+						tsSec,
+						event: { type: typeStr, parsedJson: ev.parsedJson, id: ev.id },
+					}
+					const dk = walletEvtDedupeKey(row)
+					let s = dedupe.get(posNorm)
+					if (!s) {
+						s = new Set()
+						dedupe.set(posNorm, s)
+					}
+					if (s.has(dk)) continue
+					s.add(dk)
+					const arr = rawByPositionId.get(posNorm) ?? []
+					arr.push(row)
+					rawByPositionId.set(posNorm, arr)
 				}
-				const pkg = pkgFromMoveType(typeStr)
-				if (pkg) seenPkgs.add(pkg)
-				const dig = ev.id?.txDigest ?? ''
-				if (!dig) continue
-				const rawMs = ev.timestampMs != null ? Number(ev.timestampMs) : NaN
-				const tsSec = Number.isFinite(rawMs) ? Math.floor(rawMs / 1000) : 0
-				const row: BluefinWalletRawEvt = {
-					digest: dig,
-					tsSec,
-					event: { type: typeStr, parsedJson: ev.parsedJson, id: ev.id },
-				}
-				const dk = walletEvtDedupeKey(row)
-				let s = dedupe.get(posNorm)
-				if (!s) {
-					s = new Set()
-					dedupe.set(posNorm, s)
-				}
-				if (s.has(dk)) continue
-				s.add(dk)
-				const arr = rawByPositionId.get(posNorm) ?? []
-				arr.push(row)
-				rawByPositionId.set(posNorm, arr)
+				console.log(
+					'[bf-scan] GraphQL typed done — positions=',
+					rawByPositionId.size,
+					'closedEv=',
+					typedClosedCount,
+					'partial=',
+					typed.partial,
+				)
+			} catch (e) {
+				console.warn('[bf-scan] GraphQL typed cold scan failed', e)
+				historyPartial = true
+				typedOk = false
 			}
-			console.log('[bf-scan] GraphQL typed done — positions=', rawByPositionId.size)
-		} catch (e) {
-			console.warn('[bf-scan] GraphQL typed cold scan failed', e)
-			historyPartial = true
-		}
 
-		await mergeBluefinSenderQueryEvents(walletAddress, rawByPositionId, (partial) => {
-			if (partial) historyPartial = true
-		}, seenPkgs)
+			// After successful typed coverage, Sender is assist-only with a hard page cap —
+			// do not mark historyPartial when that intentional cap stops early.
+			const senderCap = typedOk ? MAX_BF_SENDER_AFTER_TYPED : MAX_BF_SENDER_EVENT_PAGES
+			const ignoreSenderPageCapPartial = typedOk && !typedPartial
+			await mergeBluefinSenderQueryEvents(
+				walletAddress,
+				rawByPositionId,
+				(partial) => {
+					if (partial && !ignoreSenderPageCapPartial) historyPartial = true
+				},
+				seenPkgs,
+				undefined,
+				senderCap,
+			)
 
-		console.log('[bf-scan] Phase 1 done — positions=', rawByPositionId.size, '| seenPkgs=', [...seenPkgs])
+			console.log('[bf-scan] Phase 1 done — positions=', rawByPositionId.size, '| seenPkgs=', [...seenPkgs])
 
-		await mergeBluefinClosedGlobal(walletAddress, rawByPositionId, seenPkgs)
+			const skipGlobal = typedClosedCount > 0 && !typedPartial
+			await mergeBluefinClosedGlobal(walletAddress, rawByPositionId, seenPkgs, {
+				skip: skipGlobal,
+				maxPages: skipGlobal ? 0 : typedOk ? MAX_BF_GLOBAL_CLOSED_PAGES_ASSIST : MAX_BF_GLOBAL_CLOSED_PAGES,
+			})
 
-		 
-		console.log('[bf-scan] Phase 2 done — total positions=', rawByPositionId.size)
+			// Typed complete + global skipped → treat as complete unless typed itself was partial.
+			if (skipGlobal) historyPartial = typedPartial
 
-		// Save full result to IDB
-		const now = Date.now()
-		await saveLpCacheEntry({
-			id: `${walletNormKey}|bluefin`,
-			walletNorm: walletNormKey,
-			protocol: 'bluefin',
-			rows: flattenToRows(rawByPositionId),
-			lastEventTs: computeMaxTs(rawByPositionId),
-			seenPkgs: [...seenPkgs],
-			historyPartial,
-			fullScanDoneAt: now,
-		})
-	} else {
-		// ── Warm start: delta scan (only events newer than lastEventTs) ─────────
-		const lastTs = idbEntry.lastEventTs
-		 
-		console.log('[bf-scan] warm start wallet=', walletNormKey.slice(0, 12), '| lastEventTs=', lastTs, '| positions=', rawByPositionId.size)
+			console.log('[bf-scan] Phase 2 done — total positions=', rawByPositionId.size, 'skipGlobal=', skipGlobal)
 
-		const added = await mergeBluefinSenderQueryEvents(
-			walletAddress, rawByPositionId,
-			() => { /* partial ignored on delta — we already have history */ },
-			seenPkgs,
-			lastTs, // delta stop threshold
-		)
-
-		 
-		console.log('[bf-scan] delta done — added=', added, '| total positions=', rawByPositionId.size)
-
-		// Phase 2 skipped on warm start:
-		// - All recent closes are captured by Phase 1 delta (sender scan).
-		// - Old closes (beyond the 60-page window) were already captured on cold start.
-
-		if (added > 0) {
+			const now = Date.now()
 			await saveLpCacheEntry({
-				...idbEntry,
+				id: `${walletNormKey}|bluefin`,
+				walletNorm: walletNormKey,
+				protocol: 'bluefin',
 				rows: flattenToRows(rawByPositionId),
 				lastEventTs: computeMaxTs(rawByPositionId),
 				seenPkgs: [...seenPkgs],
+				historyPartial,
+				fullScanDoneAt: now,
+			})
+		} else {
+			const lastTs = idbEntry.lastEventTs
+			console.log(
+				'[bf-scan] warm start wallet=',
+				walletNormKey.slice(0, 12),
+				'| lastEventTs=',
+				lastTs,
+				'| positions=',
+				rawByPositionId.size,
+			)
+
+			try {
+				const typed = await loadBluefinWalletTyped(walletNormKey, 'delta', lastTs - DELTA_OVERLAP_SEC)
+				const dedupe = assistDedupeSetsFrom(rawByPositionId)
+				for (const ev of typed.events) {
+					const typeStr = ev.type
+					if (!isBluefinLpLifecycleMoveEventType(typeStr)) continue
+					const pjRaw = ev.parsedJson
+					if (!pjRaw || typeof pjRaw !== 'object') continue
+					const pj = pjRaw as Parsed
+					const sn = structNameFromType(typeStr)
+					if (!STRUCT_TO_TYPE[sn]) continue
+					const pid = readPositionId(pj)
+					if (!pid) continue
+					let posNorm: string
+					try {
+						posNorm = normalizeSuiAddress(pid)
+					} catch {
+						continue
+					}
+					const dig = ev.id?.txDigest ?? ''
+					if (!dig) continue
+					const rawMs = ev.timestampMs != null ? Number(ev.timestampMs) : NaN
+					const tsSec = Number.isFinite(rawMs) ? Math.floor(rawMs / 1000) : 0
+					const row: BluefinWalletRawEvt = {
+						digest: dig,
+						tsSec,
+						event: { type: typeStr, parsedJson: ev.parsedJson, id: ev.id },
+					}
+					const dk = walletEvtDedupeKey(row)
+					let s = dedupe.get(posNorm)
+					if (!s) {
+						s = new Set()
+						dedupe.set(posNorm, s)
+					}
+					if (s.has(dk)) continue
+					s.add(dk)
+					const arr = rawByPositionId.get(posNorm) ?? []
+					arr.push(row)
+					rawByPositionId.set(posNorm, arr)
+				}
+			} catch (e) {
+				console.warn('[bf-scan] GraphQL typed delta failed', e)
+			}
+
+			const added = await mergeBluefinSenderQueryEvents(
+				walletAddress,
+				rawByPositionId,
+				() => {},
+				seenPkgs,
+				lastTs,
+			)
+
+			console.log('[bf-scan] delta done — added=', added, '| total positions=', rawByPositionId.size)
+
+			if (added > 0) {
+				await saveLpCacheEntry({
+					...idbEntry,
+					rows: flattenToRows(rawByPositionId),
+					lastEventTs: computeMaxTs(rawByPositionId),
+					seenPkgs: [...seenPkgs],
+				})
+			}
+		}
+
+		for (const [, list] of rawByPositionId) {
+			list.sort((a, b) => {
+				if (a.tsSec !== b.tsSec) return a.tsSec - b.tsSec
+				return `${a.digest}`.localeCompare(`${b.digest}`)
 			})
 		}
+
+		const frozen = new Map<string, BluefinWalletRawEvt[]>()
+		for (const [k, v] of rawByPositionId) frozen.set(k, [...v])
+		scanBluefinAllCache.set(memCacheKey, { raw: frozen, partial: historyPartial, at: Date.now() })
+
+		return { rawByPositionId, historyPartial }
+	})()
+
+	scanBluefinInflight.set(walletNormKey, run)
+	try {
+		return await run
+	} finally {
+		scanBluefinInflight.delete(walletNormKey)
 	}
-
-	for (const [, list] of rawByPositionId) {
-		list.sort((a, b) => {
-			if (a.tsSec !== b.tsSec) return a.tsSec - b.tsSec
-			return `${a.digest}`.localeCompare(`${b.digest}`)
-		})
-	}
-
-	const frozen = new Map<string, BluefinWalletRawEvt[]>()
-	for (const [k, v] of rawByPositionId) frozen.set(k, [...v])
-	scanBluefinAllCache.set(memCacheKey, { raw: frozen, partial: historyPartial, at: Date.now() })
-
-	return { rawByPositionId, historyPartial }
 }
 
 function walletEvtDedupeKey(row: BluefinWalletRawEvt): string {
@@ -339,6 +484,7 @@ async function mergeBluefinSenderQueryEvents(
 	onPartial: (partial: boolean) => void,
 	seenPkgs: Set<string>,
 	stopBeforeTs?: number,
+	coldMaxPages?: number,
 ): Promise<number> {
 	let owner: string
 	try {
@@ -348,7 +494,9 @@ async function mergeBluefinSenderQueryEvents(
 	}
 
 	const isDelta = stopBeforeTs != null
-	const maxPages = isDelta ? MAX_BF_DELTA_PAGES : MAX_BF_SENDER_EVENT_PAGES
+	const maxPages = isDelta
+		? MAX_BF_DELTA_PAGES
+		: coldMaxPages ?? MAX_BF_SENDER_EVENT_PAGES
 	const cutoffTs = isDelta ? stopBeforeTs! - DELTA_OVERLAP_SEC : -Infinity
 
 	const dedupe = new Map<string, Set<string>>()
@@ -447,13 +595,21 @@ async function mergeBluefinClosedGlobal(
 	walletAddress: string,
 	rawByPositionId: Map<string, BluefinWalletRawEvt[]>,
 	seenPkgs: Set<string>,
+	opts?: { skip?: boolean; maxPages?: number },
 ): Promise<void> {
+	if (opts?.skip) {
+		console.log('[bf-scan] Phase 2 skipped — typed PositionClosed coverage sufficient')
+		return
+	}
 	let walletNorm: string
 	try {
 		walletNorm = normalizeSuiAddress(walletAddress.trim())
 	} catch {
 		walletNorm = walletAddress.trim()
 	}
+
+	const pageCap = opts?.maxPages ?? MAX_BF_GLOBAL_CLOSED_PAGES
+	if (pageCap <= 0) return
 
 	// Build the set of package addresses to query PositionClosed for:
 	// always include base PKG as fallback; add any packages discovered in Phase 1
@@ -464,7 +620,7 @@ async function mergeBluefinClosedGlobal(
 		const moveEventType = `${pkg}::events::PositionClosed`
 		let eventsCursor: { txDigest: string; eventSeq: string } | null | undefined
 
-		for (let page = 0; page < MAX_BF_GLOBAL_CLOSED_PAGES; page++) {
+		for (let page = 0; page < pageCap; page++) {
 			const r = await suiClient.queryEvents({
 				query: { MoveEventType: moveEventType },
 				order: 'descending',
@@ -677,10 +833,7 @@ export async function scanMomentumWalletAllPositionEvents(walletAddress: string)
 	if (!idbEntry) {
 		// ── Cold start: GraphQL typed + Sender (no gRPC TX) ────────────────────
 		try {
-			const typed = await querySenderAndMoveEventTypes(walletAddress, momentumTypedEventPaths(), {
-				maxPagesPerType: 40,
-				pageSize: 50,
-			})
+			const typed = await loadMomentumWalletTyped(walletNormKey, 'full')
 			if (typed.partial) historyPartial = true
 			for (const ev of typed.events) ingestTyped(ev)
 			console.log('[mmt-scan] GraphQL typed done — positions=', rawByPositionId.size)
@@ -706,11 +859,11 @@ export async function scanMomentumWalletAllPositionEvents(walletAddress: string)
 		const lastTs = idbEntry.lastEventTs
 		let typedAdded = 0
 		try {
-			const typed = await querySenderAndMoveEventTypes(walletAddress, momentumTypedEventPaths(), {
-				maxPagesPerType: Math.min(MAX_MMT_DELTA_TX_PAGES, 10),
-				pageSize: 50,
-				stopBeforeTsSec: lastTs - DELTA_OVERLAP_SEC,
-			})
+			const typed = await loadMomentumWalletTyped(
+				walletNormKey,
+				'delta',
+				lastTs - DELTA_OVERLAP_SEC,
+			)
 			const before = flattenToRows(rawByPositionId).length
 			for (const ev of typed.events) ingestTyped(ev)
 			typedAdded = flattenToRows(rawByPositionId).length - before
@@ -1114,9 +1267,21 @@ export async function scanLpWalletPositionHistory(
 		...(wantMt.size ? momentumTypedEventPaths() : []),
 	]
 
-	// ── GraphQL typed path ─────────────────────────────────────────────────
+	// ── GraphQL typed path (shared wallet typed caches) ────────────────────
 	try {
-		if (typedPaths.length) {
+		const parts: Awaited<ReturnType<typeof querySenderAndMoveEventTypes>>[] = []
+		if (wantBf.size) parts.push(await loadBluefinWalletTyped(normalizeSuiAddress(walletAddress), 'full'))
+		if (wantMt.size) parts.push(await loadMomentumWalletTyped(normalizeSuiAddress(walletAddress), 'full'))
+		for (const typed of parts) {
+			if (typed.partial) historyPartial = true
+			for (const ev of typed.events) {
+				const dig = ev.id?.txDigest ?? ''
+				const rawMs = ev.timestampMs != null ? Number(ev.timestampMs) : NaN
+				const tsSec = Number.isFinite(rawMs) ? Math.floor(rawMs / 1000) : 0
+				ingestRaw(ev, dig, tsSec)
+			}
+		}
+		if (!parts.length && typedPaths.length) {
 			const typed = await querySenderAndMoveEventTypes(walletAddress, typedPaths, {
 				maxPagesPerType: 40,
 				pageSize: 50,
@@ -1436,8 +1601,19 @@ export function invalidateBluefinMomentumScanCache(walletAddress: string): void 
 			}
 		}
 	}
+	let norm = walletAddress.trim()
 	try {
-		invalidateWalletSenderEventsCache(normalizeSuiAddress(walletAddress.trim()))
+		norm = normalizeSuiAddress(norm)
+	} catch {
+		/* keep */
+	}
+	for (const cache of [_bluefinWalletTypedCache, _momentumWalletTypedCache, scanBluefinInflight]) {
+		for (const key of [...cache.keys()]) {
+			if (key.startsWith(norm) || key.includes(walletAddress)) cache.delete(key)
+		}
+	}
+	try {
+		invalidateWalletSenderEventsCache(norm)
 	} catch {
 		invalidateWalletSenderEventsCache(walletAddress.trim())
 	}

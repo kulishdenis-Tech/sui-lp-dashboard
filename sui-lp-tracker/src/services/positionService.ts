@@ -1,9 +1,11 @@
 import type { ClosedPosition } from '@/types'
-import { DEX_ADAPTERS } from '@/services/adapters'
+import { DEX_ADAPTERS, type ClosedPositionsResult } from '@/services/adapters'
 import { enrichAllBluefinClosedPositions } from '@/services/enrichment'
 import { augmentClosedPositionsIndexerFields } from '@/services/lpIndexerAugmentClosed'
 import { isLpLifecycleIndexerEnabled } from '@/services/lpFeatureFlags'
 import { getLpWalletScanSession } from '@/services/lpScanSession'
+
+export type { ClosedPositionsResult }
 
 export type GetClosedPositionsOptions = {
 	/** Enrich / return only these position ids (case-insensitive). */
@@ -13,27 +15,43 @@ export type GetClosedPositionsOptions = {
 	 * filters this list instead of re-querying adapters.
 	 */
 	prefetched?: ClosedPosition[]
+	/** Completeness from a prior `fetchClosedFromAdapters` pass. */
+	prefetchedIncomplete?: boolean
+	prefetchedReason?: string
 }
 
-/** Adapter-only closed list (no USD enrich). */
-export async function fetchClosedFromAdapters(walletAddress: string): Promise<ClosedPosition[]> {
+/** Adapter-only closed list (no USD enrich). Aggregates incomplete across DEX. */
+export async function fetchClosedFromAdapters(walletAddress: string): Promise<ClosedPositionsResult> {
 	const results = await Promise.allSettled(
 		DEX_ADAPTERS.map((adapter) => adapter.getClosedPositions(walletAddress)),
 	)
 
-	return results
-		.flatMap((r, i) => {
-			if (r.status === 'rejected') {
-				 
-				console.error(
-					`[positionService] ${DEX_ADAPTERS[i]?.protocol} getClosedPositions failed`,
-					r.reason,
-				)
-				return [] as ClosedPosition[]
-			}
-			return r.value
-		})
-		.sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0))
+	const positions: ClosedPosition[] = []
+	let incomplete = false
+	const reasons: string[] = []
+
+	for (let i = 0; i < results.length; i++) {
+		const r = results[i]!
+		const proto = DEX_ADAPTERS[i]?.protocol ?? 'unknown'
+		if (r.status === 'rejected') {
+			console.error(`[positionService] ${proto} getClosedPositions failed`, r.reason)
+			incomplete = true
+			reasons.push(`${proto}:adapter_error`)
+			continue
+		}
+		positions.push(...r.value.positions)
+		if (r.value.incomplete) {
+			incomplete = true
+			if (r.value.reason) reasons.push(`${proto}:${r.value.reason}`)
+		}
+	}
+
+	positions.sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0))
+	return {
+		positions,
+		incomplete,
+		reason: incomplete ? reasons.join('; ') || 'page_cap' : undefined,
+	}
 }
 
 async function enrichClosedList(
@@ -49,7 +67,6 @@ async function enrichClosedList(
 		}
 		return out
 	} catch (e) {
-		 
 		console.error('getClosedPositions enrich/augment failed — returning merged without full enrichment', e)
 		return merged
 	}
@@ -57,23 +74,34 @@ async function enrichClosedList(
 
 /**
  * Збирає закриті позиції від усіх зареєстрованих DEX-адаптерів.
- *
- * Кожен адаптер вже обгортає помилки всередині — повертає [] замість throw.
- * Promise.allSettled додає ще один рівень захисту: падіння одного не блокує інші.
- * Якщо падає лише enrichment / indexer augment — повертаємо злитий список без USD.
- *
- * Додати новий DEX = один рядок у services/adapters/registry.ts.
+ * incomplete=true при timeout/page_cap/adapter_error — не маскувати як повний 0.
  */
 export async function getClosedPositions(
 	walletAddress: string,
 	options?: GetClosedPositionsOptions,
-): Promise<ClosedPosition[]> {
-	let merged = options?.prefetched ?? (await fetchClosedFromAdapters(walletAddress))
+): Promise<ClosedPositionsResult> {
+	let incomplete = options?.prefetchedIncomplete === true
+	let reason = options?.prefetchedReason
+	let merged: ClosedPosition[]
+
+	if (options?.prefetched) {
+		merged = options.prefetched
+	} else {
+		const fetched = await fetchClosedFromAdapters(walletAddress)
+		merged = fetched.positions
+		incomplete = fetched.incomplete
+		reason = fetched.reason
+	}
 
 	if (options?.onlyIds) {
 		const only = new Set([...options.onlyIds].map((id) => id.toLowerCase()))
 		merged = merged.filter((c) => only.has(c.id.toLowerCase()))
 	}
 
-	return enrichClosedList(merged, walletAddress)
+	const enriched = await enrichClosedList(merged, walletAddress)
+	return {
+		positions: enriched,
+		incomplete,
+		reason: incomplete ? reason : undefined,
+	}
 }
