@@ -19,6 +19,12 @@ export type ClosedPositionsResult = {
 	positions: ClosedPosition[]
 	incomplete: boolean
 	reason?: string
+	/**
+	 * Fresh GraphQL/scan floor for §8.3 relative mins (e.g. unique PositionClosed
+	 * PIDs not currently owned). Harness compares live closed ≥ this when expect
+	 * uses `{ relativeGraphqlClosed: true }` instead of a stale absolute count.
+	 */
+	graphqlClosedFloor?: number
 }
 
 export interface DexAdapter {

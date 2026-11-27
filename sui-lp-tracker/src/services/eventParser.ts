@@ -186,7 +186,6 @@ const MAX_MMT_SENDER_EVENT_PAGES = 100
  * 5 pages × 50 events = 250 events max per delta scan — enough for any burst of activity.
  */
 const MAX_BF_DELTA_PAGES = 5
-const MAX_MMT_DELTA_TX_PAGES = 5
 const MAX_MMT_DELTA_SENDER_PAGES = 5
 /**
  * Overlap buffer for delta stop condition (seconds).

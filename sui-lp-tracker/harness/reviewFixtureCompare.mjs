@@ -223,8 +223,26 @@ export function checkClosedAtLeast(walletId, expect, row) {
 	/** @type {Verdict[]} */
 	const out = []
 	for (const [proto, minRaw] of Object.entries(closedExp)) {
-		const min = Number(minRaw)
 		const id = `${walletId}/§8.3/${proto}`
+		const relative =
+			minRaw &&
+			typeof minRaw === 'object' &&
+			(minRaw.relativeGraphqlClosed === true || minRaw.fromLiveGraphql === true)
+		let min
+		if (relative) {
+			const floor = row?.closedGraphqlFloor?.[proto]
+			min = floor != null ? Number(floor) : NaN
+			if (!Number.isFinite(min)) {
+				out.push({
+					status: 'INCONCLUSIVE',
+					id,
+					msg: `closed ${proto} relative GraphQL floor missing`,
+				})
+				continue
+			}
+		} else {
+			min = Number(minRaw)
+		}
 		if (row?.sources?.[`closed:${proto}`]?.status === 'error') {
 			out.push({
 				status: 'FAIL',
@@ -235,29 +253,30 @@ export function checkClosedAtLeast(walletId, expect, row) {
 		}
 		const actual = readClosedCount(row, proto)
 		const truncated = closedScanTruncated(row, proto)
+		const minLabel = relative ? `${min} (graphql floor)` : String(min)
 		if (actual == null) {
 			out.push({
 				status: truncated ? 'INCONCLUSIVE' : 'FAIL',
 				id,
 				msg: truncated
 					? `closed ${proto} count missing (scan truncated)`
-					: `closed ${proto} count missing (expected ≥ ${min})`,
+					: `closed ${proto} count missing (expected ≥ ${minLabel})`,
 			})
 			continue
 		}
 		if (actual >= min) {
-			out.push({ status: 'PASS', id, msg: `closed ${proto} ${actual} ≥ ${min}` })
+			out.push({ status: 'PASS', id, msg: `closed ${proto} ${actual} ≥ ${minLabel}` })
 		} else if (truncated) {
 			out.push({
 				status: 'INCONCLUSIVE',
 				id,
-				msg: `closed ${proto} ${actual} < ${min} but scan truncated`,
+				msg: `closed ${proto} ${actual} < ${minLabel} but scan truncated`,
 			})
 		} else {
 			out.push({
 				status: 'FAIL',
 				id,
-				msg: `closed ${proto} ${actual} < ${min}`,
+				msg: `closed ${proto} ${actual} < ${minLabel}`,
 			})
 		}
 	}

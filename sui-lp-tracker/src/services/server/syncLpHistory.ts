@@ -302,7 +302,7 @@ export async function syncLpHistoryForWallet(rawWallet: string): Promise<SyncLpH
 		}
 
 		console.log(
-			`[lp-history] ${wallet.slice(0, 10)}… rows=${rows.length} closedNew=${closed.length}/${discovered.length}` +
+			`[lp-history] ${wallet.slice(0, 10)}… rows=${rows.length} closedNew=${closed.length}/${discovered.positions.length}` +
 				` openEvents=${rows.filter((r) => r.status === 'open').length}` +
 				` openMode=${openMode} rpcCalls=${rpcCalls}` +
 				` incremental=${!fullResync}`,
@@ -312,7 +312,7 @@ export async function syncLpHistoryForWallet(rawWallet: string): Promise<SyncLpH
 		return {
 			wallet,
 			ok: true,
-			closed: discovered.length,
+			closed: discovered.positions.length,
 			closedNew: closed.length,
 			open: rows.filter((r) => r.status === 'open').length,
 			incremental: !fullResync,

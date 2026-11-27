@@ -1,5 +1,5 @@
 /**
- * Suilend §8.1 diag for N01/N02/N04 — amounts / prices / time vs fixture anchors.
+ * Suilend §8.1 diag — amounts / prices / time vs fixture anchors.
  * Does NOT change ±5% tolerance; prints price-drift vs missing-position conclusion.
  */
 import fixture from '../harness/regression_fixture_v2.json'
@@ -24,7 +24,7 @@ type WalletFix = {
 }
 
 const wallets = (fixture as { wallets: Record<string, WalletFix> }).wallets
-const IDS = ['N01', 'N02', 'N04'] as const
+const IDS = ['N04', 'N05', 'N08', 'N13', 'N14', 'N16', 'W01', 'W03'] as const
 
 function pctDelta(live: number, anchor: number): number | null {
 	if (!(anchor > 0)) return live === 0 ? 0 : null
