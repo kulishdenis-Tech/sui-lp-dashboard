@@ -1,0 +1,85 @@
+{
+  "snapshotAtUTC": "2026-11-27T16:52:30.244Z",
+  "wallets": [
+    {
+      "id": "N10",
+      "prev": {
+        "supply_usd": 966281.25,
+        "borrow_usd": 816843.76
+      },
+      "next": {
+        "supply_usd": 1145929.9,
+        "borrow_usd": 957461.12
+      },
+      "live_supplies": 3,
+      "live_borrows": 3,
+      "assets": [
+        {
+          "asset": "eEARN",
+          "amount": 1035432.350458,
+          "usd": 1099891.954094104
+        },
+        {
+          "asset": "PPLUS",
+          "amount": 29031.290745,
+          "usd": 30049.19718330458
+        },
+        {
+          "asset": "XAUm",
+          "amount": 4.422323929,
+          "usd": 15988.746005039511
+        }
+      ]
+    },
+    {
+      "id": "N19",
+      "prev": {
+        "supply_usd": 0,
+        "borrow_usd": 0
+      },
+      "next": {
+        "supply_usd": 137.97,
+        "borrow_usd": 76.8
+      },
+      "live_supplies": 2,
+      "live_borrows": 1,
+      "assets": [
+        {
+          "asset": "hBTC",
+          "amount": 0.0008581675813275656,
+          "usd": 51.436737273692145
+        },
+        {
+          "asset": "SUI",
+          "amount": 128.7008266275595,
+          "usd": 86.53410130923103
+        }
+      ]
+    },
+    {
+      "id": "W01",
+      "prev": {
+        "supply_usd": 0.01,
+        "borrow_usd": 0
+      },
+      "next": {
+        "supply_usd": 0.01,
+        "borrow_usd": 0
+      },
+      "live_supplies": 2,
+      "live_borrows": 0,
+      "assets": [
+        {
+          "asset": "SUI",
+          "amount": 0.00018810708357381865,
+          "usd": 0.0001264405530997628
+        },
+        {
+          "asset": "sSUI",
+          "amount": 0.012513161,
+          "usd": 0.008747708629804654
+        }
+      ]
+    }
+  ]
+}

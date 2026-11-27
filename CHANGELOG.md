@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.5.13
+
+- Harness closed adapters: concurrency **2** (`REVIEW_CLOSED_CONCURRENCY`) замість повністю sequential; per-adapter `closed.*` stageMs. Solo N07 340→239s; колишні TIMEOUT W02/W02s/W04–W06 — PASS без 900s.
+- `withSuiDataThrottle`: default max in-flight **4**, gap 60ms (env `SUI_DATA_MAX_IN_FLIGHT` / `SUI_DATA_MIN_GAP_MS`).
+- Suilend §8.1: перезняті якорі N10/N19/W01 (`2026-11-27T16:52:30.244Z`) і N01/W01/W03 (`2026-11-27T18:41:23.246Z`) — amount/price drift / нові позиції; ±5% без змін.
+
 ## 2.5.12
 
 - Cetus closed: без `add_liquidity` (partial history) — `depositedUSD`/`pnlUSD`/`pnlPct` = NaN (не рахувати withdraw@spot як прибуток). N06: 29 таких рядків давали ~$586 фейкового PnL при однакових розмірах виводу.

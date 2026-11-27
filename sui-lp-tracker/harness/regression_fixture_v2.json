@@ -2450,10 +2450,11 @@
      "turbos": 1
     },
     "suilend": {
-     "supply_usd": 1.42,
+     "supply_usd": 1.34,
      "borrow_usd": 0
     }
-   }
+   },
+   "suilendAnchorSnapshotAtUTC": "2026-11-27T18:41:23.246Z"
   },
   "N02": {
    "address": "0x5850c3c298d36bbfd7044452addfeee97158095963f091254534d2302bee86e7",
@@ -6120,10 +6121,11 @@
      }
     },
     "suilend": {
-     "supply_usd": 966281.25,
-     "borrow_usd": 816843.76
+     "supply_usd": 1145929.9,
+     "borrow_usd": 957461.12
     }
-   }
+   },
+   "suilendAnchorSnapshotAtUTC": "2026-11-27T16:52:30.244Z"
   },
   "N11": {
    "address": "0xd46fddb75b338f0a2afbc0b7012d013aa152ee734b17cbd21423e6eeed068505",
@@ -9195,10 +9197,11 @@
      "turbos": 13
     },
     "suilend": {
-     "supply_usd": 0,
-     "borrow_usd": 0
+     "supply_usd": 137.97,
+     "borrow_usd": 76.8
     }
-   }
+   },
+   "suilendAnchorSnapshotAtUTC": "2026-11-27T16:52:30.244Z"
   },
   "N20": {
    "address": "0xd72dd2aef52323a5b50f308f7ee7e868741c03d43ee04e04f47b1872e427cb7e",
@@ -10041,7 +10044,7 @@
      "borrow_usd": 0
     }
    },
-   "suilendAnchorSnapshotAtUTC": "2026-11-27T10:51:18.736Z"
+   "suilendAnchorSnapshotAtUTC": "2026-11-27T18:41:23.246Z"
   },
   "W02": {
    "address": "0x4d7bf0a99bd1f0758f91a920fce3a42f6fcd76b2b9d62e2eac4679735aca8bbb",
@@ -10844,11 +10847,11 @@
      "turbos": 41
     },
     "suilend": {
-     "supply_usd": 4779.63,
-     "borrow_usd": 2500.58
+     "supply_usd": 6278.53,
+     "borrow_usd": 3664.25
     }
    },
-   "suilendAnchorSnapshotAtUTC": "2026-11-27T10:51:18.736Z"
+   "suilendAnchorSnapshotAtUTC": "2026-11-27T18:41:23.246Z"
   },
   "W04": {
    "address": "0x9a3492116368b9422c73ee99e6a8e83f4ac1f4373142061b6c4c25d261172112",

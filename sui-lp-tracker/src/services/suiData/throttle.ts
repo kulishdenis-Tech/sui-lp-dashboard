@@ -1,10 +1,19 @@
 /**
  * Lightweight throttle for public Mysten gRPC/GraphQL (rate-limited public-good).
  * Mirrors the spirit of dashboard JSON-RPC pool gaps without multi-URL failover.
+ *
+ * Override via env for harness experiments:
+ *   SUI_DATA_MAX_IN_FLIGHT (default 4) · SUI_DATA_MIN_GAP_MS (default 60)
  */
 
-const MAX_IN_FLIGHT = 3
-const MIN_GAP_MS = 80
+const MAX_IN_FLIGHT = Math.max(
+	1,
+	Math.min(8, Number(process.env.SUI_DATA_MAX_IN_FLIGHT ?? 4) || 4),
+)
+const MIN_GAP_MS = Math.max(
+	0,
+	Math.min(500, Number(process.env.SUI_DATA_MIN_GAP_MS ?? 60) || 60),
+)
 
 let inFlight = 0
 let lastStart = 0

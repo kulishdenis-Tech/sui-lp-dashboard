@@ -673,10 +673,15 @@ async function loadWallet(
 				}),
 			)
 		} else {
-			// Sequential closed adapters — parallel BF+MMT+Cetus+Turbos stampede causes
-			// gRPC cooldown and N09-class wallet TIMEOUTs under multi-lane full runs.
-			for (const adapter of DEX_ADAPTERS) {
+			// Bounded closed-adapter concurrency (default 2). Fully parallel (4) stampeded
+			// GraphQL under multi-lane; fully sequential stacked 4× scan tails past 900s.
+			const closedConc = Math.max(
+				1,
+				Math.min(4, Number(process.env.REVIEW_CLOSED_CONCURRENCY ?? 2) || 2),
+			)
+			await mapPool(DEX_ADAPTERS, closedConc, async (adapter) => {
 				const proto = adapter.protocol
+				const t0 = Date.now()
 				const r = await settleSource(
 					row.sources,
 					`closed:${proto}`,
@@ -685,6 +690,7 @@ async function loadWallet(
 					() => adapter.getClosedPositions(address),
 					'gql',
 				)
+				stages[`closed.${proto}`] = (stages[`closed.${proto}`] ?? 0) + (Date.now() - t0)
 				if (r.ok) {
 					const result = r.value
 					row.closed[proto] = result.positions.length
@@ -711,7 +717,7 @@ async function loadWallet(
 					row.closedTruncated[proto] = true
 					row.harness_step_error = true
 				}
-			}
+			})
 		}
 	})
 
