@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.5.10
+
+- Cetus closed: ClosePosition seeds більше не відкидаються при timeout `multiGetObjects` (chunked retry + placeholder coin types); без deep-rescan коли seeds уже є; N06 solo **1560 ≥ 26**.
+- Harness full: closed DEX adapters послідовно (менше gRPC stampede / N09 TIMEOUT під multi-lane).
+- Suilend §8.1: перезняті якорі N04/N05/N08/N09/N13/N14/N16/W01/W03 на `2026-11-27T10:51:18.736Z` (`suilendAnchorSnapshotAtUTC`); ±5% без змін.
+
 ## 2.5.9
 
 - Cetus closed: не труїти IDB порожнім partial-сканом; `historyPartial` → `incomplete`; deep typed seed recovery коли primary ClosePosition=0 (N05/N06/N07/W04 під throttle).

@@ -673,45 +673,45 @@ async function loadWallet(
 				}),
 			)
 		} else {
-			await Promise.all(
-				DEX_ADAPTERS.map(async (adapter) => {
-					const proto = adapter.protocol
-					const r = await settleSource(
-						row.sources,
-						`closed:${proto}`,
-						gqlHost,
-						`${proto}.getClosedPositions`,
-						() => adapter.getClosedPositions(address),
-						'gql',
-					)
-					if (r.ok) {
-						const result = r.value
-						row.closed[proto] = result.positions.length
-						if (
-							typeof result.graphqlClosedFloor === 'number' &&
-							Number.isFinite(result.graphqlClosedFloor)
-						) {
-							row.closedGraphqlFloor[proto] = result.graphqlClosedFloor
-						}
-						const rowPartial = result.positions.some((c) => c.partialHistory === true)
-						const truncated = result.incomplete === true || rowPartial
-						if (truncated) {
-							row.closedTruncated[proto] = true
-							row.incomplete = true
-							row.sources[`closed:${proto}`] = {
-								status: 'partial',
-								error: result.reason ?? 'closed_scan_incomplete',
-								host: gqlHost,
-								method: `${proto}.getClosedPositions`,
-							}
-						}
-					} else {
-						row.incomplete = true
-						row.closedTruncated[proto] = true
-						row.harness_step_error = true
+			// Sequential closed adapters — parallel BF+MMT+Cetus+Turbos stampede causes
+			// gRPC cooldown and N09-class wallet TIMEOUTs under multi-lane full runs.
+			for (const adapter of DEX_ADAPTERS) {
+				const proto = adapter.protocol
+				const r = await settleSource(
+					row.sources,
+					`closed:${proto}`,
+					gqlHost,
+					`${proto}.getClosedPositions`,
+					() => adapter.getClosedPositions(address),
+					'gql',
+				)
+				if (r.ok) {
+					const result = r.value
+					row.closed[proto] = result.positions.length
+					if (
+						typeof result.graphqlClosedFloor === 'number' &&
+						Number.isFinite(result.graphqlClosedFloor)
+					) {
+						row.closedGraphqlFloor[proto] = result.graphqlClosedFloor
 					}
-				}),
-			)
+					const rowPartial = result.positions.some((c) => c.partialHistory === true)
+					const truncated = result.incomplete === true || rowPartial
+					if (truncated) {
+						row.closedTruncated[proto] = true
+						row.incomplete = true
+						row.sources[`closed:${proto}`] = {
+							status: 'partial',
+							error: result.reason ?? 'closed_scan_incomplete',
+							host: gqlHost,
+							method: `${proto}.getClosedPositions`,
+						}
+					}
+				} else {
+					row.incomplete = true
+					row.closedTruncated[proto] = true
+					row.harness_step_error = true
+				}
+			}
 		}
 	})
 
