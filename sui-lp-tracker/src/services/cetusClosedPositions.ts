@@ -32,8 +32,19 @@ import {
 	loadClosedPosTxEntries,
 	saveClosedPosTxEntry,
 } from '@/services/lpEventIdbCache'
+import { mapPool } from '@/utils/concurrency'
 
 type CoinMeta = { symbol: string; decimals: number; iconUrl: string | null }
+
+/** Process-wide coin metadata cache — closed rebuilds re-hit the same types. */
+const coinMetaCache = new Map<string, { meta: CoinMeta; at: number }>()
+const COIN_META_TTL_MS = 30 * 60_000
+
+/** Bound per-position event scans — unlimited Promise.allSettled stampedes GraphQL. */
+const CLOSED_POS_CONCURRENCY = Math.max(
+	2,
+	Math.min(16, Number(process.env.CETUS_CLOSED_POS_CONCURRENCY ?? 8) || 8),
+)
 
 /**
  * Stablecoins whose price is effectively $1 and that should always appear as
@@ -83,7 +94,9 @@ function spotPriceSafe(raw: number | null | undefined): number {
 	return raw
 }
 
-const POOL_META_CHUNK = 40
+const POOL_META_CHUNK = 50
+/** Parallel multiGet chunks for pool type resolution. */
+const POOL_META_CHUNK_CONCURRENCY = 3
 
 /**
  * Resolve missing coinTypeA/B on burned seeds via pool object types.
@@ -98,8 +111,11 @@ async function fillCetusSeedCoinTypes(
 	const ids = [...new Set(need.map((s) => s.poolId))]
 	const coinsByPool = new Map<string, { coinTypeA: string; coinTypeB: string }>()
 
+	const chunks: string[][] = []
 	for (let i = 0; i < ids.length; i += POOL_META_CHUNK) {
-		const chunk = ids.slice(i, i + POOL_META_CHUNK)
+		chunks.push(ids.slice(i, i + POOL_META_CHUNK))
+	}
+	await mapPool(chunks, POOL_META_CHUNK_CONCURRENCY, async (chunk) => {
 		let objs: Awaited<ReturnType<typeof suiClient.multiGetObjects>> = []
 		for (let attempt = 0; attempt < (opts?.forceRetry ? 3 : 2); attempt++) {
 			try {
@@ -124,7 +140,7 @@ async function fillCetusSeedCoinTypes(
 			const pair = cetusPoolCoinsFromEventType(type)
 			if (pair) coinsByPool.set(chunk[j]!, pair)
 		}
-	}
+	})
 
 	// Cap per-id fallback — under gRPC cooldown, 1000+ getObject calls never finish.
 	const stillMissing = ids.filter((id) => !coinsByPool.has(id)).slice(0, 24)
@@ -167,23 +183,32 @@ async function fillCetusSeedCoinTypes(
 
 async function fetchCoinMetas(coinTypes: string[]): Promise<Map<string, CoinMeta>> {
 	const mm = new Map<string, CoinMeta>()
-	await Promise.allSettled(
-		coinTypes.map(async (ct) => {
-			try {
-				const m = await suiClient.getCoinMetadata({ coinType: ct })
-				mm.set(ct, {
-					symbol: m?.symbol ?? symbolFromCoinType(ct),
-					decimals: m?.decimals ?? 9,
-					iconUrl:
-						typeof m?.iconUrl === 'string' && m.iconUrl.startsWith('https://')
-							? m.iconUrl
-							: null,
-				})
-			} catch {
-				mm.set(ct, { symbol: symbolFromCoinType(ct), decimals: 9, iconUrl: null })
+	const now = Date.now()
+	const missing: string[] = []
+	for (const ct of coinTypes) {
+		const hit = coinMetaCache.get(ct)
+		if (hit && now - hit.at < COIN_META_TTL_MS) mm.set(ct, hit.meta)
+		else missing.push(ct)
+	}
+	await mapPool(missing, 6, async (ct) => {
+		try {
+			const m = await suiClient.getCoinMetadata({ coinType: ct })
+			const meta: CoinMeta = {
+				symbol: m?.symbol ?? symbolFromCoinType(ct),
+				decimals: m?.decimals ?? 9,
+				iconUrl:
+					typeof m?.iconUrl === 'string' && m.iconUrl.startsWith('https://')
+						? m.iconUrl
+						: null,
 			}
-		}),
-	)
+			coinMetaCache.set(ct, { meta, at: Date.now() })
+			mm.set(ct, meta)
+		} catch {
+			const meta: CoinMeta = { symbol: symbolFromCoinType(ct), decimals: 9, iconUrl: null }
+			coinMetaCache.set(ct, { meta, at: Date.now() })
+			mm.set(ct, meta)
+		}
+	})
 	return mm
 }
 
@@ -336,12 +361,12 @@ export async function getCetusClosedPositions(
 	})
 	const idbTxCache = await loadClosedPosTxEntries(walletNorm, posNorms).catch(() => new Map())
 
-	// 6. Scan events + build ClosedPosition for each position
+	// 6. Scan events + build ClosedPosition for each position (bounded concurrency).
 	const out: ClosedPosition[] = []
 	let anyRowPartial = false
+	const tBuild = Date.now()
 
-	await Promise.allSettled(
-		closed.map(async (pos) => {
+	await mapPool(closed, CLOSED_POS_CONCURRENCY, async (pos) => {
 			const pool = poolMap.get(pos.poolId)
 			const metaA = getMeta(pos.coinTypeA)
 			const metaB = getMeta(pos.coinTypeB)
@@ -547,7 +572,10 @@ export async function getCetusClosedPositions(
 				tickLower: dTickLower,
 				tickUpper: dTickUpper,
 			})
-		}),
+	})
+
+	console.log(
+		`[cetus-closed] build ${out.length}/${closed.length} positions ms=${Date.now() - tBuild} conc=${CLOSED_POS_CONCURRENCY}`,
 	)
 
 	out.sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0))
