@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.5.9
+
+- Cetus closed: не труїти IDB порожнім partial-сканом; `historyPartial` → `incomplete`; deep typed seed recovery коли primary ClosePosition=0 (N05/N06/N07/W04 під throttle).
+- N10 Bluefin `closedAtLeast`: відносний поріг `{ relativeGraphqlClosed: true }` vs свіжий GraphQL floor (PositionClosed − owned), не stale 18.
+- Suilend §8.1 diag розширено на FAIL-гаманці (price_drift vs missing); толеранс ±5% без змін.
+
 ## 2.5.8
 
 - Closed LP: `ClosedPositionsResult` (`incomplete` + reason) замість тихого `[]` при timeout/page_cap/adapter error; `lpInventoryIncomplete` + harness `closedTruncated` / source `partial` (truncation на `partialHistory`).

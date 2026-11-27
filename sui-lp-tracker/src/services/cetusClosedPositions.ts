@@ -22,9 +22,10 @@ import { fetchPools } from '@/services/cetusService'
 import {
 	cetusBurnedSeedsFromWalletMap,
 	cetusPoolCoinsFromEventType,
-	loadCetusWalletRawEvents,
+	loadCetusWalletScan,
 	scanCetusPositionEvents,
 	scanCetusPositionEventsByWalletTxs,
+	scanCetusWalletDeepTyped,
 } from '@/services/cetusLpEvents'
 import { resolveSpots, type Row } from '@/services/spotPrice/resolveSpots'
 import {
@@ -125,9 +126,30 @@ export async function getCetusClosedPositions(
 	const closed: ParsedPosition[] = []
 	let burnedSeeds: ReturnType<typeof cetusBurnedSeedsFromWalletMap> = []
 	try {
-		burnedSeeds = cetusBurnedSeedsFromWalletMap(await loadCetusWalletRawEvents(walletAddress))
+		const scan = await loadCetusWalletScan(walletAddress)
+		if (scan.historyPartial) {
+			incomplete = true
+			reason = reason ?? 'page_cap'
+		}
+		burnedSeeds = cetusBurnedSeedsFromWalletMap(scan.rawByPosition)
+		// Under GraphQL/RPC stress the primary window can be empty while closes exist —
+		// recover seeds from the deep typed archive scan (same path as event enrichment).
+		if (burnedSeeds.length === 0) {
+			console.warn('[cetus-closed] primary scan yielded 0 ClosePosition seeds — trying deep typed')
+			try {
+				const deep = await scanCetusWalletDeepTyped(walletAddress)
+				burnedSeeds = cetusBurnedSeedsFromWalletMap(deep)
+				if (burnedSeeds.length === 0) {
+					incomplete = true
+					reason = reason ?? (scan.historyPartial ? 'page_cap' : 'adapter_error')
+				}
+			} catch (deepErr) {
+				console.warn('[cetus-closed] deep typed seed recovery failed', deepErr)
+				incomplete = true
+				reason = reason ?? 'scan_timeout'
+			}
+		}
 	} catch (e) {
-		 
 		console.warn('[cetus-closed] burned-position scan failed', e)
 		incomplete = true
 		reason = 'scan_timeout'
@@ -170,6 +192,10 @@ export async function getCetusClosedPositions(
 	}
 
 	if (closed.length === 0) {
+		if (burnedSeeds.length > 0) {
+			incomplete = true
+			reason = reason ?? 'meta_miss'
+		}
 		return { positions: [], incomplete, reason: incomplete ? reason ?? 'page_cap' : undefined }
 	}
 

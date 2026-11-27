@@ -85,6 +85,8 @@ type LiveWalletRow = {
 	scallopIncomplete?: boolean
 	closed: Record<string, number>
 	closedTruncated: Record<string, boolean>
+	/** Fresh GraphQL closed floors per protocol (for relative §8.3 mins). */
+	closedGraphqlFloor: Record<string, number>
 	positions: Array<{
 		id: string
 		protocol: string
@@ -419,6 +421,7 @@ async function loadWallet(
 		incomplete: false,
 		closed: {},
 		closedTruncated: {},
+		closedGraphqlFloor: {},
 		positions: [],
 		silentDepositZeros: [],
 		checkpoint,
@@ -684,6 +687,12 @@ async function loadWallet(
 					if (r.ok) {
 						const result = r.value
 						row.closed[proto] = result.positions.length
+						if (
+							typeof result.graphqlClosedFloor === 'number' &&
+							Number.isFinite(result.graphqlClosedFloor)
+						) {
+							row.closedGraphqlFloor[proto] = result.graphqlClosedFloor
+						}
 						const rowPartial = result.positions.some((c) => c.partialHistory === true)
 						const truncated = result.incomplete === true || rowPartial
 						if (truncated) {
@@ -838,6 +847,7 @@ async function main() {
 				walletTimeoutMs: opts.walletTimeoutMs,
 				closed: {},
 				closedTruncated: {},
+				closedGraphqlFloor: {},
 				positions: [],
 				silentDepositZeros: [],
 				elapsedMs: Date.now() - t0,

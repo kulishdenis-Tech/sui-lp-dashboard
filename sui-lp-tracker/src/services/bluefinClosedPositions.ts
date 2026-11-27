@@ -77,9 +77,13 @@ export async function getBluefinClosedPositions(
 
 	const pending: { pid: string; rows: BluefinWalletRawEvt[]; poolCacheKey: string }[] = []
 	const uniqPoolKeys = new Set<string>()
+	/** Unique PositionClosed PIDs from scan that are not currently owned (GraphQL floor). */
+	let graphqlClosedFloor = 0
 
 	for (const [pid, rows] of rawByPositionId) {
 		const isOwned = ownedIds.has(pid)
+		const hasPc = rows.some(rowIsPositionClosed)
+		if (hasPc && !isOwned) graphqlClosedFloor++
 		const hasClose = hasBluefinCloseLikeSignal(rows)
 		const poolGuess = inferPoolIdFromRows(rows)
 		if (isOwned) continue
@@ -190,5 +194,6 @@ export async function getBluefinClosedPositions(
 		positions: out,
 		incomplete: scanPartial === true,
 		reason: scanPartial ? 'page_cap' : undefined,
+		graphqlClosedFloor,
 	}
 }

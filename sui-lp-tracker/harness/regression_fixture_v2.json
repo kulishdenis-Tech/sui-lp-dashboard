@@ -37,7 +37,7 @@
       "currentTick": 210,
       "liquidity": "21067315685",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 0.004221686999863047,
       "priceA": 0.64715801,
       "priceB": 0.6561215735,
@@ -53,7 +53,7 @@
       "currentTick": 210,
       "liquidity": "10535586578",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 0.002111229999935049,
       "priceA": 0.64715801,
       "priceB": 0.6561215735,
@@ -131,7 +131,7 @@
       "currentTick": -73328,
       "liquidity": "1095322183694",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 456.7149509064606,
       "priceA": 0.6526929275,
       "priceB": 0.9999185855,
@@ -243,7 +243,7 @@
       "currentTick": -44671,
       "liquidity": "1366082839670",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 1939.5525240912823,
       "priceA": 0.011466321582500001,
       "priceB": 0.9999185855,
@@ -267,11 +267,11 @@
       "currentTick": 73343,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.9999037083500001,
       "priceB": 0.6561215735,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "turbos",
@@ -299,7 +299,7 @@
       "currentTick": -73327,
       "liquidity": "317671098",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 0.251119695992706,
       "priceA": 0.6561215735,
       "priceB": 0.9999037083500001,
@@ -315,7 +315,7 @@
       "currentTick": -73327,
       "liquidity": "626947728",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 0.2507852502793921,
       "priceA": 0.6561215735,
       "priceB": 0.9999037083500001,
@@ -372,11 +372,11 @@
       "currentTick": -34361,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.020973960000000003,
       "priceB": 0.65171,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "cetus",
@@ -404,7 +404,7 @@
       "currentTick": 56755,
       "liquidity": "638532163",
       "status": "in_range",
-      "amountA": 3.6903541786725023e-05,
+      "amountA": 0.000036903541786725023,
       "amountB": 0.4442440056368489,
       "priceA": 0.9999086448000001,
       "priceB": null,
@@ -420,11 +420,11 @@
       "currentTick": 73345,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.9999086448000001,
       "priceB": 0.65171,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "cetus",
@@ -436,11 +436,11 @@
       "currentTick": -63925,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.9999086448000001,
       "priceB": 59818.04362823829,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "cetus",
@@ -452,11 +452,11 @@
       "currentTick": 28686,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.011466321582500001,
       "priceB": 0.65171,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "cetus",
@@ -468,11 +468,11 @@
       "currentTick": -34361,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.020973960000000003,
       "priceB": 0.65171,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "cetus",
@@ -500,11 +500,11 @@
       "currentTick": -46114,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.006466117287421381,
       "priceB": 0.65171,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "cetus",
@@ -516,11 +516,11 @@
       "currentTick": 73345,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.9999086448000001,
       "priceB": 0.65171,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "cetus",
@@ -532,11 +532,11 @@
       "currentTick": 73345,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.9999086448000001,
       "priceB": 0.65171,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "cetus",
@@ -548,11 +548,11 @@
       "currentTick": -63925,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.9999086448000001,
       "priceB": 59818.04362823829,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "cetus",
@@ -580,11 +580,11 @@
       "currentTick": 0,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.9999086448000001,
       "priceB": 0.9995765834382634,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "cetus",
@@ -628,11 +628,11 @@
       "currentTick": -34361,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.020973960000000003,
       "priceB": 0.65171,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "cetus",
@@ -644,11 +644,11 @@
       "currentTick": -37803,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.014881747499999999,
       "priceB": 0.65171,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "cetus",
@@ -660,7 +660,7 @@
       "currentTick": -124535,
       "liquidity": "8672765965261",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 0.34836361782277836,
       "priceA": null,
       "priceB": 0.65171,
@@ -676,11 +676,11 @@
       "currentTick": 73345,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.9999086448000001,
       "priceB": 0.65171,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "turbos",
@@ -692,7 +692,7 @@
       "currentTick": -73332,
       "liquidity": "143619252060",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 73.77297240409268,
       "priceA": 0.65171,
       "priceB": 0.9999086448000001,
@@ -752,7 +752,7 @@
       "currentTick": 85623,
       "liquidity": "121135547492",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 179999.99999952773,
       "priceA": 0.9999185855,
       "priceB": 0.00017723631143179818,
@@ -769,7 +769,7 @@
       "liquidity": "282337237996737",
       "status": "below",
       "amountA": 13330.176844963296,
-      "amountB": 0.0,
+      "amountB": 0,
       "priceA": 0.02095,
       "priceB": 0.6526929275,
       "valueUSD": 279.2672049019811
@@ -817,7 +817,7 @@
       "liquidity": "155112412565019",
       "status": "below",
       "amountA": 3472999.999999984,
-      "amountB": 0.0,
+      "amountB": 0,
       "priceA": null,
       "priceB": 0.6526929275,
       "valueUSD": null
@@ -848,7 +848,7 @@
       "currentTick": 85623,
       "liquidity": "14195574888",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 7624.226795273607,
       "priceA": 0.9999185855,
       "priceB": 0.00017723631143179818,
@@ -864,7 +864,7 @@
       "currentTick": -44649,
       "liquidity": "248050100143",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 222.07439717903412,
       "priceA": 0.011466321582500001,
       "priceB": 0.9999185855,
@@ -880,7 +880,7 @@
       "currentTick": 85623,
       "liquidity": "162240999401",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 579999.9999965476,
       "priceA": 0.9999185855,
       "priceB": 0.00017723631143179818,
@@ -896,7 +896,7 @@
       "currentTick": 85623,
       "liquidity": "18734390353",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 10399.522236610843,
       "priceA": 0.9999185855,
       "priceB": 0.00017723631143179818,
@@ -912,7 +912,7 @@
       "currentTick": 85623,
       "liquidity": "25321128227",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 18916.28669964066,
       "priceA": 0.9999185855,
       "priceB": 0.00017723631143179818,
@@ -928,7 +928,7 @@
       "currentTick": -44649,
       "liquidity": "1016948381810",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 689.3013914977557,
       "priceA": 0.011466321582500001,
       "priceB": 0.9999185855,
@@ -944,7 +944,7 @@
       "currentTick": -107707,
       "liquidity": "6601348593360",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 604.9214533224384,
       "priceA": 0.02095,
       "priceB": 0.9999185855,
@@ -960,7 +960,7 @@
       "currentTick": -73336,
       "liquidity": "3205789208968",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 642.0987817193972,
       "priceA": 0.6526929275,
       "priceB": 0.9999185855,
@@ -977,7 +977,7 @@
       "liquidity": "6163615886270",
       "status": "below",
       "amountA": 64.5337999999994,
-      "amountB": 0.0,
+      "amountB": 0,
       "priceA": 0.02095,
       "priceB": 0.9999185855,
       "valueUSD": 1.3519831099999875
@@ -1324,7 +1324,7 @@
       "currentTick": -73340,
       "liquidity": "520227034394",
       "status": "above",
-      "amountA": 0.0,
+      "amountA": 0,
       "amountB": 443.1057020631218,
       "priceA": 0.6561215735,
       "priceB": 0.9999037083500001,
@@ -1360,11 +1360,11 @@
       "currentTick": -73351,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.6561215735,
       "priceB": 0.9999037083500001,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "momentum",
@@ -1376,11 +1376,11 @@
       "currentTick": -73351,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.6561215735,
       "priceB": 0.9999037083500001,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "momentum",
@@ -1392,11 +1392,11 @@
       "currentTick": -73351,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.6561215735,
       "priceB": 0.9999037083500001,
-      "valueUSD": 0.0
+      "valueUSD": 0
      },
      {
       "protocol": "momentum",
@@ -1408,11 +1408,11 @@
       "currentTick": -73351,
       "liquidity": "0",
       "status": "empty",
-      "amountA": 0.0,
-      "amountB": 0.0,
+      "amountA": 0,
+      "amountB": 0,
       "priceA": 0.6561215735,
       "priceB": 0.9999037083500001,
-      "valueUSD": 0.0
+      "valueUSD": 0
      }
     ],
     "history": {
@@ -1445,7 +1445,7 @@
       "liquidity": "176059097023769",
       "status": "below",
       "amountA": 48.578305400023176,
-      "amountB": 0.0,
+      "amountB": 0,
       "priceA": 0.0210859346,
       "priceB": 0.655851476,
       "valueUSD": 1.0243189706437157
@@ -1571,8 +1571,8 @@
       "deposited_value_usd": 0.01201694141828797,
       "allowed_borrow_value_usd": 0.008411375452124205,
       "unhealthy_borrow_value_usd": 0.009012706063715972,
-      "unweighted_borrowed_value_usd": 0.0,
-      "weighted_borrowed_value_usd": 0.0,
+      "unweighted_borrowed_value_usd": 0,
+      "weighted_borrowed_value_usd": 0,
       "deposits": [
        [
         "SUI",
@@ -1663,11 +1663,11 @@
      "type": "0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::ObligationOwnerCap",
      "obligation": "0xd04c4b7126b7649a9e544c4d3a636b9afc0b0f926e4b8069ee1c561e60f9a6a6",
      "summary": {
-      "deposited_value_usd": 0.0,
-      "allowed_borrow_value_usd": 0.0,
-      "unhealthy_borrow_value_usd": 0.0,
-      "unweighted_borrowed_value_usd": 0.0,
-      "weighted_borrowed_value_usd": 0.0,
+      "deposited_value_usd": 0,
+      "allowed_borrow_value_usd": 0,
+      "unhealthy_borrow_value_usd": 0,
+      "unweighted_borrowed_value_usd": 0,
+      "weighted_borrowed_value_usd": 0,
       "deposits": [],
       "borrows": []
      }
@@ -1735,7 +1735,7 @@
       "borrows": [
        [
         "USDC",
-        2500000000.0,
+        2500000000,
         2499.7952
        ]
       ]
@@ -1859,11 +1859,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.7184103935068292,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -1916,11 +1916,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.7086815709897244,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -2380,10 +2380,10 @@
     {
      "obligation": "0x66870db7487a447fbfa9d07fd5f8934c3e47d194680ab0ad607486e3b7cea03b",
      "lending_market": "0xc1888ec1b81a414e427a44829310508352aec38252ee0daa9f8b181b6947de9f",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
@@ -2391,9 +2391,9 @@
      "obligation": "0xb685234ce70ea1fc2c81d04e28d8d4435ca0063d735210b26f401f318ecf3fd5",
      "lending_market": "0x84030d26d85eaa7035084a057f2f11f701b7e2e4eda87551becbc7c97505ece1",
      "deposited_value_usd_lastRefresh": 1.4197482593216133,
-     "borrowed_value_usd_lastRefresh": 0.0,
+     "borrowed_value_usd_lastRefresh": 0,
      "unhealthy_borrow_value_usd": 0.5128776667819981,
-     "weighted_borrowed_value_usd": 0.0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [
       {
        "coin": "deeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP",
@@ -2427,12 +2427,12 @@
    "staked": {
     "StakedSui": {
      "count": 1,
-     "amount": 13.0,
+     "amount": 13,
      "usd": 8.627098389
     },
     "StakedWal": {
      "count": 17,
-     "amount": 520.0,
+     "amount": 520,
      "usd": 11.079011034
     }
    },
@@ -2451,7 +2451,7 @@
     },
     "suilend": {
      "supply_usd": 1.42,
-     "borrow_usd": 0.0
+     "borrow_usd": 0
     }
    }
   },
@@ -2473,7 +2473,7 @@
      "liquidity": "7423783607257",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 4.605777831993905,
      "priceA": 0.7086815709897244,
      "priceB": 0.6657,
@@ -2492,11 +2492,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.7086815709897244,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -2530,7 +2530,7 @@
      "liquidity": "7549845529507",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 4.683987709554186,
      "priceA": 0.7086815709897244,
      "priceB": 0.6657,
@@ -2587,11 +2587,11 @@
      "liquidity": "0",
      "inRange": true,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.7184103935068292,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -2606,11 +2606,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.7086815709897244,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "bluefin",
@@ -2859,7 +2859,7 @@
      "liquidity": "154059009658",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 5.322474451997871,
      "priceA": 0.7086815709897244,
      "priceB": 0.6657,
@@ -3001,9 +3001,9 @@
      "obligation": "0x8af36882cbea69341f5489b1433b08676f552f4b11c9f538e81b581463c53c81",
      "lending_market": "0x84030d26d85eaa7035084a057f2f11f701b7e2e4eda87551becbc7c97505ece1",
      "deposited_value_usd_lastRefresh": 6.559845941796275,
-     "borrowed_value_usd_lastRefresh": 0.0,
+     "borrowed_value_usd_lastRefresh": 0,
      "unhealthy_borrow_value_usd": 2.3619790784477206,
-     "weighted_borrowed_value_usd": 0.0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [
       {
        "coin": "deeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP",
@@ -3018,12 +3018,12 @@
       {
        "coin": "356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59::wal::WAL",
        "ctokens": "63550",
-       "mv": 1.646395590315e-06
+       "mv": 0.000001646395590315
       },
       {
        "coin": "83556891f4a0f233ce7b05cfe7f957d4020492a34f5405b2cb9377d060bef4bf::spring_sui::SPRING_SUI",
        "ctokens": "460",
-       "mv": 3.320720312e-07
+       "mv": 3.320720312e-7
       }
      ],
      "borrows": []
@@ -3042,12 +3042,12 @@
    "staked": {
     "StakedSui": {
      "count": 1,
-     "amount": 12.0,
+     "amount": 12,
      "usd": 7.9634754359999995
     },
     "StakedWal": {
      "count": 18,
-     "amount": 502.0,
+     "amount": 502,
      "usd": 10.695506805900001
     }
    },
@@ -3065,7 +3065,7 @@
     },
     "suilend": {
      "supply_usd": 6.56,
-     "borrow_usd": 0.0
+     "borrow_usd": 0
     }
    }
   },
@@ -3088,7 +3088,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 423.6529363031756,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 60051.51139890225,
      "valueUSD": 423.59868013075555
@@ -3106,11 +3106,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.003930417106069533,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "momentum",
@@ -3190,20 +3190,20 @@
     {
      "obligation": "0x4c32c2d27cb6c02ee05df8fdd4f0e5a3de1d4bf8b1115baf63e985c8bc3f189e",
      "lending_market": "0xc1888ec1b81a414e427a44829310508352aec38252ee0daa9f8b181b6947de9f",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
     {
      "obligation": "0x99e94bf4ca9b12b392a06d625e22d2fb9f35e7b2eaf6e0f4e916778fd4ff5cd5",
      "lending_market": "0x84030d26d85eaa7035084a057f2f11f701b7e2e4eda87551becbc7c97505ece1",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     }
@@ -3240,12 +3240,12 @@
    "staked": {
     "StakedSui": {
      "count": 2,
-     "amount": 10.0,
+     "amount": 10,
      "usd": 6.63622953
     },
     "StakedWal": {
      "count": 9,
-     "amount": 2000.0,
+     "amount": 2000,
      "usd": 42.6115809
     }
    },
@@ -3264,8 +3264,8 @@
      "turbos": 3
     },
     "suilend": {
-     "supply_usd": 0.0,
-     "borrow_usd": 0.0
+     "supply_usd": 0,
+     "borrow_usd": 0
     }
    }
   },
@@ -3363,7 +3363,7 @@
      "liquidity": "476625794",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 497.51777930087246,
      "priceA": 60051.51139890225,
      "priceB": 0.9998719325,
@@ -3401,11 +3401,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 60140.05163420408,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     }
    ],
    "dlmm": [
@@ -3483,20 +3483,20 @@
     {
      "obligation": "0x51be34338d830a761cc54c4efba67f4e343dafae4845c590a68d05f78cc47b2f",
      "lending_market": "0xc1888ec1b81a414e427a44829310508352aec38252ee0daa9f8b181b6947de9f",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
     {
      "obligation": "0x3c257d22bd34f4788a838c2284cfb0611522859888104d16673551ced9153aa0",
      "lending_market": "0x74d92cb095b618f344486f77bcce87fbffc0fe0b46584bb1828bb291a222dda8",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
@@ -3526,9 +3526,9 @@
      "obligation": "0x278a97d88c32e9dcf3e964bcec7d5896fa4ea039b985f1680ad6ad833fe7959e",
      "lending_market": "0x84030d26d85eaa7035084a057f2f11f701b7e2e4eda87551becbc7c97505ece1",
      "deposited_value_usd_lastRefresh": 50.26564801252418,
-     "borrowed_value_usd_lastRefresh": 0.0,
+     "borrowed_value_usd_lastRefresh": 0,
      "unhealthy_borrow_value_usd": 35.222866894427774,
-     "weighted_borrowed_value_usd": 0.0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [
       {
        "coin": "83556891f4a0f233ce7b05cfe7f957d4020492a34f5405b2cb9377d060bef4bf::spring_sui::SPRING_SUI",
@@ -3583,7 +3583,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 5407.01130167901,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.6657,
      "priceB": 0.9998719325,
      "valueUSD": 3599.4474235277166
@@ -3623,7 +3623,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 4783.0709411769185,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.6657,
      "priceB": 0.9998719325,
      "valueUSD": 3184.0903255414746
@@ -3642,7 +3642,7 @@
      "liquidity": "1200902113203",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 318.012969682755,
      "priceA": 0.6657,
      "priceB": 0.9998719325,
@@ -3731,20 +3731,20 @@
     {
      "obligation": "0xc39dff67b457278a73d913b0c75a6e632ff8a1200f970d0653bbc3161c75ab60",
      "lending_market": "0xc1888ec1b81a414e427a44829310508352aec38252ee0daa9f8b181b6947de9f",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
     {
      "obligation": "0x569831f065f7171b337c2ea91acfb4b1360f5df1d2964e7ca45f15ec3b604a73",
      "lending_market": "0x0d3a7f758d19d11e8526f66cca43403a99da16862c570c43efe0f8c4a500f7f2",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
@@ -3752,9 +3752,9 @@
      "obligation": "0xffadca4f8915cdc8b6630e864648b7a4c078e5fd44f9776856f247a634ce5380",
      "lending_market": "0x74d92cb095b618f344486f77bcce87fbffc0fe0b46584bb1828bb291a222dda8",
      "deposited_value_usd_lastRefresh": 12879.000346158538,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [
       {
        "coin": "dba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
@@ -3773,9 +3773,9 @@
      "obligation": "0x40757f1556cf7d2869d8ba3503855fc36aab8f6bdb2d5eaf79a94dabb2e6dd94",
      "lending_market": "0x8a8d8e138a28de1c637d0b0955e621b017da7010de388db5a18493eca99c5e82",
      "deposited_value_usd_lastRefresh": 6583.6694333288115,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [
       {
        "coin": "dba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
@@ -3849,12 +3849,12 @@
    "staked": {
     "StakedSui": {
      "count": 2,
-     "amount": 2.0,
+     "amount": 2,
      "usd": 1.327245906
     },
     "StakedWal": {
      "count": 1,
-     "amount": 2000.0,
+     "amount": 2000,
      "usd": 42.6115809
     }
    },
@@ -3896,7 +3896,7 @@
      "liquidity": "15916022735941",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 199.9999999999953,
      "priceA": 0.011825562735000001,
      "priceB": 0.6657,
@@ -3916,7 +3916,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 11999.999997999454,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.011825562735000001,
      "priceB": 0.6657,
      "valueUSD": 141.90675279634243
@@ -4010,7 +4010,7 @@
      "liquidity": "15963840103510",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 199.99999999999008,
      "priceA": 0.011825562735000001,
      "priceB": 0.6657,
@@ -4048,7 +4048,7 @@
      "liquidity": "16011801131382",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 199.9999999999908,
      "priceA": 0.011825562735000001,
      "priceB": 0.6657,
@@ -4068,7 +4068,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 11999.999998999729,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.011825562735000001,
      "priceB": 0.6657,
      "valueUSD": 141.90675280817123
@@ -4086,7 +4086,7 @@
      "liquidity": "15868348598360",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 199.99999999998886,
      "priceA": 0.011825562735000001,
      "priceB": 0.6657,
@@ -4105,7 +4105,7 @@
      "liquidity": "16192148080891",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 201.64685680799408,
      "priceA": 0.011825562735000001,
      "priceB": 0.6657,
@@ -4124,7 +4124,7 @@
      "liquidity": "215629742850",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 116.2290841541376,
      "priceA": 0.011825562735000001,
      "priceB": 0.9998719325,
@@ -4163,7 +4163,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 9999.999999966169,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.011825562735000001,
      "priceB": 0.9998719325,
      "valueUSD": 118.25562734959993
@@ -4201,7 +4201,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 799.999999990211,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.011825562735000001,
      "priceB": 0.9998719325,
      "valueUSD": 9.460450187884241
@@ -4219,7 +4219,7 @@
      "liquidity": "216710537260",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 117.39714717529812,
      "priceA": 0.011825562735000001,
      "priceB": 0.9998719325,
@@ -4239,7 +4239,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 726.2769639995976,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.011825562735000001,
      "priceB": 0.9998719325,
      "valueUSD": 8.588633800762578
@@ -4258,7 +4258,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 999.8900360952257,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.011825562735000001,
      "priceB": 0.9998719325,
      "valueUSD": 11.824262349945506
@@ -4295,7 +4295,7 @@
      "liquidity": "214554338656",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 115.07264297616798,
      "priceA": 0.011825562735000001,
      "priceB": 0.9998719325,
@@ -4315,7 +4315,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 999.9999999997265,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.011825562735000001,
      "priceB": 0.9998719325,
      "valueUSD": 11.825562734996767
@@ -4391,10 +4391,10 @@
     {
      "obligation": "0x82115105421ca874f7f160a9ce91db6c6dc668e0e2c85a6066b4e8461391671e",
      "lending_market": "0x84030d26d85eaa7035084a057f2f11f701b7e2e4eda87551becbc7c97505ece1",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     }
@@ -4416,8 +4416,8 @@
      "turbos": 50
     },
     "suilend": {
-     "supply_usd": 0.0,
-     "borrow_usd": 0.0
+     "supply_usd": 0,
+     "borrow_usd": 0
     }
    }
   },
@@ -4563,10 +4563,10 @@
     {
      "obligation": "0x12576fb2111530499f8cadd0369b18197ef4d6a427407f255508acc95f5b134e",
      "lending_market": "0x84030d26d85eaa7035084a057f2f11f701b7e2e4eda87551becbc7c97505ece1",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     }
@@ -4603,8 +4603,8 @@
      "turbos": 3
     },
     "suilend": {
-     "supply_usd": 0.0,
-     "borrow_usd": 0.0
+     "supply_usd": 0,
+     "borrow_usd": 0
     }
    }
   },
@@ -4645,11 +4645,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -4664,11 +4664,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -4683,11 +4683,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -4702,11 +4702,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     }
    ],
    "dlmm": [
@@ -4869,11 +4869,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -4888,7 +4888,7 @@
      "liquidity": "19019864776825",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 1.9799999999999454,
      "priceA": 0.7184103935068292,
      "priceB": 0.6657,
@@ -4926,11 +4926,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.7184103935068292,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -4945,11 +4945,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -4964,8 +4964,8 @@
      "liquidity": "7427449",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
-     "amountB": 4.964537780851346e-05,
+     "amountA": 0,
+     "amountB": 0.00004964537780851346,
      "priceA": 0.9998719325,
      "priceB": 1686.0792924276827,
      "valueUSD": 0.08370604348768336
@@ -4983,11 +4983,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5002,7 +5002,7 @@
      "liquidity": "15650947991",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 2805.6185588059748,
      "priceA": 0.9998719325,
      "priceB": 0.00025111482945227285,
@@ -5040,11 +5040,11 @@
      "liquidity": "0",
      "inRange": true,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5059,11 +5059,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5079,7 +5079,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 0.9899999999995329,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.7184103935068292,
      "priceB": 0.6657,
      "valueUSD": 0.7112262895714254
@@ -5097,11 +5097,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.7184103935068292,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5116,7 +5116,7 @@
      "liquidity": "3170294449983",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 0.9899999999997054,
      "priceA": 0.7184103935068292,
      "priceB": 0.6657,
@@ -5136,7 +5136,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 0.9899999999995329,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.7184103935068292,
      "priceB": 0.6657,
      "valueUSD": 0.7112262895714254
@@ -5192,11 +5192,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5211,11 +5211,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.7086815709897244,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5230,7 +5230,7 @@
      "liquidity": "292384857",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 1.0122361820049528,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
@@ -5249,11 +5249,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5287,11 +5287,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5325,11 +5325,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5363,7 +5363,7 @@
      "liquidity": "292384857",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 1.0122361820049528,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
@@ -5401,7 +5401,7 @@
      "liquidity": "3170294449983",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 0.9899999999997054,
      "priceA": 0.7184103935068292,
      "priceB": 0.6657,
@@ -5420,7 +5420,7 @@
      "liquidity": "297140330",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 1.0156157214365384,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
@@ -5439,11 +5439,11 @@
      "liquidity": "0",
      "inRange": true,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.0152227026,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5477,11 +5477,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5496,11 +5496,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5515,11 +5515,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.7184103935068292,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5553,11 +5553,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.011825562735000001,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5591,11 +5591,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.7124294529772658,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5610,11 +5610,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.7086815709897244,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5629,11 +5629,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -5860,9 +5860,9 @@
      "obligation": "0xf9649e96e6b97665d69d7675839170e3f6c1fe590a0da46a55f945b992e3595d",
      "lending_market": "0x84030d26d85eaa7035084a057f2f11f701b7e2e4eda87551becbc7c97505ece1",
      "deposited_value_usd_lastRefresh": 8.3212826374985,
-     "borrowed_value_usd_lastRefresh": 0.0,
+     "borrowed_value_usd_lastRefresh": 0,
      "unhealthy_borrow_value_usd": 6.240961978123876,
-     "weighted_borrowed_value_usd": 0.0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [
       {
        "coin": "0000000000000000000000000000000000000000000000000000000000000002::sui::SUI",
@@ -5895,7 +5895,7 @@
     },
     "suilend": {
      "supply_usd": 8.32,
-     "borrow_usd": 0.0
+     "borrow_usd": 0
     }
    }
   },
@@ -5955,7 +5955,7 @@
      "liquidity": "653892085262",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 1499.99999999978,
      "priceA": 42.091976392771265,
      "priceB": 0.9998719325,
@@ -6049,30 +6049,30 @@
     {
      "obligation": "0x8a19139e94a03cccbad689c68deb4c05357d0e4e93d6a0286e82ceb6c4e3f9f5",
      "lending_market": "0xd12df5fede59f1ac5e1f8413bc86bd6bc77fff2001366878df58ef6a26d58c67",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
     {
      "obligation": "0xeef4059485e3822e0f15e5d9c10338baddd2b844c80e85d37888db362221711f",
      "lending_market": "0x8a8d8e138a28de1c637d0b0955e621b017da7010de388db5a18493eca99c5e82",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
     {
      "obligation": "0x9cd4286046b1d9f1841f61d611bd9e6c9c30902a28606e9f9b92e3f1f10fddf7",
      "lending_market": "0x84030d26d85eaa7035084a057f2f11f701b7e2e4eda87551becbc7c97505ece1",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     }
@@ -6111,7 +6111,9 @@
    },
    "expect": {
     "closedAtLeast": {
-     "bluefin": 18
+     "bluefin": {
+      "relativeGraphqlClosed": true
+     }
     },
     "suilend": {
      "supply_usd": 966281.25,
@@ -6137,11 +6139,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -6156,11 +6158,11 @@
      "liquidity": "0",
      "inRange": true,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 1686.0792924276827,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -6175,11 +6177,11 @@
      "liquidity": "0",
      "inRange": true,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.011825562735000001,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     }
    ],
    "dlmm": [
@@ -6257,9 +6259,9 @@
      "obligation": "0xdc5b7b1b4879c9057d5ef03f3856265ccb8cdb944f93b69b9f3a266ebc24e645",
      "lending_market": "0xc1888ec1b81a414e427a44829310508352aec38252ee0daa9f8b181b6947de9f",
      "deposited_value_usd_lastRefresh": 0.3074308110502391,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [
       {
        "coin": "a08fe8189c4580e9c83fac65ecf56b8dedcdb4c5144424733a9d82254820a327::steamm_lp_bsui_busdc::STEAMM_LP_BSUI_BUSDC",
@@ -6273,9 +6275,9 @@
      "obligation": "0x70ae793eb326f82813ffa57292a18a2dab5e6cca2a7f5c28bfd5658c95decd0a",
      "lending_market": "0x74d92cb095b618f344486f77bcce87fbffc0fe0b46584bb1828bb291a222dda8",
      "deposited_value_usd_lastRefresh": 4.299873877940559,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [
       {
        "coin": "44f838219cf67b058f3b37907b655f226153c18e33dfcd0da559a844fea9b1c1::usdsui::USDSUI",
@@ -6288,30 +6290,30 @@
     {
      "obligation": "0xcd34aaf0f513bd1eafb3724891044e03ae9018a3d715af64960ca5090a37da38",
      "lending_market": "0x2d7a85c0ad7c4d3c9c89a3785e32aa8d83ef3034148f49ce2d7c441bbba227be",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
     {
      "obligation": "0x218b4998da660ee5b2cb3f78dce6023f8e87ab33338ea345a728a2046cb61720",
      "lending_market": "0xd12df5fede59f1ac5e1f8413bc86bd6bc77fff2001366878df58ef6a26d58c67",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
     {
      "obligation": "0xe85cb68bcfe269d61109641b156a5f0581d1a75d419ac3d71ea6ecca4239f4e2",
      "lending_market": "0x8a8d8e138a28de1c637d0b0955e621b017da7010de388db5a18493eca99c5e82",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
@@ -6319,9 +6321,9 @@
      "obligation": "0xf6376bfdb3c94c2574cea005160f190cbcb7bc6a4ca73833b47a1e4971155974",
      "lending_market": "0x84030d26d85eaa7035084a057f2f11f701b7e2e4eda87551becbc7c97505ece1",
      "deposited_value_usd_lastRefresh": 0.8885026832097365,
-     "borrowed_value_usd_lastRefresh": 0.0,
+     "borrowed_value_usd_lastRefresh": 0,
      "unhealthy_borrow_value_usd": 0.6663770124073023,
-     "weighted_borrowed_value_usd": 0.0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [
       {
        "coin": "83556891f4a0f233ce7b05cfe7f957d4020492a34f5405b2cb9377d060bef4bf::spring_sui::SPRING_SUI",
@@ -6334,20 +6336,20 @@
     {
      "obligation": "0x7bb897e13894143f4d0807a2e31e09bab7fa2d0900fbe314a8353be22d8e09ee",
      "lending_market": "0x84030d26d85eaa7035084a057f2f11f701b7e2e4eda87551becbc7c97505ece1",
-     "deposited_value_usd_lastRefresh": 3.290070930754e-06,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 2.46755319806e-06,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0.000003290070930754,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0.00000246755319806,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [
       {
        "coin": "0000000000000000000000000000000000000000000000000000000000000002::sui::SUI",
        "ctokens": "1555",
-       "mv": 3.249899490644e-06
+       "mv": 0.000003249899490644
       },
       {
        "coin": "83556891f4a0f233ce7b05cfe7f957d4020492a34f5405b2cb9377d060bef4bf::spring_sui::SPRING_SUI",
        "ctokens": "12",
-       "mv": 4.017144011e-08
+       "mv": 4.017144011e-8
       }
      ],
      "borrows": []
@@ -6398,7 +6400,7 @@
     },
     "suilend": {
      "supply_usd": 5.5,
-     "borrow_usd": 0.0
+     "borrow_usd": 0
     }
    }
   },
@@ -6421,10 +6423,10 @@
      "inRange": false,
      "status": "below",
      "amountA": 0.0530320356677316,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.00026296134671783373,
      "priceB": 0.6657,
-     "valueUSD": 1.3945375518374894e-05
+     "valueUSD": 0.000013945375518374894
     }
    ],
    "dlmm": [],
@@ -6478,10 +6480,10 @@
     {
      "obligation": "0xd7b77f27842f00cb8176016895c91eea32123d5eae17cf95e4a597c7f4ad6bcf",
      "lending_market": "0xc1888ec1b81a414e427a44829310508352aec38252ee0daa9f8b181b6947de9f",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
@@ -6532,10 +6534,10 @@
     {
      "obligation": "0xdcd293d32971ec5ee672e81d1b861b68716605c9707c3b90e5354680e005179e",
      "lending_market": "0x8a8d8e138a28de1c637d0b0955e621b017da7010de388db5a18493eca99c5e82",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
@@ -6653,7 +6655,7 @@
      "status": "in_range",
      "amountA": 202685.19597710052,
      "amountB": 20.038896438008162,
-     "priceA": 6.557880777332374e-05,
+     "priceA": 0.00006557880777332374,
      "priceB": 0.6657,
      "valueUSD": 26.63174686426276
     }
@@ -6692,9 +6694,9 @@
      "obligation": "0x2725da325409435822f509bcf4916c5c1f1ba1ab2f229deaf1eb661977297bcb",
      "lending_market": "0xc1888ec1b81a414e427a44829310508352aec38252ee0daa9f8b181b6947de9f",
      "deposited_value_usd_lastRefresh": 0.00534909569781459,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [
       {
        "coin": "6b82b1ac4bf420f649c052746594a18c5df0c9fccff3a98d6856a16ba4f4e47a::steamm_lp_bsui_busdc::STEAMM_LP_BSUI_BUSDC",
@@ -6708,9 +6710,9 @@
      "obligation": "0x5fb786fcc8f540081f1483f966e4b9c70516ed49707a6d1cfb7544f7646815ff",
      "lending_market": "0x2d7a85c0ad7c4d3c9c89a3785e32aa8d83ef3034148f49ce2d7c441bbba227be",
      "deposited_value_usd_lastRefresh": 0.2685953102101924,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [
       {
        "coin": "dba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
@@ -6834,11 +6836,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -6853,11 +6855,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -6872,11 +6874,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -6891,11 +6893,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998719325,
      "priceB": 0.6657,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "momentum",
@@ -6961,30 +6963,30 @@
     {
      "obligation": "0xeefb52d8ab36fd2deb090efdf4080127c78844ab72f680218a33be6edeae9041",
      "lending_market": "0xc1888ec1b81a414e427a44829310508352aec38252ee0daa9f8b181b6947de9f",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
     {
      "obligation": "0xdb6aee78411e89c4b1576547257f04aeac430a5bf74606dcd990aa551f8d44a1",
      "lending_market": "0x74d92cb095b618f344486f77bcce87fbffc0fe0b46584bb1828bb291a222dda8",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
     {
      "obligation": "0x7d98b363a44e562531a2a57d69e666417a27752f43741417460f771d56145757",
      "lending_market": "0x2d7a85c0ad7c4d3c9c89a3785e32aa8d83ef3034148f49ce2d7c441bbba227be",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
@@ -7387,7 +7389,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 0.006228761937210468,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 60140.05163420408,
      "priceB": 0.9998719325,
      "valueUSD": 374.5980645210026
@@ -7444,7 +7446,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 0.0005046944595471285,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 60140.05163420408,
      "priceB": 0.9998719325,
      "valueUSD": 30.35235085666103
@@ -7482,7 +7484,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 0.007572417388326383,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 60140.05163420408,
      "priceB": 0.9998719325,
      "valueUSD": 455.40557272969346
@@ -7562,7 +7564,7 @@
       },
       {
        "coin": "0041f9f9344cac094454cd574e333c4fdb132d7bcc9379bcd4aab485b2a63942::wbtc::WBTC",
-       "amount": 10000000.0,
+       "amount": 10000000,
        "mv": 5833.2235095999995
       }
      ]
@@ -7614,11 +7616,11 @@
      "liquidity": "0",
      "inRange": true,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.02067339,
      "priceB": 0.0213874332,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "turbos",
@@ -7634,8 +7636,8 @@
      "liquidity": "9999",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
-     "amountB": 9.9999999e-09,
+     "amountA": 0,
+     "amountB": 9.9999999e-9,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006015813792746799
@@ -7654,8 +7656,8 @@
      "liquidity": "10029",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999959481105687e-09,
-     "amountB": 0.0,
+     "amountA": 9.999959481105687e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.000602999733526166
@@ -7674,8 +7676,8 @@
      "liquidity": "5009",
      "inRange": false,
      "status": "below",
-     "amountA": 9.99948477012443e-09,
-     "amountB": 0.0,
+     "amountA": 9.99948477012443e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.00060297110835066
@@ -7694,8 +7696,8 @@
      "liquidity": "5012",
      "inRange": false,
      "status": "below",
-     "amountA": 1.000047244457748e-08,
-     "amountB": 0.0,
+     "amountA": 1.000047244457748e-8,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030306653351784
@@ -7714,8 +7716,8 @@
      "liquidity": "5010",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999481077521645e-09,
-     "amountB": 0.0,
+     "amountA": 9.999481077521645e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006029708856859083
@@ -7734,8 +7736,8 @@
      "liquidity": "4560",
      "inRange": false,
      "status": "below",
-     "amountA": 9.091318642278592e-09,
-     "amountB": 0.0,
+     "amountA": 9.091318642278592e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0005482084931497452
@@ -7754,8 +7756,8 @@
      "liquidity": "5014",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999462324879015e-09,
-     "amountB": 0.0,
+     "amountA": 9.999462324879015e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006029697548974756
@@ -7774,8 +7776,8 @@
      "liquidity": "5014",
      "inRange": false,
      "status": "below",
-     "amountA": 1.0000462271111503e-08,
-     "amountB": 0.0,
+     "amountA": 1.0000462271111503e-8,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030300518729654
@@ -7794,8 +7796,8 @@
      "liquidity": "5011",
      "inRange": false,
      "status": "below",
-     "amountA": 1.0000476934234913e-08,
-     "amountB": 0.0,
+     "amountA": 1.0000476934234913e-8,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030309360624988
@@ -7814,8 +7816,8 @@
      "liquidity": "9997",
      "inRange": true,
      "status": "in_range",
-     "amountA": 8.282820429102644e-09,
-     "amountB": 1.7112374188568578e-09,
+     "amountA": 8.282820429102644e-9,
+     "amountB": 1.7112374188568578e-9,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006024007325990625
@@ -7834,8 +7836,8 @@
      "liquidity": "10031",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999953599077351e-09,
-     "amountB": 0.0,
+     "amountA": 9.999953599077351e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.000602999378838577
@@ -7854,8 +7856,8 @@
      "liquidity": "10018",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999984719365473e-09,
-     "amountB": 0.0,
+     "amountA": 9.999984719365473e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030012553987251
@@ -7874,8 +7876,8 @@
      "liquidity": "5013",
      "inRange": false,
      "status": "below",
-     "amountA": 9.99946761005554e-09,
-     "amountB": 0.0,
+     "amountA": 9.99946761005554e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006029700735947706
@@ -7894,8 +7896,8 @@
      "liquidity": "5003",
      "inRange": false,
      "status": "below",
-     "amountA": 1.0000498500624826e-08,
-     "amountB": 0.0,
+     "amountA": 1.0000498500624826e-8,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030322365205053
@@ -7914,8 +7916,8 @@
      "liquidity": "9991",
      "inRange": false,
      "status": "below",
-     "amountA": 9.981014492852694e-09,
-     "amountB": 0.0,
+     "amountA": 9.981014492852694e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006018573466105195
@@ -7934,8 +7936,8 @@
      "liquidity": "9922",
      "inRange": false,
      "status": "below",
-     "amountA": 9.900196682590416e-09,
-     "amountB": 0.0,
+     "amountA": 9.900196682590416e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0005969840150590867
@@ -7954,7 +7956,7 @@
      "liquidity": "4998",
      "inRange": true,
      "status": "in_range",
-     "amountA": 9.13649769877538e-09,
+     "amountA": 9.13649769877538e-9,
      "amountB": 8.555331218812219e-10,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
@@ -7974,8 +7976,8 @@
      "liquidity": "5015",
      "inRange": false,
      "status": "below",
-     "amountA": 9.99945664195751e-09,
-     "amountB": 0.0,
+     "amountA": 9.99945664195751e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006029694122160718
@@ -7994,8 +7996,8 @@
      "liquidity": "9991",
      "inRange": false,
      "status": "below",
-     "amountA": 1.9963027087154674e-08,
-     "amountB": 0.0,
+     "amountA": 1.9963027087154674e-8,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0012037748789557002
@@ -8014,8 +8016,8 @@
      "liquidity": "10021",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999979030773452e-09,
-     "amountB": 0.0,
+     "amountA": 9.999979030773452e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030009123753879
@@ -8034,8 +8036,8 @@
      "liquidity": "10027",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999964965448804e-09,
-     "amountB": 0.0,
+     "amountA": 9.999964965448804e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030000642332499
@@ -8054,8 +8056,8 @@
      "liquidity": "19976",
      "inRange": false,
      "status": "below",
-     "amountA": 1.9950049369074555e-08,
-     "amountB": 0.0,
+     "amountA": 1.9950049369074555e-8,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0012029923197304478
@@ -8074,8 +8076,8 @@
      "liquidity": "10014",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999990909094542e-09,
-     "amountB": 0.0,
+     "amountA": 9.999990909094542e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030016286407354
@@ -8094,8 +8096,8 @@
      "liquidity": "5009",
      "inRange": false,
      "status": "below",
-     "amountA": 1.0000484718601442e-08,
-     "amountB": 0.0,
+     "amountA": 1.0000484718601442e-8,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030314054614951
@@ -8114,8 +8116,8 @@
      "liquidity": "10024",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999972445955182e-09,
-     "amountB": 0.0,
+     "amountA": 9.999972445955182e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030005153094129
@@ -8134,8 +8136,8 @@
      "liquidity": "4994",
      "inRange": false,
      "status": "below",
-     "amountA": 9.975523435771503e-09,
-     "amountB": 0.0,
+     "amountA": 9.975523435771503e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006015262346732171
@@ -8154,8 +8156,8 @@
      "liquidity": "4996",
      "inRange": false,
      "status": "below",
-     "amountA": 9.983510845336552e-09,
-     "amountB": 0.0,
+     "amountA": 9.983510845336552e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006020078772087082
@@ -8174,8 +8176,8 @@
      "liquidity": "10017",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999986416308378e-09,
-     "amountB": 0.0,
+     "amountA": 9.999986416308378e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030013577247517
@@ -8194,8 +8196,8 @@
      "liquidity": "4945",
      "inRange": false,
      "status": "below",
-     "amountA": 9.873695782227485e-09,
-     "amountB": 0.0,
+     "amountA": 9.873695782227485e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0005953860049984215
@@ -8214,8 +8216,8 @@
      "liquidity": "14992",
      "inRange": false,
      "status": "below",
-     "amountA": 2.996451774398163e-08,
-     "amountB": 0.0,
+     "amountA": 2.996451774398163e-8,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0018068669427111687
@@ -8234,8 +8236,8 @@
      "liquidity": "10015",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999989511192864e-09,
-     "amountB": 0.0,
+     "amountA": 9.999989511192864e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030015443469599
@@ -8254,8 +8256,8 @@
      "liquidity": "4999",
      "inRange": true,
      "status": "in_range",
-     "amountA": 4.141824479852367e-09,
-     "amountB": 5.855704146965636e-09,
+     "amountA": 4.141824479852367e-9,
+     "amountB": 5.855704146965636e-9,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006020211789958083
@@ -8274,8 +8276,8 @@
      "liquidity": "5011",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999476986536258e-09,
-     "amountB": 0.0,
+     "amountA": 9.999476986536258e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006029706389985989
@@ -8294,8 +8296,8 @@
      "liquidity": "4678",
      "inRange": false,
      "status": "below",
-     "amountA": 9.333107011671829e-09,
-     "amountB": 0.0,
+     "amountA": 9.333107011671829e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0005627883844572376
@@ -8314,8 +8316,8 @@
      "liquidity": "9995",
      "inRange": false,
      "status": "below",
-     "amountA": 9.989005098390405e-09,
-     "amountB": 0.0,
+     "amountA": 9.989005098390405e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.000602339181863858
@@ -8334,8 +8336,8 @@
      "liquidity": "10020",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999981026578068e-09,
-     "amountB": 0.0,
+     "amountA": 9.999981026578068e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030010327228407
@@ -8354,8 +8356,8 @@
      "liquidity": "5000",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
-     "amountB": 1.00005e-08,
+     "amountA": 0,
+     "amountB": 1.00005e-8,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006016114643597584
@@ -8374,8 +8376,8 @@
      "liquidity": "10013",
      "inRange": false,
      "status": "below",
-     "amountA": 1.999898451532101e-08,
-     "amountB": 0.0,
+     "amountA": 1.999898451532101e-8,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0012059431197014305
@@ -8394,8 +8396,8 @@
      "liquidity": "4997",
      "inRange": false,
      "status": "below",
-     "amountA": 9.98650769706088e-09,
-     "amountB": 0.0,
+     "amountA": 9.98650769706088e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006021885880200472
@@ -8414,8 +8416,8 @@
      "liquidity": "9998",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
-     "amountB": 9.99999969998e-09,
+     "amountA": 0,
+     "amountB": 9.99999969998e-9,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006015813672418491
@@ -8434,8 +8436,8 @@
      "liquidity": "5010",
      "inRange": false,
      "status": "below",
-     "amountA": 1.0000481025629397e-08,
-     "amountB": 0.0,
+     "amountA": 1.0000481025629397e-8,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030311827744768
@@ -8454,8 +8456,8 @@
      "liquidity": "4999",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
-     "amountB": 9.99949974999e-09,
+     "amountA": 0,
+     "amountB": 9.99949974999e-9,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.000601551291181093
@@ -8474,8 +8476,8 @@
      "liquidity": "9973",
      "inRange": false,
      "status": "below",
-     "amountA": 9.94511604992098e-09,
-     "amountB": 0.0,
+     "amountA": 9.94511604992098e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0005996926626872768
@@ -8494,8 +8496,8 @@
      "liquidity": "5015",
      "inRange": false,
      "status": "below",
-     "amountA": 1.0000456587621704e-08,
-     "amountB": 0.0,
+     "amountA": 1.0000456587621704e-8,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030297091572933
@@ -8514,8 +8516,8 @@
      "liquidity": "5007",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999490959544042e-09,
-     "amountB": 0.0,
+     "amountA": 9.999490959544042e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.00060297148157401
@@ -8534,8 +8536,8 @@
      "liquidity": "5006",
      "inRange": false,
      "status": "below",
-     "amountA": 1.0000493405387285e-08,
-     "amountB": 0.0,
+     "amountA": 1.0000493405387285e-8,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030319292765724
@@ -8554,8 +8556,8 @@
      "liquidity": "10025",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999970051947388e-09,
-     "amountB": 0.0,
+     "amountA": 9.999970051947388e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030003709502217
@@ -8574,8 +8576,8 @@
      "liquidity": "49970",
      "inRange": false,
      "status": "below",
-     "amountA": 4.993503498740357e-08,
-     "amountB": 0.0,
+     "amountA": 4.993503498740357e-8,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0030110934797202608
@@ -8594,8 +8596,8 @@
      "liquidity": "5008",
      "inRange": false,
      "status": "below",
-     "amountA": 1.0000488012991504e-08,
-     "amountB": 0.0,
+     "amountA": 1.0000488012991504e-8,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.000603031604113933
@@ -8614,8 +8616,8 @@
      "liquidity": "10012",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999993405716997e-09,
-     "amountB": 0.0,
+     "amountA": 9.999993405716997e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030017791876129
@@ -8634,8 +8636,8 @@
      "liquidity": "9982",
      "inRange": false,
      "status": "below",
-     "amountA": 9.963053152531238e-09,
-     "amountB": 0.0,
+     "amountA": 9.963053152531238e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006007742738792675
@@ -8654,8 +8656,8 @@
      "liquidity": "10030",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999956589792215e-09,
-     "amountB": 0.0,
+     "amountA": 9.999956589792215e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006029995591793344
@@ -8674,8 +8676,8 @@
      "liquidity": "10011",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999994504397855e-09,
-     "amountB": 0.0,
+     "amountA": 9.999994504397855e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030018454383077
@@ -8694,8 +8696,8 @@
      "liquidity": "10026",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999967558438623e-09,
-     "amountB": 0.0,
+     "amountA": 9.999967558438623e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030002205911004
@@ -8714,8 +8716,8 @@
      "liquidity": "9993",
      "inRange": false,
      "status": "below",
-     "amountA": 9.985009196281169e-09,
-     "amountB": 0.0,
+     "amountA": 9.985009196281169e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006020982280968333
@@ -8734,8 +8736,8 @@
      "liquidity": "4995",
      "inRange": false,
      "status": "below",
-     "amountA": 9.979516541423387e-09,
-     "amountB": 0.0,
+     "amountA": 9.979516541423387e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006017670198132547
@@ -8754,8 +8756,8 @@
      "liquidity": "10005",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999999000399895e-09,
-     "amountB": 0.0,
+     "amountA": 9.999999000399895e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030021165482095
@@ -8774,8 +8776,8 @@
      "liquidity": "10023",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999974740442077e-09,
-     "amountB": 0.0,
+     "amountA": 9.999974740442077e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0006030006536674721
@@ -8794,8 +8796,8 @@
      "liquidity": "2506",
      "inRange": false,
      "status": "below",
-     "amountA": 4.99923632503137e-09,
-     "amountB": 0.0,
+     "amountA": 4.99923632503137e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.0003014550386453097
@@ -8814,8 +8816,8 @@
      "liquidity": "10016",
      "inRange": false,
      "status": "below",
-     "amountA": 9.999988013590825e-09,
-     "amountB": 0.0,
+     "amountA": 9.999988013590825e-9,
+     "amountB": 0,
      "priceA": 60300.21768243134,
      "priceB": 60158.13852904938,
      "valueUSD": 0.000603001454041231
@@ -8912,7 +8914,7 @@
      "liquidity": "47800788458",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 70.6536413584142,
      "priceA": 0.301057911,
      "priceB": 0.9998719325,
@@ -9093,60 +9095,60 @@
     {
      "obligation": "0x905a556a2f65d4c780498fd6c50fe6435fa1d74bba57bf4b96cc4f0cd372cd7c",
      "lending_market": "0xc1888ec1b81a414e427a44829310508352aec38252ee0daa9f8b181b6947de9f",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
     {
      "obligation": "0x829603ae983f63c44d152addd21b631befd6de221c1128ed66123aeed71632bc",
      "lending_market": "0x74d92cb095b618f344486f77bcce87fbffc0fe0b46584bb1828bb291a222dda8",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
     {
      "obligation": "0x4c664f344b075a9aa5bf7b6c601cbc009ec6fa38514b96c86bd60fea22f6c7ce",
      "lending_market": "0x2d7a85c0ad7c4d3c9c89a3785e32aa8d83ef3034148f49ce2d7c441bbba227be",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
     {
      "obligation": "0xa03ddbe91402074fcbb0e30c003dfc1682e162f40e219f0ceeb43677243678b4",
      "lending_market": "0xd12df5fede59f1ac5e1f8413bc86bd6bc77fff2001366878df58ef6a26d58c67",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
     {
      "obligation": "0x7a9ebea278948f2441ce4aff3c4496180dde50101d1156e6d878e2b39785a8b2",
      "lending_market": "0x8a8d8e138a28de1c637d0b0955e621b017da7010de388db5a18493eca99c5e82",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
     {
      "obligation": "0x29a3e45d5926c89a9d05c5e370521c14de8f47835120634af5169a92b8d572e4",
      "lending_market": "0x84030d26d85eaa7035084a057f2f11f701b7e2e4eda87551becbc7c97505ece1",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     }
@@ -9186,8 +9188,8 @@
      "turbos": 13
     },
     "suilend": {
-     "supply_usd": 0.0,
-     "borrow_usd": 0.0
+     "supply_usd": 0,
+     "borrow_usd": 0
     }
    }
   },
@@ -9211,7 +9213,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 206.36009963914628,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.6657,
      "priceB": 0.9998719325,
      "valueUSD": 137.37391832977968
@@ -9231,7 +9233,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 185.32221791319458,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.6657,
      "priceB": 0.9998719325,
      "valueUSD": 123.36900046481362
@@ -9271,7 +9273,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 198.88539724899522,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.6657,
      "priceB": 0.9998719325,
      "valueUSD": 132.3980089486561
@@ -9331,7 +9333,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 31994.328149286895,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.011825562735000001,
      "priceB": 0.9998719325,
      "valueUSD": 378.35093469356866
@@ -9391,7 +9393,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 443.3579119535803,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.6657,
      "priceB": 0.9998719325,
      "valueUSD": 295.1433619874984
@@ -9411,7 +9413,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 124.15578636780302,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.6657,
      "priceB": 0.9998719325,
      "valueUSD": 82.65050698504646
@@ -9431,7 +9433,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 120.79870052908237,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.6657,
      "priceB": 0.9998719325,
      "valueUSD": 80.41569494221012
@@ -9451,7 +9453,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 142.51074611719008,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.6657,
      "priceB": 0.9998719325,
      "valueUSD": 94.86940369021343
@@ -9471,7 +9473,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 32005.889132695207,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.011825562735000001,
      "priceB": 0.9998719325,
      "valueUSD": 378.48764982814197
@@ -9571,7 +9573,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 63065.58088411217,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.011825562735000001,
      "priceB": 0.9998719325,
      "valueUSD": 745.7859831642853
@@ -9591,7 +9593,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 201.77452087074562,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.6657,
      "priceB": 0.9998719325,
      "valueUSD": 134.32129854365536
@@ -9611,7 +9613,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 376.76364111907117,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.6657,
      "priceB": 0.9998719325,
      "valueUSD": 250.81155589296566
@@ -9631,7 +9633,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 378.4130870696625,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.6657,
      "priceB": 0.9998719325,
      "valueUSD": 251.9095920622743
@@ -9651,7 +9653,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 7296.730431587937,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.011825562735000001,
      "priceB": 0.9998719325,
      "valueUSD": 86.2879434791268
@@ -9671,7 +9673,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 142.0231057054205,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.6657,
      "priceB": 0.9998719325,
      "valueUSD": 94.54478146809842
@@ -9691,7 +9693,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 7422.64463182082,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.011825562735000001,
      "priceB": 0.9998719325,
      "valueUSD": 87.7769497532081
@@ -9731,7 +9733,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 1048.7501680289438,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.6657,
      "priceB": 0.9998719325,
      "valueUSD": 698.1529868568679
@@ -9751,7 +9753,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 184.79696742466874,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.6657,
      "priceB": 0.9998719325,
      "valueUSD": 123.01934121460197
@@ -9817,10 +9819,10 @@
     {
      "obligation": "0x2cc26b56d0e494f9674d7811fd6db848f8a143c7d01ff542e6de2f9c38b7e48f",
      "lending_market": "0x84030d26d85eaa7035084a057f2f11f701b7e2e4eda87551becbc7c97505ece1",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     }
@@ -9843,8 +9845,8 @@
      "turbos": 1
     },
     "suilend": {
-     "supply_usd": 0.0,
-     "borrow_usd": 0.0
+     "supply_usd": 0,
+     "borrow_usd": 0
     }
    }
   },
@@ -9867,7 +9869,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 102.75917767399837,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.6643451115,
      "priceB": 0.9998838423,
      "valueUSD": 68.26755734948075
@@ -9885,7 +9887,7 @@
      "liquidity": "21067315685",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 0.004221686999863047,
      "priceA": 0.66224049,
      "priceB": 0.6643451115,
@@ -9904,7 +9906,7 @@
      "liquidity": "10535586578",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 0.002111229999935049,
      "priceA": 0.66224049,
      "priceB": 0.6643451115,
@@ -9956,9 +9958,9 @@
      "obligation": "0x7ab42c970c3826550b56f2bd4658a2f3522301d7120ee5f7e353f27a20704a36",
      "lending_market": "0x84030d26d85eaa7035084a057f2f11f701b7e2e4eda87551becbc7c97505ece1",
      "deposited_value_usd_lastRefresh": 0.01201694141828797,
-     "borrowed_value_usd_lastRefresh": 0.0,
+     "borrowed_value_usd_lastRefresh": 0,
      "unhealthy_borrow_value_usd": 0.009012706063715972,
-     "weighted_borrowed_value_usd": 0.0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [
       {
        "coin": "0000000000000000000000000000000000000000000000000000000000000002::sui::SUI",
@@ -10029,7 +10031,7 @@
     },
     "suilend": {
      "supply_usd": 0.01,
-     "borrow_usd": 0.0
+     "borrow_usd": 0
     }
    }
   },
@@ -10284,10 +10286,10 @@
     {
      "obligation": "0xd04c4b7126b7649a9e544c4d3a636b9afc0b0f926e4b8069ee1c561e60f9a6a6",
      "lending_market": "0x8a8d8e138a28de1c637d0b0955e621b017da7010de388db5a18493eca99c5e82",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
@@ -10401,7 +10403,7 @@
      "liquidity": "1982784514168",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 457.8852229998831,
      "priceA": 0.66475464,
      "priceB": 0.9998738749999998,
@@ -10595,10 +10597,10 @@
     {
      "obligation": "0xd04c4b7126b7649a9e544c4d3a636b9afc0b0f926e4b8069ee1c561e60f9a6a6",
      "lending_market": "0x8a8d8e138a28de1c637d0b0955e621b017da7010de388db5a18493eca99c5e82",
-     "deposited_value_usd_lastRefresh": 0.0,
-     "borrowed_value_usd_lastRefresh": 0.0,
-     "unhealthy_borrow_value_usd": 0.0,
-     "weighted_borrowed_value_usd": 0.0,
+     "deposited_value_usd_lastRefresh": 0,
+     "borrowed_value_usd_lastRefresh": 0,
+     "unhealthy_borrow_value_usd": 0,
+     "weighted_borrowed_value_usd": 0,
      "deposits": [],
      "borrows": []
     },
@@ -10668,11 +10670,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998838423,
      "priceB": 0.6643451115,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "turbos",
@@ -10708,7 +10710,7 @@
      "liquidity": "315109237",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 0.25109518749008247,
      "priceA": 0.6643451115,
      "priceB": 0.9998838423,
@@ -10728,7 +10730,7 @@
      "liquidity": "317671098",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 0.251119695992706,
      "priceA": 0.6643451115,
      "priceB": 0.9998838423,
@@ -10748,7 +10750,7 @@
      "liquidity": "626947728",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 0.2507852502793921,
      "priceA": 0.6643451115,
      "priceB": 0.9998838423,
@@ -10814,7 +10816,7 @@
      "borrows": [
       {
        "coin": "dba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
-       "amount": 2500000000.0,
+       "amount": 2500000000,
        "mv": 2499.7952
       }
      ]
@@ -10857,11 +10859,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.021328293599999996,
      "priceB": 0.6643451115,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -10895,7 +10897,7 @@
      "liquidity": "638532163",
      "inRange": true,
      "status": "in_range",
-     "amountA": 3.6903541786725023e-05,
+     "amountA": 0.000036903541786725023,
      "amountB": 0.4442440056368489,
      "priceA": 0.9998838423,
      "priceB": null,
@@ -10914,11 +10916,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998838423,
      "priceB": 0.6643451115,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -10933,11 +10935,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998838423,
      "priceB": 60139.29171808019,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -10952,11 +10954,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.01180059111,
      "priceB": 0.6643451115,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -10971,11 +10973,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.021328293599999996,
      "priceB": 0.6643451115,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -11009,11 +11011,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.006490467696271344,
      "priceB": 0.6643451115,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -11028,11 +11030,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998838423,
      "priceB": 0.6643451115,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -11047,11 +11049,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998838423,
      "priceB": 0.6643451115,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -11066,11 +11068,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998838423,
      "priceB": 60139.29171808019,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -11104,11 +11106,11 @@
      "liquidity": "0",
      "inRange": true,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998838423,
      "priceB": 0.9995209729759997,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -11161,11 +11163,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.021328293599999996,
      "priceB": 0.6643451115,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -11180,11 +11182,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.01519273665,
      "priceB": 0.6643451115,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "cetus",
@@ -11199,7 +11201,7 @@
      "liquidity": "8672765965261",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 0.34836361782277836,
      "priceA": null,
      "priceB": 0.6643451115,
@@ -11218,11 +11220,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.9998838423,
      "priceB": 0.6643451115,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "turbos",
@@ -11238,7 +11240,7 @@
      "liquidity": "143619252060",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 73.77297240409268,
      "priceA": 0.6643451115,
      "priceB": 0.9998838423,
@@ -11332,7 +11334,7 @@
      "liquidity": "121135547492",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 179999.99999952773,
      "priceA": 0.9998838423,
      "priceB": 0.0001938591897627173,
@@ -11390,7 +11392,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 3472999.999999984,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": null,
      "priceB": 0.6643451115,
      "valueUSD": null
@@ -11409,7 +11411,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 62.235553032628665,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.9998838423,
      "priceB": 0.7086815709897244,
      "valueUSD": 62.22832389393017
@@ -11427,7 +11429,7 @@
      "liquidity": "14195574888",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 7624.226795273607,
      "priceA": 0.9998838423,
      "priceB": 0.0001938591897627173,
@@ -11447,7 +11449,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 640.3498069716902,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.9998838423,
      "priceB": 0.6643451115,
      "valueUSD": 640.275425410917
@@ -11465,7 +11467,7 @@
      "liquidity": "162240999401",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 579999.9999965476,
      "priceA": 0.9998838423,
      "priceB": 0.0001938591897627173,
@@ -11484,7 +11486,7 @@
      "liquidity": "18734390353",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 10399.522236610843,
      "priceA": 0.9998838423,
      "priceB": 0.0001938591897627173,
@@ -11503,7 +11505,7 @@
      "liquidity": "25321128227",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 18916.28669964066,
      "priceA": 0.9998838423,
      "priceB": 0.0001938591897627173,
@@ -11541,7 +11543,7 @@
      "liquidity": "5655195229034",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 604.5097818709304,
      "priceA": 0.021328293599999996,
      "priceB": 0.9998838423,
@@ -11561,7 +11563,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 64.5337999999994,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.021328293599999996,
      "priceB": 0.9998838423,
      "valueUSD": 1.376395833523667
@@ -11599,7 +11601,7 @@
      "liquidity": "63437949552",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 221.99999999870897,
      "priceA": 0.01180059111,
      "priceB": 0.9998838423,
@@ -11619,7 +11621,7 @@
      "liquidity": "195743222717",
      "inRange": false,
      "status": "above",
-     "amountA": 0.0,
+     "amountA": 0,
      "amountB": 684.9999999968677,
      "priceA": 0.01180059111,
      "priceB": 0.9998838423,
@@ -12006,11 +12008,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.6643451115,
      "priceB": 0.9998838423,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "momentum",
@@ -12025,11 +12027,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.6643451115,
      "priceB": 0.9998838423,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "momentum",
@@ -12044,11 +12046,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.6643451115,
      "priceB": 0.9998838423,
-     "valueUSD": 0.0
+     "valueUSD": 0
     },
     {
      "protocol": "momentum",
@@ -12063,11 +12065,11 @@
      "liquidity": "0",
      "inRange": false,
      "status": "empty",
-     "amountA": 0.0,
-     "amountB": 0.0,
+     "amountA": 0,
+     "amountB": 0,
      "priceA": 0.6643451115,
      "priceB": 0.9998838423,
-     "valueUSD": 0.0
+     "valueUSD": 0
     }
    ],
    "dlmm": [],
@@ -12137,7 +12139,7 @@
      "inRange": false,
      "status": "below",
      "amountA": 48.578305400023176,
-     "amountB": 0.0,
+     "amountB": 0,
      "priceA": 0.021328293599999996,
      "priceB": 0.6643451115,
      "valueUSD": 1.0360923601621594

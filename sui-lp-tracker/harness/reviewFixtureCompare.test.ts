@@ -61,6 +61,21 @@ describe('reviewFixtureCompare §8.3 closedAtLeast', () => {
 		)
 		expect(verdicts[0]!.status).toBe('PASS')
 	})
+
+	it('N10 relative GraphQL floor: PASS when live ≥ fresh floor', () => {
+		const verdicts = checkClosedAtLeast(
+			'N10',
+			{ closedAtLeast: { bluefin: { relativeGraphqlClosed: true } } },
+			{
+				sources: { 'closed:bluefin': { status: 'ok' } },
+				closed: { bluefin: 177 },
+				closedGraphqlFloor: { bluefin: 175 },
+				closedTruncated: {},
+			},
+		)
+		expect(verdicts[0]!.status).toBe('PASS')
+		expect(verdicts[0]!.msg).toMatch(/graphql floor/)
+	})
 })
 
 describe('reviewFixtureCompare §8.1 suilend', () => {

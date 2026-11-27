@@ -209,6 +209,21 @@ export function cetusBurnedSeedsFromWalletMap(
 		let lowerTick = 0
 		let upperTick = 0
 		let haveTicks = false
+		// Prefer ticks on ClosePositionEvent itself when present.
+		{
+			const lo = readCetusI32(closePj.tick_lower)
+			const hi = readCetusI32(closePj.tick_upper)
+			if (lo != null && hi != null) {
+				lowerTick = lo
+				upperTick = hi
+				haveTicks = true
+			}
+			const closePair = cetusPoolCoinsFromEventType(close.type)
+			if (closePair) {
+				coinTypeA = closePair.coinTypeA
+				coinTypeB = closePair.coinTypeB
+			}
+		}
 		for (const ev of evs) {
 			const name = structNameFromType(ev.type)
 			if (
@@ -232,7 +247,12 @@ export function cetusBurnedSeedsFromWalletMap(
 				haveTicks = true
 			}
 		}
-		if (!haveTicks) continue
+		// Close without recoverable ticks still counts as burned (ticks default 0).
+		if (!haveTicks) {
+			haveTicks = true
+			lowerTick = 0
+			upperTick = 0
+		}
 		out.push({ objectId: pid, poolId, coinTypeA, coinTypeB, lowerTick, upperTick })
 	}
 	return out
@@ -551,21 +571,33 @@ function isCriticalEmptyTypedPath(typePath: string): boolean {
  * Events without a 'position' field in parsedJson are attributed via the TX's
  * CollectFee/CollectReward events that share the same digest, or skipped.
  */
+export type CetusWalletScanResult = {
+	rawByPosition: Map<string, ChainEventLike[]>
+	historyPartial: boolean
+}
+
 export async function scanCetusWalletEvents(
 	walletAddress: string,
 ): Promise<Map<string, ChainEventLike[]>> {
+	const r = await scanCetusWalletEventsWithMeta(walletAddress)
+	return r.rawByPosition
+}
+
+/** Wallet Cetus LP scan including completeness (never silent-empty on timeout/partial). */
+export async function scanCetusWalletEventsWithMeta(
+	walletAddress: string,
+): Promise<CetusWalletScanResult> {
 	try {
 		return await _scanCetusWalletEventsInner(walletAddress)
 	} catch (err) {
-		 
 		console.error('[cetus-scan] FATAL ERROR in scanCetusWalletEvents:', err)
-		return new Map()
+		return { rawByPosition: new Map(), historyPartial: true }
 	}
 }
 
 async function _scanCetusWalletEventsInner(
 	walletAddress: string,
-): Promise<Map<string, ChainEventLike[]>> {
+): Promise<CetusWalletScanResult> {
 	let walletNorm: string
 	try {
 		walletNorm = normalizeSuiAddress(walletAddress)
@@ -582,11 +614,15 @@ async function _scanCetusWalletEventsInner(
 	let scanPages: number
 	let cutoffTs: number
 
-	// lastEventTs alone is a server cursor (raw rows may live only as PositionEvents).
-	if (cached && (cached.rows.length > 0 || cached.lastEventTs > 0)) {
-		baseEvByPos = rowsToEventMap(cached.rows)
+	// Poisoned empty+partial IDB must not force a warm delta that keeps closed=0.
+	const cacheUsable =
+		cached != null &&
+		cached.rows.length > 0 &&
+		!(cached.historyPartial === true && cached.rows.length === 0)
+	if (cacheUsable) {
+		baseEvByPos = rowsToEventMap(cached!.rows)
 		scanPages = MAX_CETUS_DELTA_PAGES
-		cutoffTs = cached.lastEventTs - CETUS_DELTA_OVERLAP_SEC
+		cutoffTs = cached!.lastEventTs - CETUS_DELTA_OVERLAP_SEC
 	} else {
 		baseEvByPos = new Map()
 		scanPages = MAX_EVENT_PAGES
@@ -677,10 +713,15 @@ async function _scanCetusWalletEventsInner(
 	}
 
 	// Nothing new on warm start — return cached map as-is (no IDB write needed)
-	if (newEvents.length === 0 && cached) {
-		 
-		console.log(`[cetus-scan] Warm start: returning ${baseEvByPos.size} cached positions, keys:`, [...baseEvByPos.keys()].map(k => k.slice(0, 16)))
-		return baseEvByPos
+	if (newEvents.length === 0 && cacheUsable) {
+		console.log(
+			`[cetus-scan] Warm start: returning ${baseEvByPos.size} cached positions, keys:`,
+			[...baseEvByPos.keys()].map((k) => k.slice(0, 16)),
+		)
+		return {
+			rawByPosition: baseEvByPos,
+			historyPartial: historyPartial || cached?.historyPartial === true,
+		}
 	}
 
 	// ── Group new events by TX for position attribution ───────────────────
@@ -737,42 +778,52 @@ async function _scanCetusWalletEventsInner(
 	}
 
 	if (skippedNoPid > 0) {
-		 
 		console.warn(`[cetus-scan] ${skippedNoPid} events skipped — no position field in parsedJson`)
 	}
-	 
-	console.log(`[cetus-scan] Result: ${baseEvByPos.size} positions attributed, keys:`, [...baseEvByPos.keys()].map(k => k.slice(0, 16)))
+
+	// Empty result after typed/Sender stress → treat as incomplete (never pretend proven zero).
+	if (baseEvByPos.size === 0 && (historyPartial || criticalTypedEmpty || senderScanTimedOut)) {
+		historyPartial = true
+	}
+
+	console.log(
+		`[cetus-scan] Result: ${baseEvByPos.size} positions attributed, partial=${historyPartial}, keys:`,
+		[...baseEvByPos.keys()].map((k) => k.slice(0, 16)),
+	)
 
 	// ── Persist to IDB (fire-and-forget) ─────────────────────────────────
-	// Skip save if the scan timed out — preserves IDB state for next load
-	// so we don't permanently cache an empty result and waste 12s on every reload.
-	if (!senderScanTimedOut) {
+	// Skip save on timeout OR empty+partial — do not poison warm starts.
+	if (!senderScanTimedOut && !(baseEvByPos.size === 0 && historyPartial)) {
 		saveCetusSenderCache(walletNorm, baseEvByPos, historyPartial)
 	}
 
-	return baseEvByPos
+	return { rawByPosition: baseEvByPos, historyPartial }
 }
 
 // ---------------------------------------------------------------------------
 // Per-position event scan (uses the wallet scan above, cached per session)
 // ---------------------------------------------------------------------------
 
-/** Session-level cache: walletAddress → scan promise (re-use across concurrent calls). */
-const _walletScanCache = new Map<string, Promise<Map<string, ChainEventLike[]>>>()
+/** Session cache for meta-aware wallet scans. */
+const _walletScanMetaCache = new Map<string, Promise<CetusWalletScanResult>>()
 
-/**
- * Returns all Cetus LP events for one position.
- * Internally runs a wallet-wide `queryEvents({ Sender })` scan once per wallet per session.
- */
 /** Same wallet scan as `scanCetusPositionEvents`, including the 5-minute session cache. */
 export async function loadCetusWalletRawEvents(
 	walletAddress: string,
 ): Promise<Map<string, ChainEventLike[]>> {
-	let scanPromise = _walletScanCache.get(walletAddress)
+	const r = await loadCetusWalletScan(walletAddress)
+	return r.rawByPosition
+}
+
+/** Wallet scan with historyPartial (preferred for closed discovery). */
+export async function loadCetusWalletScan(
+	walletAddress: string,
+): Promise<CetusWalletScanResult> {
+	let scanPromise = _walletScanMetaCache.get(walletAddress)
 	if (!scanPromise) {
-		scanPromise = scanCetusWalletEvents(walletAddress)
-		_walletScanCache.set(walletAddress, scanPromise)
-		setTimeout(() => _walletScanCache.delete(walletAddress), 5 * 60 * 1000)
+		scanPromise = scanCetusWalletEventsWithMeta(walletAddress)
+		_walletScanMetaCache.set(walletAddress, scanPromise)
+		setTimeout(() => _walletScanMetaCache.delete(walletAddress), 5 * 60 * 1000)
 	}
 	return scanPromise
 }
@@ -821,7 +872,7 @@ export async function scanCetusPositionEvents(
  * Call this when the user clicks Refresh.
  */
 export function invalidateCetusEventCache(walletAddress: string): void {
-	_walletScanCache.delete(walletAddress)
+	_walletScanMetaCache.delete(walletAddress)
 	_walletTxScanCache.delete(walletAddress)
 }
 
@@ -841,8 +892,9 @@ const MAX_DEEP_TYPED_PAGES = 80
 /**
  * Deep GraphQL typed scan of Cetus LP events for a wallet, grouped by position.
  * Avoids gRPC `ListTransactions` / FromAddress pruning (BELOW_EARLIEST_AVAILABLE).
+ * Exported for closed-seed recovery when the primary Sender/typed window is empty.
  */
-async function scanCetusWalletDeepTyped(
+export async function scanCetusWalletDeepTyped(
 	walletAddress: string,
 ): Promise<Map<string, RawEvent[]>> {
 	const byPosition = new Map<string, RawEvent[]>()
