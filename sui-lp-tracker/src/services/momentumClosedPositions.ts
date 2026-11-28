@@ -73,23 +73,30 @@ export async function getMomentumClosedPositions(
 
 	const pending: { pid: string; rows: MomentumWalletRawEvt[]; poolCacheKey: string }[] = []
 	const uniqPoolKeys = new Set<string>()
+	let skippedNoPool = 0
 
 	for (const [pid, rows] of rawByPositionId) {
 		if (ownedIds.has(pid)) continue
 		if (!hasMomentumCloseLikeSignal(rows)) continue
 		const poolGuess = inferPoolIdMomentumRows(rows)
-		if (!poolGuess) continue
+		if (!poolGuess) {
+			skippedNoPool++
+			continue
+		}
 		const pk = poolCacheKey(poolGuess)
 		uniqPoolKeys.add(pk)
 		pending.push({ pid, rows, poolCacheKey: pk })
 	}
 
+	// One getAllPools pass shared across keys — N× parallel getAllPools under multi-lane
+	// stampeded and yielded meta=null for every pool → silent closed=[] (N11 FAIL).
 	const metas = await Promise.all([...uniqPoolKeys].map((k) => fetchMomentumPoolPairMeta(k)))
 	const uniqMetaNorm = metas.filter((m): m is BluefinPoolPairMeta => m != null)
 	const metaByLookup = new Map<string, BluefinPoolPairMeta>()
 	for (const m of uniqMetaNorm) {
 		metaByLookup.set(poolCacheKey(m.poolIdNorm), m)
 	}
+	const poolsMissingMeta = [...uniqPoolKeys].filter((pk) => !metaByLookup.has(pk)).length
 
 	const allCoinTypes = new Set<string>()
 	const coinToSymbol = new Map<string, string>()
@@ -106,10 +113,14 @@ export async function getMomentumClosedPositions(
 			: new Map()
 
 	const out: ClosedPosition[] = []
+	let rowsDroppedMeta = 0
 
 	for (const c of pending) {
 		const meta = metaByLookup.get(c.poolCacheKey)
-		if (!meta) continue
+		if (!meta) {
+			rowsDroppedMeta++
+			continue
+		}
 
 		const evs: PositionEvent[] = []
 		for (const r of c.rows) {
@@ -180,9 +191,27 @@ export async function getMomentumClosedPositions(
 	}
 
 	out.sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0))
+
+	// Never report a silent complete zero when burned close-like seeds existed but
+	// pool meta / pool id resolution wiped them (N11 under multi-lane RPC stress).
+	let incomplete = scanPartial === true
+	let reason: ClosedPositionsResult['reason'] = scanPartial ? 'page_cap' : undefined
+	if (skippedNoPool > 0 || poolsMissingMeta > 0 || rowsDroppedMeta > 0) {
+		incomplete = true
+		reason = reason ?? 'meta_miss'
+	}
+	if (pending.length > 0 && out.length === 0) {
+		incomplete = true
+		reason = reason ?? 'meta_miss'
+	}
+	if (scanPartial && out.length === 0) {
+		incomplete = true
+		reason = reason ?? 'page_cap'
+	}
+
 	return {
 		positions: out,
-		incomplete: scanPartial === true,
-		reason: scanPartial ? 'page_cap' : undefined,
+		incomplete,
+		reason: incomplete ? reason : undefined,
 	}
 }

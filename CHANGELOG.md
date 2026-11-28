@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.5.14
+
+- Momentum closed: не кешувати порожній `getAllPools`; `meta_miss` / truncated empty → `incomplete` (не silent `[]`). N11 під multi-lane більше не FAIL на 0 при живих 49.
+- Тест: truncated/meta_miss empty → `incomplete`, не «повний нуль».
+- Cetus closed: bounded position build (`CETUS_CLOSED_POS_CONCURRENCY`, default 8), parallel multiGet chunks, process-wide coin-meta cache.
+
 ## 2.5.13
 
 - Harness closed adapters: concurrency **2** (`REVIEW_CLOSED_CONCURRENCY`) замість повністю sequential; per-adapter `closed.*` stageMs. Solo N07 340→239s; колишні TIMEOUT W02/W02s/W04–W06 — PASS без 900s.

@@ -47,9 +47,22 @@ let _tokensCache: { data: TokensData; at: number } | null = null
 const POOLS_CACHE_TTL_MS = 15 * 60_000
 
 async function getCachedAllPools(sdk: NonNullable<ReturnType<typeof mmtSdkMainnet>>): Promise<PoolsData> {
-	if (_poolsCache && Date.now() - _poolsCache.at < POOLS_CACHE_TTL_MS) return _poolsCache.data
-	const data = await sdk.Pool.getAllPools()
-	_poolsCache = { data, at: Date.now() }
+	if (_poolsCache && _poolsCache.data.length > 0 && Date.now() - _poolsCache.at < POOLS_CACHE_TTL_MS) {
+		return _poolsCache.data
+	}
+	let data: PoolsData = []
+	for (let attempt = 0; attempt < 2; attempt++) {
+		try {
+			data = await sdk.Pool.getAllPools()
+			if (data.length > 0) break
+		} catch (e) {
+			console.warn(`[momentum] getAllPools attempt ${attempt + 1} failed`, e)
+			if (attempt === 0) await new Promise((r) => setTimeout(r, 400))
+		}
+	}
+	// Never cache an empty list — under multi-lane stress a failed fetch would
+	// poison closed Momentum for 15m (N11 silent 0).
+	if (data.length > 0) _poolsCache = { data, at: Date.now() }
 	return data
 }
 
